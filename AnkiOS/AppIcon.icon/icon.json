@@ -1,0 +1,54 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.08720,0.20369,0.36282,1.00000",
+      "display-p3:0.06835,0.15474,0.28920,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "fill" : {
+            "solid" : "display-p3:0.30490,0.27673,0.50003,1.00000"
+          },
+          "hidden" : true,
+          "image-name" : "star-xxl.png",
+          "name" : "star-xxl",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              -118,
+              -121
+            ]
+          }
+        },
+        {
+          "image-name" : "9145760.png",
+          "name" : "9145760",
+          "position" : {
+            "scale" : 1.6,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
