@@ -1,5 +1,62 @@
 import Foundation
 
+struct FSRSTrainingReview: Codable, Sendable {
+    var rating: Int
+    var deltaT: Int
+}
+
+struct FSRSTrainingItem: Codable, Sendable {
+    var cardID: Int64
+    var reviews: [FSRSTrainingReview]
+}
+
+struct FSRSSimulationCard: Codable, Sendable {
+    var id: Int64
+    var difficulty: Float
+    var stability: Float
+    var lastDate: Float?
+    var due: Float
+    var interval: Float
+    var lapses: UInt32
+    var desiredRetention: Float
+}
+
+struct FSRSSimulationReview: Codable, Sendable {
+    var id: Int64
+    var cid: Int64
+    var usn: Int32
+    var buttonChosen: UInt8
+    var interval: Int32
+    var lastInterval: Int32
+    var easeFactor: UInt32
+    var takenMillis: UInt32
+    var reviewKind: UInt8
+}
+
+struct FSRSSimulationRequest: Codable, Sendable {
+    var parameters: [Float]
+    var retention: Float
+    var dayCutoff: Int64
+    var deckSize: Int
+    var days: Int
+    var newPerDay: Int
+    var maxReviewsPerDay: Int
+    var newCardsIgnoreReviewLimit: Bool
+    var maxInterval: Float
+    var learningStepCount: Int
+    var relearningStepCount: Int
+    var cards: [FSRSSimulationCard]
+    var revlogs: [FSRSSimulationReview]
+}
+
+struct FSRSSimulationDay: Codable, Sendable {
+    var day: Int
+    var reviews: Int
+    var learned: Int
+    var studySeconds: Float
+    var memorized: Float
+}
+
 /// FSRS-6, matching `fsrs-rs` 6.6.2 (`next_states`) and the way Anki applies those intervals.
 enum FSRS6 {
     static let defaultDecay: Float = 0.1542
@@ -25,6 +82,7 @@ enum FSRS6 {
         card: AnkiCard,
         weights: [Double]?,
         desiredRetention: Double,
+        historicalRetention: Double = 0.9,
         daysElapsed: Int,
         reviewedAt: Int,
         shortTermWithSteps: Bool
@@ -32,7 +90,11 @@ enum FSRS6 {
         let parameters = filledParameters(weights)
         let decay = parameters[20]
         let retention = Float(min(max(desiredRetention, 0.7), 0.99))
-        let memory = currentMemory(card: card, parameters: parameters, retention: retention)
+        let memory = currentMemory(
+            card: card,
+            parameters: parameters,
+            historicalRetention: Float(min(max(historicalRetention, 0.7), 0.99))
+        )
         let states = nextStates(memory: memory, parameters: parameters, desiredRetention: retention, daysElapsed: max(daysElapsed, 0))
         let allowShortTerm = parameters[17] > 0 && parameters[18] > 0
         return FSRSForecast(
@@ -45,8 +107,90 @@ enum FSRS6 {
         )
     }
 
+    static func memoryState(
+        reviews: [AnkiRevlog],
+        weights: [Double]?,
+        nextDayAt: Int64,
+        historicalRetention: Float,
+        ignoreBefore: Int64?
+    ) -> Memory? {
+        let activeReviews = reviewsAfterLastReset(reviews)
+        let included = activeReviews
+            .filter { $0.ease >= 1 && $0.ease <= 4 && $0.type != 4 }
+        guard !included.isEmpty else { return nil }
+
+        let cutoff = ignoreBefore.map { $0 > 0 ? $0 * 1000 : 0 } ?? 0
+        let filtered = included.filter { $0.id >= cutoff }
+        guard !filtered.isEmpty else { return nil }
+
+        let parameters = filledParameters(weights)
+        let hasLearningHistory = filtered.first?.type == 0
+        var state: Memory?
+        var previousDay: Int?
+        var reviewsToProcess = filtered
+
+        if !hasLearningHistory, let first = filtered.first {
+            let interval = Float(max(first.ivl, 1))
+            let ease = Float(first.factor > 0 ? first.factor : 2500) / 1000
+            state = memoryFromSM2(
+                ease: ease >= 1.3 ? ease : 2.5,
+                interval: interval,
+                retention: historicalRetention,
+                parameters: parameters
+            )
+            if ease <= 1.1, var inferred = state {
+                inferred.difficulty = min(max((ease - 0.1) * 9 + 1, difficultyMin), difficultyMax)
+                state = inferred
+            }
+            previousDay = schedulingDay(
+                timestamp: first.id / 1000,
+                nextDayAt: nextDayAt
+            )
+            reviewsToProcess.removeFirst()
+        }
+
+        for review in reviewsToProcess {
+            let currentDay = schedulingDay(
+                timestamp: review.id / 1000,
+                nextDayAt: nextDayAt
+            )
+            let delta = max(0, (previousDay ?? currentDay) - currentDay)
+            state = step(
+                parameters,
+                deltaT: Float(delta),
+                rating: Float(review.ease),
+                state: state ?? Memory(stability: 0, difficulty: 0),
+                nth: state == nil ? 0 : 1
+            )
+            previousDay = currentDay
+        }
+        return state
+    }
+
+    static func reviewsAfterLastReset(_ reviews: [AnkiRevlog]) -> [AnkiRevlog] {
+        let ordered = reviews.sorted { $0.id < $1.id }
+        guard let reset = ordered.lastIndex(where: { $0.type == 4 && $0.ease == 0 && $0.ivl == 0 }) else {
+            return ordered
+        }
+        return Array(ordered.suffix(from: ordered.index(after: reset)))
+    }
+
+    static func nextInterval(stability: Float, desiredRetention: Float, parameters: [Float]) -> Float {
+        nextInterval(parameters, stability: stability, desiredRetention: desiredRetention)
+    }
+
+    private static func schedulingDay(timestamp: Int64, nextDayAt: Int64) -> Int {
+        Int(max(0, nextDayAt - timestamp) / 86_400)
+    }
+
     static func shiftedDifficulty(_ difficulty: Float) -> Float {
         ((difficulty - 1) / 9) + 0.1
+    }
+
+    static func retrievability(daysElapsed: Float, stability: Float, decay: Float) -> Float {
+        let power = -abs(decay)
+        let factor = exp(log(Float(0.9)) / power) - 1
+        return pow(daysElapsed / max(stability, stabilityMin) * factor + 1, power)
     }
 
     // MARK: - Algorithm
@@ -175,7 +319,7 @@ enum FSRS6 {
         }
     }
 
-    private static func currentMemory(card: AnkiCard, parameters: [Float], retention: Float) -> Memory? {
+    private static func currentMemory(card: AnkiCard, parameters: [Float], historicalRetention: Float) -> Memory? {
         if card.type == 0 { return nil }
         if let stored = FSRSCardData.memory(in: card.data) { return stored }
         let ease = Float(card.factor) / 1000
@@ -183,7 +327,7 @@ enum FSRS6 {
             return memoryFromSM2(
                 ease: ease >= 1.3 ? ease : 2.5,
                 interval: Float(card.ivl),
-                retention: retention,
+                retention: historicalRetention,
                 parameters: parameters
             )
         }
@@ -224,6 +368,33 @@ struct FSRSForecast: Sendable {
 }
 
 enum FSRSCardData {
+    static func customData(in raw: String) -> String {
+        guard let object = object(from: raw) else { return "" }
+        return object["cd"] as? String ?? ""
+    }
+
+    static func mergingCustomData(_ customData: String, into raw: String) -> String {
+        guard isValidCustomData(customData) else { return raw }
+        var object = object(from: raw) ?? [:]
+        if customData.isEmpty || customData == "{}" {
+            object.removeValue(forKey: "cd")
+        } else {
+            object["cd"] = customData
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let text = String(data: data, encoding: .utf8) else { return raw }
+        return text
+    }
+
+    private static func isValidCustomData(_ raw: String) -> Bool {
+        guard !raw.isEmpty, raw != "{}" else { return true }
+        guard raw.utf8.count <= 100,
+              let data = raw.data(using: .utf8),
+              let value = try? JSONSerialization.jsonObject(with: data),
+              let object = value as? [String: Any] else { return false }
+        return object.keys.allSatisfy { $0.utf8.count <= 8 }
+    }
+
     static func memory(in raw: String) -> FSRS6.Memory? {
         guard let object = object(from: raw),
               let stability = number(object["s"]),
@@ -234,6 +405,46 @@ enum FSRSCardData {
     static func lastReview(in raw: String) -> Int? {
         guard let object = object(from: raw) else { return nil }
         return number(object["lrt"]).map { Int($0) }
+    }
+
+    static func originalPosition(in raw: String) -> Int? {
+        guard let object = object(from: raw) else { return nil }
+        return number(object["pos"]).map { Int($0) }
+    }
+
+    static func mergingOriginalPosition(_ position: Int, into raw: String) -> String {
+        var object = object(from: raw) ?? [:]
+        object["pos"] = position
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let text = String(data: data, encoding: .utf8) else { return raw }
+        return text
+    }
+
+    /// rslib sets `last_review_time` on every answer except filtered previews.
+    static func mergingLastReview(_ timestamp: Int, into raw: String) -> String {
+        var object = object(from: raw) ?? [:]
+        object["lrt"] = timestamp
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let text = String(data: data, encoding: .utf8) else { return raw }
+        return text
+    }
+
+    static func clearingOriginalPosition(in raw: String) -> String {
+        var object = object(from: raw) ?? [:]
+        object.removeValue(forKey: "pos")
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let text = String(data: data, encoding: .utf8) else { return raw }
+        return text
+    }
+
+    static func desiredRetention(in raw: String) -> Float? {
+        guard let object = object(from: raw) else { return nil }
+        return number(object["dr"]).map(Float.init)
+    }
+
+    static func decay(in raw: String) -> Float? {
+        guard let object = object(from: raw) else { return nil }
+        return number(object["decay"]).map(Float.init)
     }
 
     static func merging(
@@ -249,6 +460,51 @@ enum FSRSCardData {
         object["dr"] = rounded(Double(retention), places: 2)
         object["decay"] = rounded(Double(decay), places: 3)
         object["lrt"] = reviewedAt
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let text = String(data: data, encoding: .utf8) else { return raw }
+        return text
+    }
+
+    static func merging(_ raw: String, memory: [String: Any]) -> String {
+        guard let stability = memory["stability"], let difficulty = memory["difficulty"],
+              let stabilityValue = number(stability), let difficultyValue = number(difficulty),
+              stabilityValue.isFinite, difficultyValue.isFinite else { return raw }
+        var object = object(from: raw) ?? [:]
+        object["s"] = rounded(stabilityValue, places: 4)
+        object["d"] = rounded(difficultyValue, places: 3)
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let text = String(data: data, encoding: .utf8) else { return raw }
+        return text
+    }
+
+    static func replacingMemory(
+        in raw: String,
+        with memory: FSRS6.Memory?,
+        retention: Float,
+        decay: Float
+    ) -> String {
+        var object = object(from: raw) ?? [:]
+        if let memory {
+            object["s"] = rounded(Double(memory.stability), places: 4)
+            object["d"] = rounded(Double(memory.difficulty), places: 3)
+        } else {
+            object.removeValue(forKey: "s")
+            object.removeValue(forKey: "d")
+        }
+        object["dr"] = rounded(Double(retention), places: 2)
+        object["decay"] = rounded(Double(decay), places: 3)
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let text = String(data: data, encoding: .utf8) else { return raw }
+        return text
+    }
+
+    static func clearingMemory(in raw: String) -> String {
+        var object = object(from: raw) ?? [:]
+        object.removeValue(forKey: "s")
+        object.removeValue(forKey: "d")
+        object.removeValue(forKey: "dr")
+        object.removeValue(forKey: "decay")
+        object.removeValue(forKey: "lrt")
         guard let data = try? JSONSerialization.data(withJSONObject: object),
               let text = String(data: data, encoding: .utf8) else { return raw }
         return text

@@ -14,7 +14,7 @@ struct CardInfoView: View {
                         .foregroundStyle(AppTheme.primaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(18)
-                        .glassEffect(.regular.tint(.white.opacity(0.07)), in: .rect(cornerRadius: 20))
+                        .ankiGlass(tint: .white.opacity(0.08), in: RoundedRectangle(cornerRadius: 20))
                         .padding()
                 }
             }

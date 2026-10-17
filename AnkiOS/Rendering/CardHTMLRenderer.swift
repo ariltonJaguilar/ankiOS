@@ -1,12 +1,24 @@
 import Foundation
+import CryptoKit
+#if !ANKIOS_PARITY_HARNESS && !WIDGET_EXTENSION
+import AnkiBackend
+#endif
+#if os(iOS)
+import UIKit
+#endif
 
 @MainActor
 enum CardHTMLRenderer {
-    enum Side { case question, answer }
+    enum Side: Equatable { case question, answer }
 
     struct RenderedCard: Sendable {
         var html: String
         var sounds: [String]
+        var speech: [SpeechRequest]
+        var questionSounds: [String]
+        var answerSounds: [String]
+        var questionSpeech: [SpeechRequest]
+        var answerSpeech: [SpeechRequest]
         var hasTypeAnswer: Bool
         /// Visible text stripped of HTML — used as a native SwiftUI face so Liquid Glass never shows a blank card.
         var plainText: String
@@ -18,6 +30,13 @@ enum CardHTMLRenderer {
         var prefersNativeFace: Bool
     }
 
+    struct SpeechRequest: Hashable, Sendable {
+        var language: String
+        var text: String
+        var speed: Float
+        var voices: [String]
+    }
+
     static func renderCard(
         note: AnkiNote,
         card: AnkiCard,
@@ -27,12 +46,18 @@ enum CardHTMLRenderer {
         typedAnswer: String? = nil,
         deckName: String = "",
         /// When true, {{type:Field}} becomes a marker (native SwiftUI field handles typing).
-        omitTypeInput: Bool = false
+        omitTypeInput: Bool = false,
+        nightMode: Bool = true
     ) -> RenderedCard {
         guard let tmpl = notetype.tmpls.first(where: { $0.ord == card.ord }) ?? notetype.tmpls.first else {
             return RenderedCard(
                 html: "<p>Missing template</p>",
                 sounds: [],
+                speech: [],
+                questionSounds: [],
+                answerSounds: [],
+                questionSpeech: [],
+                answerSpeech: [],
                 hasTypeAnswer: false,
                 plainText: "Template ausente",
                 questionText: "Template ausente",
@@ -42,13 +67,19 @@ enum CardHTMLRenderer {
         }
 
         var fields = TemplateEngine.fieldMap(note: note, notetype: notetype, deckName: deckName)
-        fields["Card"] = tmpl.name
+        TemplateEngine.addCardFields(
+            to: &fields,
+            name: tmpl.name,
+            flag: card.flags,
+            id: card.id,
+            ordinal: card.ord
+        )
 
         let hasTypeAnswer = TemplateEngine.templateHasTypeAnswer(tmpl.qfmt)
             || TemplateEngine.templateHasTypeAnswer(tmpl.afmt)
 
         let clozeOrd = notetype.isCloze ? card.ord : nil
-        let front = TemplateEngine.render(
+        var front = TemplateEngine.render(
             template: tmpl.qfmt,
             fields: fields,
             frontSide: nil,
@@ -57,12 +88,31 @@ enum CardHTMLRenderer {
             typedAnswer: nil,
             omitTypeInput: omitTypeInput || hasTypeAnswer
         )
-        var body: String
+        var emptyFrontMessage: String?
+        if TemplateEngine.validationError(template: tmpl.qfmt, fields: fields, questionSide: true) == nil {
+            if notetype.isCloze {
+                if !ClozeHelper.ords(in: Array(fields.values)).contains(card.ord) {
+                    emptyFrontMessage = "<div>Nenhuma omissão \u{2068}\(card.ord + 1)\u{2069} encontrada no cartão.\nAdicione uma omissão de palavras ou use a ferramenta 'Cartas Vazias'.<br><a href='https://docs.ankiweb.net/templates/errors.html#no-cloze-filter-on-cloze-note-type'>Mais informações</a></div>"
+                }
+            } else {
+                let nonemptyFields = Set(fields.compactMap { key, value in
+                    CollectionStore.ankiFieldIsEmpty(value) ? nil : key
+                })
+                if !CollectionStore.templateRendersWithFields(
+                    tmpl.qfmt, nonemptyFields: nonemptyFields,
+                    knownFields: Set(fields.keys).union(["FrontSide"])
+                ) {
+                    emptyFrontMessage = "<div>A frente deste cartão está em branco.<br><a href='https://docs.ankiweb.net/templates/errors.html#front-of-card-is-blank'>Mais informações</a></div>"
+                }
+            }
+        }
+        if let emptyFrontMessage { front += emptyFrontMessage }
+        let body: String
         switch side {
         case .question:
             body = front
         case .answer:
-            body = TemplateEngine.render(
+            body = emptyFrontMessage ?? TemplateEngine.render(
                 template: tmpl.afmt,
                 fields: fields,
                 frontSide: front,
@@ -73,24 +123,25 @@ enum CardHTMLRenderer {
             )
         }
 
-        // If the template was only {{type:…}}, surface a prompt field so the card isn't blank.
-        let hasRichFace = body.lowercased().contains("<img")
-            || body.contains("io-mask")
-            || Self.containsMath(body)
-        if Self.visibleText(body).isEmpty && !hasRichFace {
-            if let prompt = Self.fallbackPrompt(fields: fields, notetype: notetype, hasTypeAnswer: hasTypeAnswer) {
-                body = "<div class=\"prompt\">\(prompt)</div>" + (body.isEmpty ? "" : body)
-            }
-        }
-
         let questionPlain = Self.visibleText(front)
         let answerPlain: String
         let soundSource: String
+        let answerOnlySource: String
         switch side {
         case .question:
             answerPlain = ""
             soundSource = front
+            answerOnlySource = front
         case .answer:
+            answerOnlySource = TemplateEngine.render(
+                template: tmpl.afmt,
+                fields: fields,
+                frontSide: nil,
+                clozeOrd: clozeOrd,
+                questionSide: false,
+                typedAnswer: typedAnswer,
+                omitTypeInput: omitTypeInput || hasTypeAnswer
+            )
             if let split = Self.splitAnswer(body) {
                 answerPlain = Self.visibleText(split.answer)
                 soundSource = front + split.answer
@@ -108,21 +159,70 @@ enum CardHTMLRenderer {
             }
         }
 
-        let uniqueSounds = Array(NSOrderedSet(array: MediaStore.soundFiles(in: soundSource))) as? [String] ?? []
+        let sounds = MediaStore.soundFiles(in: soundSource)
+        let speech = speechRequests(in: body)
+        let questionSounds = MediaStore.soundFiles(in: front)
+        let answerSounds = side == .answer
+            ? MediaStore.soundFiles(in: answerOnlySource)
+            : []
+        let questionSpeech = speechRequests(in: front)
+        let answerSpeech = side == .answer ? speechRequests(in: answerOnlySource) : []
         let plain = [questionPlain, answerPlain]
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
-        let prefersNative = Self.prefersNativeFace(body: body, plain: plain.isEmpty ? questionPlain : plain)
-        let html = wrap(body: body, css: notetype.css, mediaBase: mediaBase)
+        let html = wrap(
+            body: body,
+            css: notetype.css,
+            mediaBase: mediaBase,
+            side: side,
+            latexSVG: notetype.latexsvg,
+            latexPre: notetype.latexPre,
+            latexPost: notetype.latexPost,
+            nightMode: nightMode
+        )
         return RenderedCard(
             html: html,
-            sounds: uniqueSounds,
+            sounds: sounds,
+            speech: speech,
+            questionSounds: questionSounds,
+            answerSounds: answerSounds,
+            questionSpeech: questionSpeech,
+            answerSpeech: answerSpeech,
             hasTypeAnswer: hasTypeAnswer,
             plainText: plain.isEmpty ? " " : plain,
             questionText: questionPlain,
             answerText: answerPlain,
-            prefersNativeFace: prefersNative || (!uniqueSounds.isEmpty && plain.count <= 80 && !body.lowercased().contains("<img"))
+            prefersNativeFace: false
         )
+    }
+
+    private static func speechRequests(in html: String) -> [SpeechRequest] {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"<anki-tts\s+data-lang="([^"]+)"\s+data-speed="([^"]+)"\s+data-voices="([^"]*)"\s+data-text="([^"]*)">"#
+        ) else { return [] }
+        return regex.matches(in: html, range: NSRange(html.startIndex..., in: html)).compactMap { match in
+            guard let languageRange = Range(match.range(at: 1), in: html),
+                  let speedRange = Range(match.range(at: 2), in: html),
+                  let voicesRange = Range(match.range(at: 3), in: html),
+                  let dataRange = Range(match.range(at: 4), in: html),
+                  let data = Data(base64Encoded: String(html[dataRange])),
+                  let rawText = String(data: data, encoding: .utf8) else { return nil }
+            let voicesData = Data(base64Encoded: String(html[voicesRange])) ?? Data()
+            let voices = (try? JSONDecoder().decode([String].self, from: voicesData)) ?? []
+            let text = visibleText(rawText)
+                .replacingOccurrences(of: "&nbsp;", with: " ")
+                .replacingOccurrences(of: "&amp;", with: "&")
+                .replacingOccurrences(of: "&lt;", with: "<")
+                .replacingOccurrences(of: "&gt;", with: ">")
+                .replacingOccurrences(of: "&quot;", with: "\"")
+            guard !text.isEmpty else { return nil }
+            return SpeechRequest(
+                language: String(html[languageRange]),
+                text: text,
+                speed: Float(html[speedRange]) ?? 1,
+                voices: voices
+            )
+        }
     }
 
     /// Anki marks the answer with `<hr id=answer>`.
@@ -136,21 +236,6 @@ enum CardHTMLRenderer {
         return (String(html[..<range.lowerBound]), String(html[range.upperBound...]))
     }
 
-    /// Simple kana / short prompts: native Text is more reliable than WKWebView on tinted glass.
-    private static func prefersNativeFace(body: String, plain: String) -> Bool {
-        guard !plain.isEmpty else { return false }
-        let lower = body.lowercased()
-        if lower.contains("<img") { return false }
-        if lower.contains("<svg") { return false }
-        if lower.contains("io-mask") { return false }
-        if containsMath(body) { return false }
-        if lower.contains("class=\"cloze\"") || lower.contains("class='cloze'") { return false }
-        if lower.contains("class=\"typegood\"") || lower.contains("class=\"typebad\"") { return false }
-        if lower.contains("<table") { return false }
-        // Sound-only chrome is fine natively; ▶ markers don't need WebView.
-        return plain.count <= 80
-    }
-
     private static func visibleText(_ html: String) -> String {
         html
             .replacingOccurrences(of: #"<div class="sound"[^>]*>[\s\S]*?</div>"#, with: " ", options: .regularExpression)
@@ -161,90 +246,83 @@ enum CardHTMLRenderer {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Prefer Front / Expression / Text; skip the field that is typed.
-    private static func fallbackPrompt(fields: [String: String], notetype: AnkiNotetype, hasTypeAnswer: Bool) -> String? {
-        let typeField = TemplateEngine.typeAnswerFieldName(in: notetype.tmpls.map(\.qfmt).joined())
-        let preferred = ["Front", "Expression", "Text", "Kanji", "Character", "Prompt", "Question"]
-        for name in preferred {
-            if name == typeField { continue }
-            if let v = fields[name], !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return v
-            }
-        }
-        for field in notetype.flds {
-            if field.name == typeField { continue }
-            if let v = fields[field.name], !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return v
-            }
-        }
-        // Last resort: show typed field's sibling or any content.
-        if let typeField, let v = fields[typeField], !v.isEmpty, !hasTypeAnswer {
-            return v
-        }
-        return nil
-    }
-
-    private static func wrap(body: String, css: String, mediaBase: URL) -> String {
+    private static func wrap(
+        body: String,
+        css: String,
+        mediaBase: URL,
+        side: Side,
+        latexSVG: Bool,
+        latexPre: String,
+        latexPost: String,
+        nightMode: Bool
+    ) -> String {
         let zoom = (CollectionStore.shared.conf["cardZoom"] as? Double) ?? 1.0
-        let fontSize = Int((42.0 * zoom).rounded())
+        let hideAudioPlayButtons = CollectionStore.shared.conf["hideAudioPlayButtons"] as? Bool ?? false
+        #if os(macOS)
+        let missedAnswerStyle = ".typeMissed { color: #aaa !important; }"
+        let platformClasses = "mac"
+        #else
+        let missedAnswerStyle = ""
+        let deviceClass = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        let platformClasses = "mobile \(deviceClass)"
+        #endif
+        let sideName: String
+        let themeClasses = nightMode ? "nightMode night_mode" : ""
+        switch side {
+        case .question: sideName = "question"
+        case .answer: sideName = "answer"
+        }
+        let extraction = AnkiLatexMarkup.extract(in: body, svg: latexSVG)
+        var renderedBody = extraction.html
+        #if os(macOS) && !WIDGET_EXTENSION
+        let renderLatex = CollectionStore.shared.conf["renderLatex"] as? Bool ?? false
+        let errors = AnkiLatexImageGenerator.renderMissing(
+            extraction.assets.map {
+                AnkiLatexRenderTask(asset: $0, header: latexPre, footer: latexPost, svg: latexSVG)
+            },
+            mediaRoot: mediaBase,
+            enabled: renderLatex
+        )
+        renderedBody += errors.map { "<br>\($0)" }.joined()
+        #endif
         return """
         <!DOCTYPE html>
-        <html class="nightMode night_mode">
+        <html class="\(themeClasses) \(platformClasses)">
         <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
         <base href="\(mediaBase.absoluteString)/">
         <style>
-        /* Note-type CSS first… */
+        code#typeans { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .typeGood { color: #0a0 !important; }
+        .typeBad { color: #f00 !important; }
+        \(missedAnswerStyle)
         \(css)
-        /* …then force readable colors on dark Liquid Glass (Anki templates often use color:black). */
         html, body {
-          margin: 0 !important; padding: 0 !important;
-          width: 100% !important; height: 100% !important;
-          background: transparent !important;
-          color: #f2fafb !important;
-          -webkit-text-fill-color: #f2fafb !important;
-          font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'SF Pro Text', sans-serif;
+          margin: 0;
+          min-height: 100%;
+          background: transparent;
         }
-        .card, .card *:not(input):not(textarea) {
-          background-color: transparent !important;
-          color: #f2fafb !important;
-          -webkit-text-fill-color: #f2fafb !important;
-        }
-        .card {
-          background: transparent !important;
-          padding: 36px 20px !important;
-          font-size: \(fontSize)px !important;
-          line-height: 1.35 !important;
-          text-align: center !important;
-          min-height: 180px;
+        .ankios-card-frame {
           box-sizing: border-box;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: flex-start;
-          padding-top: 48px !important;
+          min-height: 100vh;
+          padding: 8px;
+          zoom: \(zoom);
         }
-        .card .prompt { font-size: 1.15em; font-weight: 600; }
-        .card a { color: #7eeadf !important; -webkit-text-fill-color: #7eeadf !important; }
         img { max-width: 100%; height: auto; }
-        hr#answer { border: none; border-top: 1px solid rgba(255,255,255,0.28); margin: 18px 0; width: 100%; }
-        .cloze { color: #5eead4 !important; -webkit-text-fill-color: #5eead4 !important; font-weight: 700; }
-        .nightMode, .night_mode { color: #f2fafb !important; }
-        input.typeans, textarea.typeans { display: none !important; }
-        .typeGood { color: #4ade80 !important; -webkit-text-fill-color: #4ade80 !important; font-weight: 700; }
-        .typeBad { color: #f87171 !important; -webkit-text-fill-color: #f87171 !important; font-weight: 700; }
-        .mathjax, .mathjax * { color: #f2fafb !important; -webkit-text-fill-color: #f2fafb !important; }
         .io-stage { position: relative !important; display: inline-block !important; max-width: 100% !important; }
         .io-mask { box-sizing: border-box !important; }
         .io-mask.io-hidden { display: none !important; }
         .io-mask.io-covered { background-color: #f5d90a !important; border: 2px solid #111 !important; }
         .io-mask.io-revealed { background-color: transparent !important; border: 2px solid #5eead4 !important; }
         .io-mask[data-shape="ellipse"] { border-radius: 50% !important; }
+        \(hideAudioPlayButtons ? ".sound { display: none !important; }" : "")
         </style>
         </head>
-        <body class="nightMode night_mode">
+        <body class="\(themeClasses) \(platformClasses)" data-side="\(sideName)">
+        <div class="ankios-card-frame">
         <div class="card">
-        \(Self.normalizeLatex(body))
+        \(Self.normalizeMathJax(renderedBody))
+        </div>
         </div>
         \(Self.containsOcclusion(body) ? Self.occlusionScript : "")
         </body>
@@ -337,7 +415,7 @@ enum CardHTMLRenderer {
     </script>
     """
 
-    private static func normalizeLatex(_ html: String) -> String {
+    private static func normalizeMathJax(_ html: String) -> String {
         var s = html
         if let regex = try? NSRegularExpression(
             pattern: #"<anki-mathjax\b([^>]*)>([\s\S]*?)</anki-mathjax>"#,
@@ -354,12 +432,367 @@ enum CardHTMLRenderer {
                 s.replaceSubrange(full, with: display ? "\\[\(body)\\]" : "\\(\(body)\\)")
             }
         }
-        s = s.replacingOccurrences(of: "[latex]", with: "\\[")
-        s = s.replacingOccurrences(of: "[/latex]", with: "\\]")
-        s = s.replacingOccurrences(of: "[$$]", with: "\\[")
-        s = s.replacingOccurrences(of: "[/$$]", with: "\\]")
-        s = s.replacingOccurrences(of: "[$]", with: "\\(")
-        s = s.replacingOccurrences(of: "[/$]", with: "\\)")
         return s
     }
 }
+
+struct AnkiLatexAsset: Hashable, Sendable {
+    var filename: String
+    var body: String
+}
+
+struct AnkiLatexExtraction: Sendable {
+    var html: String
+    var assets: [AnkiLatexAsset]
+}
+
+struct AnkiLatexRenderTask: Sendable {
+    var asset: AnkiLatexAsset
+    var header: String
+    var footer: String
+    var svg: Bool
+}
+
+enum AnkiLatexMarkup {
+    static func replacing(in html: String, svg: Bool) -> String {
+        extract(in: html, svg: svg).html
+    }
+
+    static func extract(in html: String, svg: Bool, expandClozes: Bool = false) -> AnkiLatexExtraction {
+        #if !ANKIOS_PARITY_HARNESS && !WIDGET_EXTENSION
+        var error: UnsafeMutablePointer<CChar>?
+        let rendered = html.withCString { text in
+            ankios_anki_extract_latex_details(text, svg ? 1 : 0, expandClozes ? 1 : 0, &error)
+        }
+        defer {
+            if let error { ankios_anki_backend_free_string(error) }
+        }
+        if let rendered {
+            defer { ankios_anki_backend_free_string(rendered) }
+            if let data = String(cString: rendered).data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let outputHTML = payload["html"] as? String,
+               let values = payload["latex"] as? [[String: String]] {
+                let assets = values.compactMap { value -> AnkiLatexAsset? in
+                    guard let filename = value["filename"], let body = value["body"] else { return nil }
+                    return AnkiLatexAsset(filename: filename, body: body)
+                }
+                return AnkiLatexExtraction(html: outputHTML, assets: assets)
+            }
+        }
+        #endif
+
+        return extractWithSwift(in: html, svg: svg, expandClozes: expandClozes)
+    }
+
+    private static func extractWithSwift(in html: String, svg: Bool, expandClozes: Bool) -> AnkiLatexExtraction {
+        if expandClozes && html.contains("{{c") && !containsLatex(html) {
+            return AnkiLatexExtraction(html: "", assets: [])
+        }
+        let sources = expandClozes ? expandedLatexSources(in: html) : [html]
+        var combinedHTML = ""
+        var combinedAssets: [AnkiLatexAsset] = []
+        for source in sources {
+            let extraction = extractWithoutClozes(in: source, svg: svg)
+            combinedHTML += extraction.html
+            combinedAssets += extraction.assets
+        }
+        return AnkiLatexExtraction(html: combinedHTML, assets: combinedAssets)
+    }
+
+    private static func extractWithoutClozes(in source: String, svg: Bool) -> AnkiLatexExtraction {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"\[latex\](.+?)\[/latex\]|\[\$\](.+?)\[/\$\]|\[\$\$\](.+?)\[/\$\$\]"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) else { return AnkiLatexExtraction(html: source, assets: []) }
+        var result = source
+        var assets: [AnkiLatexAsset] = []
+        for match in regex.matches(in: source, range: NSRange(source.startIndex..., in: source)).reversed() {
+            guard let fullRange = Range(match.range, in: result) else { continue }
+            let body: String
+            if match.range(at: 1).location != NSNotFound, let range = Range(match.range(at: 1), in: source) {
+                body = String(source[range])
+            } else if match.range(at: 2).location != NSNotFound, let range = Range(match.range(at: 2), in: source) {
+                body = "$\(source[range])$"
+            } else if let range = Range(match.range(at: 3), in: source) {
+                body = "\\begin{displaymath}\(source[range])\\end{displaymath}"
+            } else {
+                continue
+            }
+            let latex = stripHTML(body)
+            let digest = Insecure.SHA1.hash(data: Data(latex.utf8)).map { String(format: "%02x", $0) }.joined()
+            let extensionName = svg ? "svg" : "png"
+            let filename = "latex-\(digest).\(extensionName)"
+            let image = "<img class=latex alt=\"\(encodeAttribute(latex))\" src=\"\(filename)\">"
+            result.replaceSubrange(fullRange, with: image)
+            assets.append(AnkiLatexAsset(filename: filename, body: latex))
+        }
+        return AnkiLatexExtraction(html: result, assets: assets.reversed())
+    }
+
+    private static func containsLatex(_ text: String) -> Bool {
+        text.range(of: #"\[latex\]|\[\$\]|\[\$\$\]"#, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private static func expandedLatexSources(in text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"\{\{c(\d+(?:,\d+)*)::(.*?)(?:::(.*?))?\}\}"#,
+            options: [.dotMatchesLineSeparators]
+        ) else { return [text] }
+        let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        let ordinals = Set(matches.flatMap { match -> [Int] in
+            guard let range = Range(match.range(at: 1), in: text) else { return [] }
+            return text[range].split(separator: ",").compactMap { Int($0) }
+        }).sorted()
+        guard !ordinals.isEmpty else { return [text] }
+        return ordinals.flatMap { ordinal in
+            [true, false].compactMap { question in
+                revealClozes(in: text, matches: matches, ordinal: ordinal, question: question)
+            }
+        }
+    }
+
+    private static func revealClozes(
+        in text: String,
+        matches: [NSTextCheckingResult],
+        ordinal: Int,
+        question: Bool
+    ) -> String? {
+        var result = text
+        var foundActive = false
+        for match in matches.reversed() {
+            guard let fullRange = Range(match.range, in: result),
+                  let ordRange = Range(match.range(at: 1), in: text),
+                  let bodyRange = Range(match.range(at: 2), in: text) else { continue }
+            let ordinals = text[ordRange].split(separator: ",").compactMap { Int($0) }
+            let body = String(text[bodyRange])
+            let replacement: String
+            if ordinals.contains(ordinal) {
+                foundActive = true
+                if question {
+                    let hint = Range(match.range(at: 3), in: text).map { String(text[$0]) } ?? "..."
+                    replacement = "[\(hint)]"
+                } else {
+                    replacement = body
+                }
+            } else {
+                replacement = body
+            }
+            result.replaceSubrange(fullRange, with: replacement)
+        }
+        return foundActive ? result : nil
+    }
+
+    private static func stripHTML(_ html: String) -> String {
+        let lineBreaks = html.replacingOccurrences(
+            of: #"<br( /)?>|<div>"#,
+            with: "\n",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        let tagPattern = #"<!--.*?-->|<style.*?>.*?</style>|<script.*?>.*?</script>|<.*?>"#
+        let tagExpression = try? NSRegularExpression(
+            pattern: tagPattern,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        )
+        let fullRange = NSRange(lineBreaks.startIndex..<lineBreaks.endIndex, in: lineBreaks)
+        let withoutTags = tagExpression?.stringByReplacingMatches(
+            in: lineBreaks,
+            range: fullRange,
+            withTemplate: ""
+        ) ?? lineBreaks
+        return decodeEntities(withoutTags)
+    }
+
+    private static func decodeEntities(_ text: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]+);"#, options: .caseInsensitive) else {
+            return text
+        }
+        var result = text
+        let entities: [String: String] = [
+            "amp": "&", "nbsp": " ", "lt": "<", "gt": ">", "quot": "\"", "apos": "'",
+            "copy": "©", "reg": "®", "trade": "™", "times": "×", "divide": "÷",
+            "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "pi": "π", "sigma": "σ",
+            "infin": "∞", "ne": "≠", "le": "≤", "ge": "≥", "sum": "∑", "radic": "√"
+        ]
+        for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+            guard let fullRange = Range(match.range, in: result),
+                  let nameRange = Range(match.range(at: 1), in: text) else { continue }
+            let name = String(text[nameRange])
+            let decoded: String?
+            if name.hasPrefix("#x") || name.hasPrefix("#X") {
+                decoded = UInt32(name.dropFirst(2), radix: 16).flatMap(Unicode.Scalar.init).map(String.init)
+            } else if name.hasPrefix("#") {
+                decoded = UInt32(name.dropFirst()).flatMap(Unicode.Scalar.init).map(String.init)
+            } else {
+                decoded = entities[name.lowercased()]
+            }
+            if let decoded { result.replaceSubrange(fullRange, with: decoded) }
+        }
+        return result
+    }
+
+    private static func encodeAttribute(_ text: String) -> String {
+        var encoded = String()
+        encoded.reserveCapacity(text.utf8.count)
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 34: encoded += "&quot;"
+            case 38: encoded += "&amp;"
+            case 39: encoded += "&#x27;"
+            case 60: encoded += "&lt;"
+            case 62: encoded += "&gt;"
+            default:
+                let value = scalar.value
+                let isASCIIAlphanumeric = (48...57).contains(value)
+                    || (65...90).contains(value)
+                    || (97...122).contains(value)
+                if value < 256 && (value > 127 || !isASCIIAlphanumeric) {
+                    encoded += String(format: "&#x%02X;", value)
+                } else {
+                    encoded.unicodeScalars.append(scalar)
+                }
+            }
+        }
+        return encoded
+    }
+}
+
+#if os(macOS) && !WIDGET_EXTENSION
+enum AnkiLatexImageGenerator {
+    private enum RenderError: Error {
+        case disabled
+        case executableMissing(String)
+        case commandFailed(String, String)
+        case outputMissing(String)
+        case message(String)
+
+        var html: String {
+            let message: String
+            switch self {
+            case .disabled:
+                message = "La geração de LaTeX está desativada nas preferências."
+            case .executableMissing(let executable):
+                message = "Não foi possível executar \(executable). Verifique se LaTeX e dvipng/dvisvgm estão instalados."
+            case .commandFailed(let executable, let log):
+                let detail = log.isEmpty ? "" : " — \(log)"
+                message = "Falha ao executar \(executable). Verifique se LaTeX e dvipng/dvisvgm estão instalados.\(detail)"
+            case .outputMissing(let filename):
+                message = "O comando LaTeX não criou \(filename)."
+            case .message(let value):
+                message = value
+            }
+            let escaped = message
+                .replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+                .replacingOccurrences(of: "\"", with: "&quot;")
+            return "<div class=latex-error>\(escaped)</div>"
+        }
+    }
+
+    static func renderMissing(
+        _ tasks: [AnkiLatexRenderTask],
+        mediaRoot: URL,
+        enabled: Bool,
+        stopOnError: Bool = false
+    ) -> [String] {
+        guard !tasks.isEmpty else { return [] }
+        let fileManager = FileManager.default
+        var errors: [String] = []
+        var rendered = Set<String>()
+        for task in tasks {
+            let asset = task.asset
+            let destination = mediaRoot.appendingPathComponent(asset.filename)
+            if fileManager.fileExists(atPath: destination.path) { continue }
+            guard !rendered.contains(asset.filename) else { continue }
+            guard enabled else { return errors + [RenderError.disabled.html] }
+            do {
+                try render(task, destination: destination)
+                rendered.insert(asset.filename)
+            } catch let error as RenderError {
+                errors.append(error.html)
+                if stopOnError { return errors }
+            } catch {
+                errors.append(RenderError.message(error.localizedDescription).html)
+                if stopOnError { return errors }
+            }
+        }
+        return errors
+    }
+
+    private static func render(_ task: AnkiLatexRenderTask, destination: URL) throws {
+        let asset = task.asset
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory.appendingPathComponent("ankios-latex-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let sourceURL = directory.appendingPathComponent("tmp.tex")
+        let document = "\(task.header)\n\(asset.body)\n\(task.footer)"
+        try Data(document.utf8).write(to: sourceURL, options: .atomic)
+
+        let outputName = task.svg ? "tmp.svg" : "tmp.png"
+        let commands: [(String, [String])]
+        if task.svg {
+            commands = [
+                ("latex", ["-interaction=nonstopmode", "tmp.tex"]),
+                ("dvisvgm", ["--no-fonts", "--exact", "-Z", "2", "tmp.dvi", "-o", outputName])
+            ]
+        } else {
+            commands = [
+                ("latex", ["-interaction=nonstopmode", "tmp.tex"]),
+                ("dvipng", ["-bg", "Transparent", "-D", "200", "-T", "tight", "tmp.dvi", "-o", outputName])
+            ]
+        }
+
+        let environment = ProcessInfo.processInfo.environment
+        let searchPath = ((environment["PATH"] ?? "").split(separator: ":").map(String.init)
+            + ["/usr/texbin", "/Library/TeX/texbin"]).joined(separator: ":")
+        let logURL = directory.appendingPathComponent("latex_log.txt")
+        fileManager.createFile(atPath: logURL.path, contents: Data())
+        let log = try FileHandle(forWritingTo: logURL)
+        defer { try? log.close() }
+
+        for (name, arguments) in commands {
+            guard let executable = executable(named: name, searchPath: searchPath) else {
+                throw RenderError.executableMissing(name)
+            }
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = arguments
+            process.currentDirectoryURL = directory
+            var processEnvironment = environment
+            processEnvironment["PATH"] = searchPath
+            process.environment = processEnvironment
+            process.standardOutput = log
+            process.standardError = log
+            do {
+                try process.run()
+            } catch {
+                throw RenderError.executableMissing(name)
+            }
+            process.waitUntilExit()
+            if process.terminationStatus != 0 {
+                try? log.synchronize()
+                let output = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+                throw RenderError.commandFailed(name, output.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        }
+
+        let outputURL = directory.appendingPathComponent(outputName)
+        guard fileManager.fileExists(atPath: outputURL.path) else {
+            throw RenderError.outputMissing(outputName)
+        }
+        try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(contentsOf: outputURL).write(to: destination, options: .atomic)
+    }
+
+    private static func executable(named name: String, searchPath: String) -> URL? {
+        for directory in searchPath.split(separator: ":").map(String.init) {
+            let candidate = URL(fileURLWithPath: directory, isDirectory: true).appendingPathComponent(name)
+            if FileManager.default.isExecutableFile(atPath: candidate.path) { return candidate }
+        }
+        return nil
+    }
+}
+#endif

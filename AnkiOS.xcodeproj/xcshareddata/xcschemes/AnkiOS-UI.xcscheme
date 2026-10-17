@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme LastUpgradeVersion="2700" version="1.7">
+  <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES"><BuildActionEntries>
+    <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="YES"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="E88658DFC0C55D2A90E584CF" BuildableName="AnkiOS.app" BlueprintName="AnkiOS" ReferencedContainer="container:AnkiOS.xcodeproj"/></BuildActionEntry>
+    <BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="YES"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A11CE3000000000000000007" BuildableName="AnkiOSUITests.xctest" BlueprintName="AnkiOSUITests" ReferencedContainer="container:AnkiOS.xcodeproj"/></BuildActionEntry>
+  </BuildActionEntries></BuildAction>
+  <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES">
+    <Testables><TestableReference skipped="NO" parallelizable="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A11CE3000000000000000007" BuildableName="AnkiOSUITests.xctest" BlueprintName="AnkiOSUITests" ReferencedContainer="container:AnkiOS.xcodeproj"/></TestableReference></Testables>
+    <EnvironmentVariables><EnvironmentVariable key="ANKIOS_UI_SYNC_ENDPOINT" value="$(ANKIOS_UI_SYNC_ENDPOINT)" isEnabled="YES"/></EnvironmentVariables>
+  </TestAction>
+  <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="YES"><BuildableProductRunnable runnableDebuggingMode="0"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="E88658DFC0C55D2A90E584CF" BuildableName="AnkiOS.app" BlueprintName="AnkiOS" ReferencedContainer="container:AnkiOS.xcodeproj"/></BuildableProductRunnable></LaunchAction>
+  <AnalyzeAction buildConfiguration="Debug"/>
+</Scheme>

@@ -24,8 +24,6 @@ enum SM2Scheduler {
         dueCounts: [Int] = [],
         nextDayAt: Int = 0
     ) -> ScheduleResult {
-        let learnSteps = LearningSteps(minutes: config.new.delays)
-        let relearnSteps = LearningSteps(minutes: config.lapse.delays)
         let ctx = Context(
             config: config,
             day: day,
@@ -39,6 +37,8 @@ enum SM2Scheduler {
             dueCounts: dueCounts,
             nextDayAt: nextDayAt
         )
+        let learnSteps = ctx.learningSteps
+        let relearnSteps = ctx.relearningSteps
 
         let previous = card
         var next = card
@@ -77,12 +77,17 @@ enum SM2Scheduler {
             card: next,
             intervalLabel: outcome.label,
             revlogIvl: outcome.revlogIvl,
-            lastIvl: previousInterval(previous, learn: learnSteps, relearn: relearnSteps),
+            lastIvl: previousInterval(previous, learn: learnSteps, relearn: relearnSteps, secsUntilRollover: ctx.secsUntilRollover),
             revlogFactor: revlogFactor
         )
     }
 
     // MARK: - States
+
+    private enum FSRSEmptyStepDefaults {
+        static let learning: [Double] = [1, 5, 30, 1440]
+        static let relearning: [Double] = [10, 1440]
+    }
 
     private struct Context {
         var config: AnkiDeckConfig
@@ -96,10 +101,17 @@ enum SM2Scheduler {
         var fsrs: FSRSForecast?
         var dueCounts: [Int]
         var nextDayAt: Int
+        var learningSteps: LearningSteps {
+            LearningSteps(minutes: fsrs != nil && config.new.delays.isEmpty ? FSRSEmptyStepDefaults.learning : config.new.delays)
+        }
+        var relearningSteps: LearningSteps {
+            LearningSteps(minutes: fsrs != nil && config.lapse.delays.isEmpty ? FSRSEmptyStepDefaults.relearning : config.lapse.delays)
+        }
+        var graduationEase: Int { fsrs == nil ? initialEase : 2300 }
         var maxIvl: Int { max(config.rev.maxIvl, 1) }
-        var ease: Double { config.rev.ease4 }
-        var hard: Double { config.rev.hardFactor }
-        var modifier: Double { config.rev.ivlFct }
+        var ease: Float { Float(config.rev.ease4) }
+        var hard: Float { Float(config.rev.hardFactor) }
+        var modifier: Float { Float(config.rev.ivlFct) }
         var initialEase: Int { config.new.initialFactor }
         var goodDays: Int { max(config.new.ints.first ?? 1, 1) }
         var easyDays: Int { max(config.new.ints.count > 1 ? config.new.ints[1] : 4, 1) }
@@ -196,7 +208,7 @@ enum SM2Scheduler {
             ease = max(1.3, ease - 0.2)
             card.factor = storeEase(ease)
             card.lapses += 1
-            let steps = LearningSteps(minutes: ctx.config.lapse.delays)
+            let steps = ctx.relearningSteps
             if let forecast = ctx.fsrs {
                 let days = max(1, Int(forecast.again.interval.rounded()))
                 card.ivl = days
@@ -238,15 +250,15 @@ enum SM2Scheduler {
             let good: Int
             let easyInterval: Int
             if daysLate < 0 {
-                let scheduled = Double(max(scheduledDays, 1))
-                let elapsedF = Double(elapsed)
-                hard = roundClamped(max(elapsedF * ctx.hard, scheduled * ctx.hard / 2.0), ctx: ctx)
+                let scheduled = Float(max(scheduledDays, 1))
+                let elapsedF = Float(elapsed)
+                hard = roundClamped(max(elapsedF * ctx.hard, scheduled * ctx.hard / 2), ctx: ctx)
                 good = roundClamped(max(elapsedF * ease, scheduled), ctx: ctx)
                 let reduced = ctx.ease - (ctx.ease - 1.0) / 2.0
                 easyInterval = roundClamped(max(elapsedF * ease, scheduled) * reduced, ctx: ctx)
             } else {
-                let current = Double(max(scheduledDays, 1))
-                let late = Double(daysLate)
+                let current = Float(max(scheduledDays, 1))
+                let late = Float(daysLate)
                 let hardMinimum = ctx.hard <= 1 ? 0 : scheduledDays + 1
                 hard = constrain(current * ctx.hard, minimum: hardMinimum, ctx: ctx)
                 let goodMinimum = ctx.hard <= 1 ? scheduledDays + 1 : hard + 1
@@ -289,7 +301,7 @@ enum SM2Scheduler {
             return enterLearning(&card, delay: secs, remaining: left, type: 1, ctx: ctx, keepInterval: false)
         }
         let days = fuzzDays(Double(max(item.interval, 1).rounded()), minimum: 1, ctx: ctx)
-        card.factor = ctx.initialEase
+        card.factor = ctx.graduationEase
         return finishRelearn(&card, days: days, ctx: ctx)
     }
 
@@ -299,7 +311,7 @@ enum SM2Scheduler {
         }
         let good = fuzzDays(Double(forecast.good.interval), minimum: 1, ctx: ctx)
         let easy = fuzzDays(Double(max(forecast.easy.interval, 1).rounded()), minimum: good + 1, ctx: ctx)
-        card.factor = ctx.initialEase
+        card.factor = ctx.graduationEase
         return finishRelearn(&card, days: easy, ctx: ctx)
     }
 
@@ -377,7 +389,7 @@ enum SM2Scheduler {
         switch kind {
         case .seconds(let secs):
             card.queue = 1
-            card.due = ctx.now + learningFuzz(secs, card: card)
+            card.due = ctx.now + AnkiFuzz.learningDelay(seconds: secs, cardID: card.id, reps: card.reps)
             return Outcome(label: buttonTime(seconds: secs, collapse: ctx.collapse), revlogIvl: -secs)
         case .days(let days):
             card.queue = 3
@@ -415,68 +427,54 @@ enum SM2Scheduler {
     private static func lapsedInterval(scheduled: Int, ctx: Context) -> Int {
         AnkiFuzz.apply(
             factor: ctx.fuzz,
-            interval: Double(max(scheduled, 1)) * ctx.lapseMult,
+            interval: Double(Float(max(scheduled, 1)) * Float(ctx.lapseMult)),
             minimum: ctx.lapseMin,
             maximum: ctx.maxIvl
         )
     }
 
-    private static func constrain(_ raw: Double, minimum: Int, ctx: Context) -> Int {
+    private static func constrain(_ raw: Float, minimum: Int, ctx: Context) -> Int {
         AnkiFuzz.apply(
             factor: ctx.fuzz,
-            interval: raw * ctx.modifier,
+            interval: Double(raw * ctx.modifier),
             minimum: minimum,
             maximum: ctx.maxIvl
         )
     }
 
     /// Early reviews are rounded, without the fuzz applied to on-time reviews.
-    private static func roundClamped(_ raw: Double, ctx: Context) -> Int {
+    private static func roundClamped(_ raw: Float, ctx: Context) -> Int {
         let maximum = ctx.maxIvl
         let scaled = raw * ctx.modifier
         return min(maximum, max(1, Int(scaled.rounded())))
     }
 
-    private static func easeFactor(_ card: AnkiCard) -> Double {
-        let ease = Double(card.factor) / 1000.0
+    private static func easeFactor(_ card: AnkiCard) -> Float {
+        let ease = Float(card.factor) / 1000
         return ease >= 1.3 ? ease : 2.5
     }
 
-    private static func storeEase(_ ease: Double) -> Int {
+    private static func storeEase(_ ease: Float) -> Int {
         Int(min(65_535, max(0, (ease * 1000).rounded())))
     }
 
-    /// Nominal learning delay, fuzzed the way Anki fuzzes the stored due time.
-    static func fuzzedLearningSeconds(_ seconds: Int, card: AnkiCard) -> Int {
-        learningFuzz(seconds, card: card)
-    }
-
-    /// Same window as Anki: up to 25% later, and never more than 5 minutes.
-    /// The button still shows the nominal delay.
-    private static func learningFuzz(_ seconds: Int, card: AnkiCard) -> Int {
-        let room = min(Int((Double(seconds) * 0.25).rounded(.down)), 300)
-        let upper = seconds + room
-        guard upper > seconds else { return max(seconds, 0) }
-        let factor = AnkiFuzz.factor(cardID: card.id, reps: card.reps)
-        return seconds + Int((Double(upper - seconds) * factor).rounded(.down))
-    }
-
-    private static func previousInterval(_ card: AnkiCard, learn: LearningSteps, relearn: LearningSteps) -> Int {
+    /// rslib `IntervalKind::as_revlog_interval` after `maybe_as_days`.
+    private static func previousInterval(_ card: AnkiCard, learn: LearningSteps, relearn: LearningSteps, secsUntilRollover: Int) -> Int {
+        let seconds: Int
         switch card.type {
-        case 2:
-            return card.ivl
-        case 0:
-            return 0
-        case 3:
-            let secs = relearn.currentDelay(remaining: card.left)
-            return secs == 0 ? 0 : -secs
-        default:
-            let secs = learn.currentDelay(remaining: card.left)
-            return secs == 0 ? 0 : -secs
+        case 2: return card.ivl
+        case 0: return 0
+        case 3: seconds = relearn.currentDelay(remaining: card.left)
+        default: seconds = learn.currentDelay(remaining: card.left)
+        }
+        switch IntervalKind.seconds(seconds).crossingDay(secsUntilRollover: secsUntilRollover) {
+        case .days(let days): return days
+        case .seconds(let secs): return secs == 0 ? 0 : -secs
         }
     }
 
-    /// Same shape as Anki's Portuguese answer buttons: `<1min(s)`, `<6min(s)`, `3dia(s)`.
+    /// Anki's Fluent time spans: isolate the number (`U+2068`/`U+2069`) and use a
+    /// comma decimal, matching `describe_next_states` in pt_BR.
     static func buttonTime(seconds: Int, collapse: Int) -> String {
         if seconds <= 0 { return "(fim)" }
         let text = unitLabel(seconds: seconds)
@@ -484,32 +482,40 @@ enum SM2Scheduler {
         return text
     }
 
+    private static func isolate(_ number: String) -> String {
+        "\u{2068}\(number)\u{2069}"
+    }
+
+    private static func decimal(_ value: Double) -> String {
+        String(format: "%.1f", value).replacingOccurrences(of: ".", with: ",")
+    }
+
     private static func unitLabel(seconds: Int) -> String {
         let secs = Double(seconds)
         if secs < 60 {
-            return "\(max(Int(secs.rounded()), seconds == 0 ? 0 : 1))s"
+            return "\(isolate("\(max(Int(secs.rounded()), seconds == 0 ? 0 : 1))"))s"
         }
         if secs < 3_600 {
-            return "\(max(Int((secs / 60).rounded()), 1))min(s)"
+            return "\(isolate("\(max(Int((secs / 60).rounded()), 1))"))min(s)"
         }
         if secs < 86_400 {
             let hours = (secs / 3_600 * 10).rounded() / 10
-            if hours == hours.rounded() { return "\(Int(hours))h" }
-            return String(format: "%.1fh", hours)
+            if hours == hours.rounded() { return "\(isolate("\(Int(hours))"))h" }
+            return "\(isolate(decimal(hours)))h"
         }
         let month = 86_400.0 * 365.0 / 12.0
         let year = 86_400.0 * 365.0
         if secs < month {
-            return "\(max(Int((secs / 86_400).rounded()), 1))dia(s)"
+            return "\(isolate("\(max(Int((secs / 86_400).rounded()), 1))"))dia(s)"
         }
         if secs < year {
             let months = (secs / month * 10).rounded() / 10
-            if months == months.rounded() { return "\(Int(months))mês(es)" }
-            return String(format: "%.1fmês(es)", months)
+            if months == months.rounded() { return "\(isolate("\(Int(months))"))mês(es)" }
+            return "\(isolate(decimal(months)))mês(es)"
         }
         let years = (secs / year * 10).rounded() / 10
-        if years == years.rounded() { return "\(Int(years))a" }
-        return String(format: "%.1fa", years)
+        if years == years.rounded() { return "\(isolate("\(Int(years))"))a" }
+        return "\(isolate(decimal(years)))a"
     }
 }
 
@@ -533,7 +539,7 @@ private struct LearningSteps {
 
     func secs(at index: Int) -> Int? {
         guard minutes.indices.contains(index) else { return nil }
-        return Int(minutes[index] * 60.0)
+        return Int(Float(minutes[index]) * 60.0)
     }
 
     /// Anki indexes steps from the end of the remaining count.
@@ -575,20 +581,83 @@ private struct LearningSteps {
 
     private func roundDaysIfNeeded(_ secs: Int) -> Int {
         guard secs > 86_400 else { return secs }
-        return Int((Double(secs) / 86_400.0).rounded()) * 86_400
+        return Int((Float(secs) / Float(86_400)).rounded(.toNearestOrAwayFromZero)) * 86_400
     }
 }
 
 /// Anki's review-interval fuzz. The width of the window matches `rslib`; the position inside it is stable per card.
 enum AnkiFuzz {
+    static func learningDelay(seconds: Int, cardID: Int64, reps: Int) -> Int {
+        let seconds = max(seconds, 0)
+        let extra = min(Int((Float(seconds) * 0.25).rounded(.down)), 300)
+        guard extra > 0 else { return seconds }
+        let range = UInt32(extra)
+        let threshold = (UInt32(0) &- range) % range
+        let words = randomWords(cardID: cardID, reps: reps)
+        for word in words {
+            let product = UInt64(word) * UInt64(range)
+            let low = UInt32(truncatingIfNeeded: product)
+            if low >= threshold { return seconds + Int(product >> 32) }
+        }
+        return seconds + Int((UInt64(words.last ?? 0) * UInt64(range)) >> 32)
+    }
+
     static func factor(cardID: Int64, reps: Int) -> Double {
-        var state = UInt64(bitPattern: cardID) &+ UInt64(reps)
-        state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-        state ^= state >> 33
-        return Double(state % 1_000_000) / 1_000_000.0
+        let randomWord = randomWords(cardID: cardID, reps: reps)[0]
+        let mantissa = randomWord >> 9
+        let value = Float(bitPattern: 0x3f80_0000 | mantissa) - 1
+        return Double(value)
+    }
+
+    private static func randomWords(cardID: Int64, reps: Int) -> [UInt32] {
+        let cardBits = UInt64(bitPattern: cardID)
+        var seedState = cardBits &+ UInt64(max(reps, 0))
+        var seed = [UInt32](repeating: 0, count: 8)
+        for index in seed.indices {
+            seedState = seedState &* 6_364_136_223_846_793_005 &+ 11_634_580_027_462_260_723
+            let shifted = UInt32(truncatingIfNeeded: (((seedState >> 18) ^ seedState) >> 27))
+            let rotation = UInt32(seedState >> 59)
+            seed[index] = (shifted >> rotation) | (shifted << ((32 &- rotation) & 31))
+        }
+
+        let initial: [UInt32] = [
+            0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574,
+            seed[0], seed[1], seed[2], seed[3], seed[4], seed[5], seed[6], seed[7],
+            0, 0, 0, 0
+        ]
+        var block = initial
+
+        func rotateLeft(_ value: UInt32, _ amount: UInt32) -> UInt32 {
+            (value &<< amount) | (value &>> (32 &- amount))
+        }
+
+        func quarterRound(_ a: Int, _ b: Int, _ c: Int, _ d: Int, _ words: inout [UInt32]) {
+            words[a] = words[a] &+ words[b]
+            words[d] = rotateLeft(words[d] ^ words[a], 16)
+            words[c] = words[c] &+ words[d]
+            words[b] = rotateLeft(words[b] ^ words[c], 12)
+            words[a] = words[a] &+ words[b]
+            words[d] = rotateLeft(words[d] ^ words[a], 8)
+            words[c] = words[c] &+ words[d]
+            words[b] = rotateLeft(words[b] ^ words[c], 7)
+        }
+
+        for _ in 0..<6 {
+            quarterRound(0, 4, 8, 12, &block)
+            quarterRound(1, 5, 9, 13, &block)
+            quarterRound(2, 6, 10, 14, &block)
+            quarterRound(3, 7, 11, 15, &block)
+            quarterRound(0, 5, 10, 15, &block)
+            quarterRound(1, 6, 11, 12, &block)
+            quarterRound(2, 7, 8, 13, &block)
+            quarterRound(3, 4, 9, 14, &block)
+        }
+
+        return block.indices.map { block[$0] &+ initial[$0] }
     }
 
     static func preservedMinimum(interval: Double, previous: Int, maximum: Int) -> Int {
+        let interval = Float(interval)
         let rounded = Int(interval.rounded())
         let upper = constrainedBounds(interval: interval, minimum: 1, maximum: maximum).1
         if rounded > previous { return previous + 1 }
@@ -599,16 +668,17 @@ enum AnkiFuzz {
     static func apply(factor: Double?, interval: Double, minimum: Int, maximum: Int) -> Int {
         let maximum = max(maximum, 1)
         let minimum = min(max(minimum, 1), maximum)
+        let interval = Float(interval)
         guard let factor else {
             return min(maximum, max(minimum, Int(interval.rounded())))
         }
         let (lower, upper) = constrainedBounds(interval: interval, minimum: minimum, maximum: maximum)
-        let picked = Double(lower) + factor * Double(1 + upper - lower)
+        let picked = Float(lower) + Float(factor) * Float(1 + upper - lower)
         return min(maximum, max(minimum, Int(picked.rounded(.down))))
     }
 
-    private static func constrainedBounds(interval: Double, minimum: Int, maximum: Int) -> (Int, Int) {
-        let clamped = min(max(interval, Double(minimum)), Double(maximum))
+    private static func constrainedBounds(interval: Float, minimum: Int, maximum: Int) -> (Int, Int) {
+        let clamped = min(max(interval, Float(minimum)), Float(maximum))
         var lower = Int((clamped - delta(clamped)).rounded())
         var upper = Int((clamped + delta(clamped)).rounded())
         lower = min(max(lower, minimum), maximum)
@@ -617,12 +687,12 @@ enum AnkiFuzz {
         return (lower, upper)
     }
 
-    private static func delta(_ interval: Double) -> Double {
+    private static func delta(_ interval: Float) -> Float {
         guard interval >= 2.5 else { return 0 }
-        let ranges: [(start: Double, end: Double, factor: Double)] = [
+        let ranges: [(start: Float, end: Float, factor: Float)] = [
             (2.5, 7, 0.15),
             (7, 20, 0.1),
-            (20, .infinity, 0.05)
+            (20, .greatestFiniteMagnitude, 0.05)
         ]
         return ranges.reduce(1.0) { partial, range in
             partial + range.factor * max(0, min(interval, range.end) - range.start)

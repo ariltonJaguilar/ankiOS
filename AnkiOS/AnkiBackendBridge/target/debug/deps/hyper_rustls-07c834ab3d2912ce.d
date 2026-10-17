@@ -1,0 +1,9 @@
+/Users/ariltonaguilar/Desktop/Projetos/Anki/DeckExample/AnkiOS/AnkiOS/AnkiBackendBridge/target/debug/deps/hyper_rustls-07c834ab3d2912ce.d: /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/lib.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/config.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/connector.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/connector/builder.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/stream.rs
+
+/Users/ariltonaguilar/Desktop/Projetos/Anki/DeckExample/AnkiOS/AnkiOS/AnkiBackendBridge/target/debug/deps/libhyper_rustls-07c834ab3d2912ce.rmeta: /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/lib.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/config.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/connector.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/connector/builder.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/stream.rs
+
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/lib.rs:
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/config.rs:
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/connector.rs:
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/connector/builder.rs:
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hyper-rustls-0.27.10/src/stream.rs:

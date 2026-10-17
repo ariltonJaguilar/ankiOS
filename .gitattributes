@@ -1,0 +1,1 @@
+AnkiOS/AnkiBackendBridge/AnkiBackend.xcframework/**/*.a filter=lfs diff=lfs merge=lfs -text

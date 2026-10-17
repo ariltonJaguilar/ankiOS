@@ -160,6 +160,9 @@ enum WidgetStudyStore {
     }
 
     private static var fileURL: URL? {
+        if SharedProfiles.uiTestSession != nil {
+            return SharedProfiles.profilesRoot.deletingLastPathComponent().appendingPathComponent("widget-study.json")
+        }
         guard let container = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: groupID
         ) else { return nil }

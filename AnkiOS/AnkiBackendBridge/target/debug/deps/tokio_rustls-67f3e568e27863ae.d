@@ -1,0 +1,9 @@
+/Users/ariltonaguilar/Desktop/Projetos/Anki/DeckExample/AnkiOS/AnkiOS/AnkiBackendBridge/target/debug/deps/tokio_rustls-67f3e568e27863ae.d: /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/lib.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/client.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/common/mod.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/common/handshake.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/server.rs
+
+/Users/ariltonaguilar/Desktop/Projetos/Anki/DeckExample/AnkiOS/AnkiOS/AnkiBackendBridge/target/debug/deps/libtokio_rustls-67f3e568e27863ae.rmeta: /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/lib.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/client.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/common/mod.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/common/handshake.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/server.rs
+
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/lib.rs:
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/client.rs:
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/common/mod.rs:
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/common/handshake.rs:
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-rustls-0.26.6/src/server.rs:

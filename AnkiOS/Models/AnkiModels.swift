@@ -18,7 +18,77 @@ struct AnkiNote: Identifiable, Hashable, Sendable {
     }
 
     var tagList: [String] {
-        tags.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+        AnkiTag.split(tags)
+    }
+}
+
+struct AddNoteCopyRequest: Equatable {
+    var note: AnkiNote
+    var deckID: Int64
+}
+
+enum AnkiTag {
+    static func split(_ value: String) -> [String] {
+        value.split(whereSeparator: { $0 == " " || $0 == "\u{3000}" }).map(String.init)
+    }
+
+    static func key(_ value: String) -> String {
+        value.folding(options: .caseInsensitive, locale: Locale(identifier: "en_US_POSIX"))
+    }
+
+    static func canonicalized(_ value: String, existing: [String]) -> [String] {
+        var names: [String: String] = [:]
+        for name in existing.sorted() where names[key(name)] == nil { names[key(name)] = name }
+        var parents = names
+        func registerParents(_ name: String) {
+            let parts = name.components(separatedBy: "::")
+            for count in 1...parts.count {
+                let prefix = parts.prefix(count).joined(separator: "::")
+                if parents[key(prefix)] == nil { parents[key(prefix)] = prefix }
+            }
+        }
+        for name in existing.sorted() { registerParents(name) }
+        var result: [String: String] = [:]
+        for raw in split(value) {
+            var parts = raw.components(separatedBy: "::").map { part in
+                let scalars = part.precomposedStringWithCanonicalMapping.unicodeScalars.filter {
+                    !($0.value < 32 || $0.value == 127 || $0 == " " || $0.value == 0x3000)
+                }
+                let trimmed = String(String.UnicodeScalarView(scalars)).trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? "blank" : trimmed
+            }
+            var name = parts.joined(separator: "::")
+            if let registered = names[key(name)] {
+                name = registered
+            } else {
+                if parts.count > 1 {
+                    for count in stride(from: parts.count - 1, through: 1, by: -1) {
+                        let prefix = parts.prefix(count).joined(separator: "::")
+                        if let parent = parents[key(prefix)] {
+                            parts = parent.components(separatedBy: "::") + Array(parts.dropFirst(count))
+                            name = parts.joined(separator: "::")
+                            break
+                        }
+                    }
+                }
+                names[key(name)] = name
+                registerParents(name)
+            }
+            if result[key(name)] == nil { result[key(name)] = name }
+        }
+        return result.values.sorted { key($0) < key($1) }
+    }
+
+    static func join(_ values: [String]) -> String {
+        values.isEmpty ? "" : " \(values.joined(separator: " ")) "
+    }
+
+    static func replacingPrefix(_ tag: String, from prefix: String, to replacement: String) -> String? {
+        let parts = tag.components(separatedBy: "::")
+        let count = prefix.components(separatedBy: "::").count
+        guard parts.count >= count, key(parts.prefix(count).joined(separator: "::")) == key(prefix) else { return nil }
+        let suffix = parts.dropFirst(count).joined(separator: "::")
+        return replacement + (suffix.isEmpty ? "" : "::" + suffix)
     }
 }
 
@@ -72,8 +142,14 @@ struct AnkiDeck: Identifiable, Hashable, Sendable {
     var collapsed: Bool
     var browserCollapsed: Bool
     var desc: String
+    var markdownDescription: Bool = false
     var dyn: Int
     var conf: Int64
+    var desiredRetention: Double? = nil
+    var newLimit: Int? = nil
+    var reviewLimit: Int? = nil
+    var newLimitToday: AnkiDayLimit? = nil
+    var reviewLimitToday: AnkiDayLimit? = nil
     var extendNew: Int
     var extendRev: Int
     var newToday: [Int]
@@ -98,6 +174,7 @@ struct AnkiDeck: Identifiable, Hashable, Sendable {
     var searchTerms2: String? = nil
     var termLimit2: Int? = nil
     var searchOrder2: String? = nil
+    var other: [String: AnyCodable] = [:]
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
@@ -105,10 +182,16 @@ struct AnkiDeck: Identifiable, Hashable, Sendable {
 
     static func == (lhs: AnkiDeck, rhs: AnkiDeck) -> Bool {
         lhs.id == rhs.id && lhs.name == rhs.name && lhs.mod == rhs.mod && lhs.dyn == rhs.dyn
+            && lhs.desiredRetention == rhs.desiredRetention
+            && lhs.newLimit == rhs.newLimit && lhs.reviewLimit == rhs.reviewLimit
+            && lhs.newLimitToday == rhs.newLimitToday && lhs.reviewLimitToday == rhs.reviewLimitToday
     }
 
     var displayName: String {
-        name.split(separator: ":").last.map(String.init)?.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+        if id == 1, name.localizedCaseInsensitiveCompare("Default") == .orderedSame {
+            return "Padrão"
+        }
+        return name.split(separator: ":").last.map(String.init)?.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
             ?? name.components(separatedBy: "::").last
             ?? name
     }
@@ -126,7 +209,14 @@ struct AnkiDeck: Identifiable, Hashable, Sendable {
     var isFiltered: Bool { dyn == 1 }
 }
 
+struct AnkiDayLimit: Codable, Hashable, Sendable {
+    var limit: Int
+    var today: Int
+}
+
 struct AnkiField: Hashable, Codable, Sendable {
+    var id: Int64?
+    var tag: Int?
     var name: String
     var ord: Int
     var sticky: Bool
@@ -137,13 +227,27 @@ struct AnkiField: Hashable, Codable, Sendable {
     var plainText: Bool
     var collapsed: Bool
     var excludeFromSearch: Bool
+    var preventDeletion: Bool
+    var other: [String: AnyCodable]
 
-    enum CodingKeys: String, CodingKey {
-        case name, ord, sticky, rtl, font, size, description, plainText, collapsed, excludeFromSearch
+    static func normalizedName(_ name: String) -> String? {
+        let invalidCharacters = CharacterSet(charactersIn: ":{}\"")
+        let cleaned = String(name.unicodeScalars.filter { !invalidCharacters.contains($0) })
+        let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = String(trimmed.drop(while: { character in
+            character == "#" || character == "/" || character == "^" || character.isWhitespace
+        }))
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case id, tag, name, ord, sticky, rtl, font, size, description, plainText, collapsed, excludeFromSearch, preventDeletion
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(Int64.self, forKey: .id)
+        tag = try c.decodeIfPresent(Int.self, forKey: .tag)
         name = try c.decode(String.self, forKey: .name)
         ord = try c.decodeIfPresent(Int.self, forKey: .ord) ?? 0
         sticky = try c.decodeIfPresent(Bool.self, forKey: .sticky) ?? false
@@ -154,10 +258,15 @@ struct AnkiField: Hashable, Codable, Sendable {
         plainText = try c.decodeIfPresent(Bool.self, forKey: .plainText) ?? false
         collapsed = try c.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false
         excludeFromSearch = try c.decodeIfPresent(Bool.self, forKey: .excludeFromSearch) ?? false
+        preventDeletion = try c.decodeIfPresent(Bool.self, forKey: .preventDeletion) ?? false
+        other = try decodeExtraFields(from: decoder, excluding: Set(CodingKeys.allCases.map(\.rawValue)))
     }
 
-    init(name: String, ord: Int, sticky: Bool = false, rtl: Bool = false, font: String = "Arial", size: Int = 20,
-         description: String = "", plainText: Bool = false, collapsed: Bool = false, excludeFromSearch: Bool = false) {
+    init(id: Int64? = nil, tag: Int? = nil, name: String, ord: Int, sticky: Bool = false, rtl: Bool = false, font: String = "Arial", size: Int = 20,
+         description: String = "", plainText: Bool = false, collapsed: Bool = false, excludeFromSearch: Bool = false, preventDeletion: Bool = false,
+         other: [String: AnyCodable] = [:]) {
+        self.id = id
+        self.tag = tag
         self.name = name
         self.ord = ord
         self.sticky = sticky
@@ -168,10 +277,14 @@ struct AnkiField: Hashable, Codable, Sendable {
         self.plainText = plainText
         self.collapsed = collapsed
         self.excludeFromSearch = excludeFromSearch
+        self.preventDeletion = preventDeletion
+        self.other = other
     }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(id, forKey: .id)
+        try c.encodeIfPresent(tag, forKey: .tag)
         try c.encode(name, forKey: .name)
         try c.encode(ord, forKey: .ord)
         try c.encode(sticky, forKey: .sticky)
@@ -182,10 +295,13 @@ struct AnkiField: Hashable, Codable, Sendable {
         try c.encode(plainText, forKey: .plainText)
         try c.encode(collapsed, forKey: .collapsed)
         try c.encode(excludeFromSearch, forKey: .excludeFromSearch)
+        try c.encode(preventDeletion, forKey: .preventDeletion)
+        try encodeExtraFields(other, to: encoder)
     }
 }
 
 struct AnkiTemplate: Hashable, Codable, Sendable {
+    var id: Int64?
     var name: String
     var ord: Int
     var qfmt: String
@@ -195,13 +311,15 @@ struct AnkiTemplate: Hashable, Codable, Sendable {
     var did: Int64?
     var bfont: String
     var bsize: Int
+    var other: [String: AnyCodable]
 
-    enum CodingKeys: String, CodingKey {
-        case name, ord, qfmt, afmt, bqfmt, bafmt, did, bfont, bsize
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case id, name, ord, qfmt, afmt, bqfmt, bafmt, did, bfont, bsize
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(Int64.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
         ord = try c.decodeIfPresent(Int.self, forKey: .ord) ?? 0
         qfmt = try c.decodeIfPresent(String.self, forKey: .qfmt) ?? ""
@@ -211,10 +329,12 @@ struct AnkiTemplate: Hashable, Codable, Sendable {
         did = try c.decodeIfPresent(Int64.self, forKey: .did)
         bfont = try c.decodeIfPresent(String.self, forKey: .bfont) ?? ""
         bsize = try c.decodeIfPresent(Int.self, forKey: .bsize) ?? 0
+        other = try decodeExtraFields(from: decoder, excluding: Set(CodingKeys.allCases.map(\.rawValue)))
     }
 
-    init(name: String, ord: Int, qfmt: String, afmt: String, bqfmt: String = "", bafmt: String = "",
-         did: Int64? = nil, bfont: String = "", bsize: Int = 0) {
+    init(id: Int64? = nil, name: String, ord: Int, qfmt: String, afmt: String, bqfmt: String = "", bafmt: String = "",
+         did: Int64? = nil, bfont: String = "", bsize: Int = 0, other: [String: AnyCodable] = [:]) {
+        self.id = id
         self.name = name
         self.ord = ord
         self.qfmt = qfmt
@@ -224,10 +344,12 @@ struct AnkiTemplate: Hashable, Codable, Sendable {
         self.did = did
         self.bfont = bfont
         self.bsize = bsize
+        self.other = other
     }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(id, forKey: .id)
         try c.encode(name, forKey: .name)
         try c.encode(ord, forKey: .ord)
         try c.encode(qfmt, forKey: .qfmt)
@@ -237,10 +359,22 @@ struct AnkiTemplate: Hashable, Codable, Sendable {
         try c.encodeIfPresent(did, forKey: .did)
         try c.encode(bfont, forKey: .bfont)
         try c.encode(bsize, forKey: .bsize)
+        try encodeExtraFields(other, to: encoder)
     }
 }
 
 struct AnkiNotetype: Identifiable, Hashable, Codable, Sendable {
+    static let defaultLatexPre = #"""
+    \documentclass[12pt]{article}
+    \special{papersize=3in,5in}
+    \usepackage[utf8]{inputenc}
+    \usepackage{amssymb,amsmath}
+    \pagestyle{empty}
+    \setlength{\parindent}{0in}
+    \begin{document}
+    """#
+    static let defaultLatexPost = #"\end{document}"#
+
     var id: Int64
     var name: String
     var type: Int
@@ -257,10 +391,26 @@ struct AnkiNotetype: Identifiable, Hashable, Codable, Sendable {
     var req: [[AnyCodable]]?
     var tags: [String]
     var vers: [Int]
+    var other: [String: AnyCodable]
 
     var isCloze: Bool { type == 1 }
 
-    enum CodingKeys: String, CodingKey {
+    mutating func assignMissingComponentIDs() {
+        var fieldIDs = Set(flds.compactMap(\.id))
+        for index in flds.indices where flds[index].id == nil {
+            var id = Int64.random(in: 1...Int64.max)
+            while !fieldIDs.insert(id).inserted { id = Int64.random(in: 1...Int64.max) }
+            flds[index].id = id
+        }
+        var templateIDs = Set(tmpls.compactMap(\.id))
+        for index in tmpls.indices where tmpls[index].id == nil {
+            var id = Int64.random(in: 1...Int64.max)
+            while !templateIDs.insert(id).inserted { id = Int64.random(in: 1...Int64.max) }
+            tmpls[index].id = id
+        }
+    }
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case id, name, type, mod, usn, sortf, did, tmpls, flds, css
         case latexPre, latexPost, latexsvg, req, tags, vers
     }
@@ -284,13 +434,14 @@ struct AnkiNotetype: Identifiable, Hashable, Codable, Sendable {
         tmpls = try c.decodeIfPresent([AnkiTemplate].self, forKey: .tmpls) ?? []
         flds = try c.decodeIfPresent([AnkiField].self, forKey: .flds) ?? []
         css = try c.decodeIfPresent(String.self, forKey: .css) ?? ""
-        latexPre = try c.decodeIfPresent(String.self, forKey: .latexPre) ?? ""
-        latexPost = try c.decodeIfPresent(String.self, forKey: .latexPost) ?? ""
+        latexPre = try c.decodeIfPresent(String.self, forKey: .latexPre) ?? Self.defaultLatexPre
+        latexPost = try c.decodeIfPresent(String.self, forKey: .latexPost) ?? Self.defaultLatexPost
         latexsvg = try c.decodeIfPresent(Bool.self, forKey: .latexsvg) ?? false
         // req is heterogeneous; never fail the whole notetype on it
         req = (try? c.decodeIfPresent([[AnyCodable]].self, forKey: .req)) ?? nil
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         vers = try c.decodeIfPresent([Int].self, forKey: .vers) ?? []
+        other = try decodeExtraFields(from: decoder, excluding: Set(CodingKeys.allCases.map(\.rawValue)))
     }
 
     func encode(to encoder: Encoder) throws {
@@ -308,14 +459,16 @@ struct AnkiNotetype: Identifiable, Hashable, Codable, Sendable {
         try c.encode(latexPre, forKey: .latexPre)
         try c.encode(latexPost, forKey: .latexPost)
         try c.encode(latexsvg, forKey: .latexsvg)
+        try c.encodeIfPresent(req, forKey: .req)
         try c.encode(tags, forKey: .tags)
         try c.encode(vers, forKey: .vers)
+        try encodeExtraFields(other, to: encoder)
     }
 
     init(id: Int64, name: String, type: Int = 0, mod: Int64 = 0, usn: Int = -1, sortf: Int = 0,
          did: Int64? = nil, tmpls: [AnkiTemplate], flds: [AnkiField], css: String = defaultCSS,
-         latexPre: String = "", latexPost: String = "", latexsvg: Bool = false,
-         req: [[AnyCodable]]? = nil, tags: [String] = [], vers: [Int] = []) {
+         latexPre: String = AnkiNotetype.defaultLatexPre, latexPost: String = AnkiNotetype.defaultLatexPost, latexsvg: Bool = false,
+         req: [[AnyCodable]]? = nil, tags: [String] = [], vers: [Int] = [], other: [String: AnyCodable] = [:]) {
         self.id = id
         self.name = name
         self.type = type
@@ -332,6 +485,7 @@ struct AnkiNotetype: Identifiable, Hashable, Codable, Sendable {
         self.req = req
         self.tags = tags
         self.vers = vers
+        self.other = other
     }
 
     static let defaultCSS = """
@@ -345,6 +499,96 @@ struct AnkiNotetype: Identifiable, Hashable, Codable, Sendable {
     """
 }
 
+enum NotetypeEditMapping {
+    static func transferNoteFieldValues(_ values: [String], from original: AnkiNotetype, to edited: AnkiNotetype) -> [String] {
+        let oldFields = original.flds.sorted { $0.ord < $1.ord }
+        let newFields = edited.flds.sorted { $0.ord < $1.ord }
+        var result = Array(repeating: "", count: (newFields.map(\.ord).max() ?? -1) + 1)
+        var copiedFieldNames = Set<String>()
+
+        for newField in newFields {
+            guard let oldField = oldFields.first(where: { $0.name == newField.name }),
+                  values.indices.contains(oldField.ord),
+                  !values[oldField.ord].isEmpty else { continue }
+            result[newField.ord] = values[oldField.ord]
+            copiedFieldNames.insert(newField.name)
+        }
+
+        var newIndex = 0
+        for oldField in oldFields {
+            while newIndex < newFields.count && copiedFieldNames.contains(newFields[newIndex].name) {
+                newIndex += 1
+            }
+            guard newIndex < newFields.count else { break }
+            guard !copiedFieldNames.contains(oldField.name), values.indices.contains(oldField.ord) else { continue }
+            let value = values[oldField.ord]
+            guard !value.isEmpty else { continue }
+            result[newFields[newIndex].ord] = value
+            newIndex += 1
+        }
+
+        return result
+    }
+
+    static func renamingFields(in template: String, names: [String: String], removed: Set<String> = []) -> String {
+        guard !names.isEmpty || !removed.isEmpty, let regex = try? NSRegularExpression(pattern: #"\{\{([^{}]+)\}\}"#) else { return template }
+        var result = template
+        for match in regex.matches(in: template, range: NSRange(template.startIndex..., in: template)).reversed() {
+            guard let tokenRange = Range(match.range(at: 1), in: template), let fullRange = Range(match.range, in: result) else { continue }
+            let token = template[tokenRange].trimmingCharacters(in: .whitespacesAndNewlines)
+            let prefix: String
+            let fieldName: String
+            if let first = token.first, "#^/".contains(first) {
+                prefix = String(first)
+                fieldName = String(token.dropFirst())
+            } else if let colon = token.lastIndex(of: ":") {
+                prefix = String(token[...colon])
+                fieldName = String(token[token.index(after: colon)...])
+            } else {
+                prefix = ""
+                fieldName = token
+            }
+            if removed.contains(fieldName) {
+                result.replaceSubrange(fullRange, with: "")
+            } else if let name = names[fieldName] {
+                result.replaceSubrange(fullRange, with: "{{\(prefix)\(name)}}")
+            }
+        }
+        return result
+    }
+
+    static func fields(from original: AnkiNotetype, to edited: AnkiNotetype) -> [Int: Int] {
+        sources(old: original.flds.map { ($0.id, $0.ord, $0.name) }, new: edited.flds.map { ($0.id, $0.ord, $0.name) })
+    }
+
+    static func templates(from original: AnkiNotetype, to edited: AnkiNotetype) -> [Int: Int] {
+        sources(old: original.tmpls.map { ($0.id, $0.ord, $0.name) }, new: edited.tmpls.map { ($0.id, $0.ord, $0.name) })
+    }
+
+    private static func sources(old: [(id: Int64?, ord: Int, name: String)], new: [(id: Int64?, ord: Int, name: String)]) -> [Int: Int] {
+        var result: [Int: Int] = [:]
+        var used = Set<Int>()
+        for item in new {
+            let source = old.first { candidate in
+                guard !used.contains(candidate.ord) else { return false }
+                if let id = item.id { return candidate.id == id }
+                return candidate.id == nil && candidate.name == item.name
+            }
+            if let source {
+                result[item.ord] = source.ord
+                used.insert(source.ord)
+            }
+        }
+        for item in new where item.id == nil && result[item.ord] == nil {
+            if let source = old.first(where: { $0.id == nil && $0.ord == item.ord && !used.contains($0.ord) }) {
+                result[item.ord] = source.ord
+                used.insert(source.ord)
+            }
+        }
+        return result
+    }
+}
+
 struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
     var id: Int64
     var name: String
@@ -353,6 +597,7 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
     var maxTaken: Int
     var autoplay: Bool
     var timer: Int
+    var stopTimerOnAnswer: Bool
     var replayq: Bool
     var new: NewConfig
     var rev: RevConfig
@@ -366,12 +611,24 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
     var newGatherPriority: Int
     var buryInterdayLearning: Bool
     var fsrsWeights: [Double]?
+    var fsrsParams5: [Double]?
+    var fsrsParams6: [Double]?
     var desiredRetention: Double?
+    var historicalRetention: Double
     var ignoreRevlogsBeforeDate: String?
-    /// When true, new cards are not capped by the remaining review limit.
-    var newIgnoreRevLimit: Bool
+    var paramSearch: String?
+    var secondsToShowQuestion: Double
+    var secondsToShowAnswer: Double
+    var questionAction: Int
+    var answerAction: Int
+    var waitForAudio: Bool
     /// Monday…Sunday. 1 normal, 0.5 reduced, 0 minimum. Empty means every day is normal.
     var easyDayPercents: [Double]
+    var other: [String: AnyCodable] = [:]
+
+    var activeFSRSWeights: [Double]? {
+        fsrsParams6 ?? fsrsParams5 ?? fsrsWeights
+    }
 
     struct NewConfig: Hashable, Codable, Sendable {
         var delays: [Double]
@@ -380,8 +637,9 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
         var order: Int
         var perDay: Int
         var bury: Bool
+        var other: [String: AnyCodable] = [:]
 
-        enum CodingKeys: String, CodingKey {
+        enum CodingKeys: String, CodingKey, CaseIterable {
             case delays, ints, initialFactor, order, perDay, bury
         }
 
@@ -393,6 +651,7 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
             order = try c.decodeIfPresent(Int.self, forKey: .order) ?? 1
             perDay = try c.decodeIfPresent(Int.self, forKey: .perDay) ?? 20
             bury = try c.decodeIfPresent(Bool.self, forKey: .bury) ?? false
+            other = try decodeExtraFields(from: decoder, excluding: Set(CodingKeys.allCases.map(\.rawValue)))
         }
 
         init(delays: [Double] = [1, 10], ints: [Int] = [1, 4], initialFactor: Int = 2500,
@@ -413,6 +672,7 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
             try c.encode(order, forKey: .order)
             try c.encode(perDay, forKey: .perDay)
             try c.encode(bury, forKey: .bury)
+            try encodeExtraFields(other, to: encoder)
         }
     }
 
@@ -425,6 +685,7 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
         var maxIvl: Int
         var bury: Bool
         var hardFactor: Double
+        var other: [String: AnyCodable] = [:]
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -436,9 +697,10 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
             maxIvl = try c.decodeIfPresent(Int.self, forKey: .maxIvl) ?? 36500
             bury = try c.decodeIfPresent(Bool.self, forKey: .bury) ?? false
             hardFactor = try c.decodeIfPresent(Double.self, forKey: .hardFactor) ?? 1.2
+            other = try decodeExtraFields(from: decoder, excluding: Set(CodingKeys.allCases.map(\.rawValue)))
         }
 
-        enum CodingKeys: String, CodingKey {
+        enum CodingKeys: String, CodingKey, CaseIterable {
             case perDay, ease4, fuzz, minSpace, ivlFct, maxIvl, bury, hardFactor
         }
 
@@ -464,6 +726,7 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
             try c.encode(maxIvl, forKey: .maxIvl)
             try c.encode(bury, forKey: .bury)
             try c.encode(hardFactor, forKey: .hardFactor)
+            try encodeExtraFields(other, to: encoder)
         }
     }
 
@@ -473,6 +736,7 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
         var minInt: Int
         var leechFails: Int
         var leechAction: Int
+        var other: [String: AnyCodable] = [:]
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -481,9 +745,10 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
             minInt = try c.decodeIfPresent(Int.self, forKey: .minInt) ?? 1
             leechFails = try c.decodeIfPresent(Int.self, forKey: .leechFails) ?? 8
             leechAction = try c.decodeIfPresent(Int.self, forKey: .leechAction) ?? 0
+            other = try decodeExtraFields(from: decoder, excluding: Set(CodingKeys.allCases.map(\.rawValue)))
         }
 
-        enum CodingKeys: String, CodingKey {
+        enum CodingKeys: String, CodingKey, CaseIterable {
             case delays, mult, minInt, leechFails, leechAction
         }
 
@@ -502,6 +767,7 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
             try c.encode(minInt, forKey: .minInt)
             try c.encode(leechFails, forKey: .leechFails)
             try c.encode(leechAction, forKey: .leechAction)
+            try encodeExtraFields(other, to: encoder)
         }
     }
 
@@ -514,6 +780,7 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
             maxTaken: 60,
             autoplay: true,
             timer: 0,
+            stopTimerOnAnswer: false,
             replayq: true,
             new: .init(),
             rev: .init(),
@@ -528,16 +795,24 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
             buryInterdayLearning: false,
             fsrsWeights: nil,
             desiredRetention: 0.9,
+            historicalRetention: 0.9,
             ignoreRevlogsBeforeDate: nil,
-            newIgnoreRevLimit: false,
+            secondsToShowQuestion: 0,
+            secondsToShowAnswer: 0,
+            questionAction: 0,
+            answerAction: 0,
+            waitForAudio: true,
+            fsrsParams5: nil,
+            fsrsParams6: nil,
             easyDayPercents: []
         )
     }
 
-    enum CodingKeys: String, CodingKey {
-        case id, name, mod, usn, maxTaken, autoplay, timer, replayq, new, rev, lapse, dyn
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case id, name, mod, usn, maxTaken, autoplay, timer, stopTimerOnAnswer, replayq, new, rev, lapse, dyn
         case newMix, newPerDayMinimum, interdayLearningMix, reviewOrder, newSortOrder, newGatherPriority
-        case buryInterdayLearning, fsrsWeights, desiredRetention, ignoreRevlogsBeforeDate, newIgnoreRevLimit, easyDayPercents
+        case buryInterdayLearning, fsrsWeights, fsrsParams5, fsrsParams6, desiredRetention, historicalRetention, ignoreRevlogsBeforeDate, paramSearch
+        case secondsToShowQuestion, secondsToShowAnswer, questionAction, answerAction, waitForAudio, easyDayPercents
     }
 
     init(from decoder: Decoder) throws {
@@ -555,6 +830,7 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
         maxTaken = try c.decodeIfPresent(Int.self, forKey: .maxTaken) ?? 60
         autoplay = try c.decodeIfPresent(Bool.self, forKey: .autoplay) ?? true
         timer = try c.decodeIfPresent(Int.self, forKey: .timer) ?? 0
+        stopTimerOnAnswer = try c.decodeIfPresent(Bool.self, forKey: .stopTimerOnAnswer) ?? false
         replayq = try c.decodeIfPresent(Bool.self, forKey: .replayq) ?? true
         new = try c.decodeIfPresent(NewConfig.self, forKey: .new) ?? .init()
         rev = try c.decodeIfPresent(RevConfig.self, forKey: .rev) ?? .init()
@@ -568,17 +844,29 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
         newGatherPriority = try c.decodeIfPresent(Int.self, forKey: .newGatherPriority) ?? 0
         buryInterdayLearning = try c.decodeIfPresent(Bool.self, forKey: .buryInterdayLearning) ?? false
         fsrsWeights = try c.decodeIfPresent([Double].self, forKey: .fsrsWeights)
+        fsrsParams5 = try c.decodeIfPresent([Double].self, forKey: .fsrsParams5)
+        fsrsParams6 = try c.decodeIfPresent([Double].self, forKey: .fsrsParams6)
         desiredRetention = try c.decodeIfPresent(Double.self, forKey: .desiredRetention)
+        historicalRetention = try c.decodeIfPresent(Double.self, forKey: .historicalRetention) ?? 0.9
         ignoreRevlogsBeforeDate = try c.decodeIfPresent(String.self, forKey: .ignoreRevlogsBeforeDate)
-        newIgnoreRevLimit = try c.decodeIfPresent(Bool.self, forKey: .newIgnoreRevLimit) ?? false
+        paramSearch = try c.decodeIfPresent(String.self, forKey: .paramSearch)
+        secondsToShowQuestion = try c.decodeIfPresent(Double.self, forKey: .secondsToShowQuestion) ?? 0
+        secondsToShowAnswer = try c.decodeIfPresent(Double.self, forKey: .secondsToShowAnswer) ?? 0
+        questionAction = try c.decodeIfPresent(Int.self, forKey: .questionAction) ?? 0
+        answerAction = try c.decodeIfPresent(Int.self, forKey: .answerAction) ?? 0
+        waitForAudio = try c.decodeIfPresent(Bool.self, forKey: .waitForAudio) ?? true
         easyDayPercents = try c.decodeIfPresent([Double].self, forKey: .easyDayPercents) ?? []
+        other = try decodeExtraFields(from: decoder, excluding: Set(CodingKeys.allCases.map(\.rawValue)))
     }
 
-    init(id: Int64, name: String, mod: Int64, usn: Int, maxTaken: Int, autoplay: Bool, timer: Int, replayq: Bool,
+    init(id: Int64, name: String, mod: Int64, usn: Int, maxTaken: Int, autoplay: Bool, timer: Int, stopTimerOnAnswer: Bool = false, replayq: Bool,
          new: NewConfig, rev: RevConfig, lapse: LapseConfig, dyn: Bool, newMix: Int, newPerDayMinimum: Int,
          interdayLearningMix: Int, reviewOrder: Int, newSortOrder: Int, newGatherPriority: Int,
-         buryInterdayLearning: Bool, fsrsWeights: [Double]?, desiredRetention: Double?, ignoreRevlogsBeforeDate: String?,
-         newIgnoreRevLimit: Bool = false, easyDayPercents: [Double] = []) {
+         buryInterdayLearning: Bool, fsrsWeights: [Double]?, desiredRetention: Double?, historicalRetention: Double = 0.9, ignoreRevlogsBeforeDate: String?,
+         paramSearch: String? = nil, secondsToShowQuestion: Double = 0, secondsToShowAnswer: Double = 0,
+         questionAction: Int = 0, answerAction: Int = 0, waitForAudio: Bool = true,
+         fsrsParams5: [Double]? = nil, fsrsParams6: [Double]? = nil,
+         easyDayPercents: [Double] = [], other: [String: AnyCodable] = [:]) {
         self.id = id
         self.name = name
         self.mod = mod
@@ -586,6 +874,7 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
         self.maxTaken = maxTaken
         self.autoplay = autoplay
         self.timer = timer
+        self.stopTimerOnAnswer = stopTimerOnAnswer
         self.replayq = replayq
         self.new = new
         self.rev = rev
@@ -599,10 +888,19 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
         self.newGatherPriority = newGatherPriority
         self.buryInterdayLearning = buryInterdayLearning
         self.fsrsWeights = fsrsWeights
+        self.fsrsParams5 = fsrsParams5
+        self.fsrsParams6 = fsrsParams6
         self.desiredRetention = desiredRetention
+        self.historicalRetention = historicalRetention
         self.ignoreRevlogsBeforeDate = ignoreRevlogsBeforeDate
-        self.newIgnoreRevLimit = newIgnoreRevLimit
+        self.paramSearch = paramSearch
+        self.secondsToShowQuestion = secondsToShowQuestion
+        self.secondsToShowAnswer = secondsToShowAnswer
+        self.questionAction = questionAction
+        self.answerAction = answerAction
+        self.waitForAudio = waitForAudio
         self.easyDayPercents = easyDayPercents
+        self.other = other
     }
 
     func encode(to encoder: Encoder) throws {
@@ -614,6 +912,7 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
         try c.encode(maxTaken, forKey: .maxTaken)
         try c.encode(autoplay, forKey: .autoplay)
         try c.encode(timer, forKey: .timer)
+        try c.encode(stopTimerOnAnswer, forKey: .stopTimerOnAnswer)
         try c.encode(replayq, forKey: .replayq)
         try c.encode(new, forKey: .new)
         try c.encode(rev, forKey: .rev)
@@ -627,10 +926,19 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
         try c.encode(newGatherPriority, forKey: .newGatherPriority)
         try c.encode(buryInterdayLearning, forKey: .buryInterdayLearning)
         try c.encodeIfPresent(fsrsWeights, forKey: .fsrsWeights)
+        try c.encodeIfPresent(fsrsParams5, forKey: .fsrsParams5)
+        try c.encodeIfPresent(fsrsParams6, forKey: .fsrsParams6)
         try c.encodeIfPresent(desiredRetention, forKey: .desiredRetention)
+        try c.encode(historicalRetention, forKey: .historicalRetention)
         try c.encodeIfPresent(ignoreRevlogsBeforeDate, forKey: .ignoreRevlogsBeforeDate)
-        try c.encode(newIgnoreRevLimit, forKey: .newIgnoreRevLimit)
+        try c.encodeIfPresent(paramSearch, forKey: .paramSearch)
+        try c.encode(secondsToShowQuestion, forKey: .secondsToShowQuestion)
+        try c.encode(secondsToShowAnswer, forKey: .secondsToShowAnswer)
+        try c.encode(questionAction, forKey: .questionAction)
+        try c.encode(answerAction, forKey: .answerAction)
+        try c.encode(waitForAudio, forKey: .waitForAudio)
         try c.encode(easyDayPercents, forKey: .easyDayPercents)
+        try encodeExtraFields(other, to: encoder)
     }
 }
 
@@ -693,6 +1001,38 @@ struct AnyCodable: Codable, Hashable, @unchecked Sendable {
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(String(describing: value))
+    }
+}
+
+private struct AnyCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        intValue = nil
+    }
+
+    init?(intValue: Int) {
+        stringValue = String(intValue)
+        self.intValue = intValue
+    }
+}
+
+private func decodeExtraFields(from decoder: Decoder, excluding knownKeys: Set<String>) throws -> [String: AnyCodable] {
+    let container = try decoder.container(keyedBy: AnyCodingKey.self)
+    var fields: [String: AnyCodable] = [:]
+    for key in container.allKeys where !knownKeys.contains(key.stringValue) {
+        fields[key.stringValue] = try container.decode(AnyCodable.self, forKey: key)
+    }
+    return fields
+}
+
+private func encodeExtraFields(_ fields: [String: AnyCodable], to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: AnyCodingKey.self)
+    for (key, value) in fields {
+        guard let codingKey = AnyCodingKey(stringValue: key) else { continue }
+        try container.encode(value, forKey: codingKey)
     }
 }
 

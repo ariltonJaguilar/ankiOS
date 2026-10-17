@@ -1,0 +1,8 @@
+/Users/ariltonaguilar/Desktop/Projetos/Anki/DeckExample/AnkiOS/AnkiOS/AnkiBackendBridge/target/debug/deps/compression_core-0246919f751e7198.d: /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/compression-core-0.4.33/src/lib.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/compression-core-0.4.33/src/level.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/compression-core-0.4.33/src/unshared.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/compression-core-0.4.33/src/util.rs
+
+/Users/ariltonaguilar/Desktop/Projetos/Anki/DeckExample/AnkiOS/AnkiOS/AnkiBackendBridge/target/debug/deps/libcompression_core-0246919f751e7198.rmeta: /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/compression-core-0.4.33/src/lib.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/compression-core-0.4.33/src/level.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/compression-core-0.4.33/src/unshared.rs /Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/compression-core-0.4.33/src/util.rs
+
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/compression-core-0.4.33/src/lib.rs:
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/compression-core-0.4.33/src/level.rs:
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/compression-core-0.4.33/src/unshared.rs:
+/Users/ariltonaguilar/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/compression-core-0.4.33/src/util.rs:

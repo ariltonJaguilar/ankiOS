@@ -2,10 +2,13 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct DecksHomeView: View {
+    @Binding var studyRequested: Bool
     @EnvironmentObject private var store: CollectionStore
     @State private var path = NavigationPath()
     @State private var showImport = false
     @State private var showCSVImport = false
+    @State private var pendingCSVName: String?
+    @State private var pendingCSVText: String?
     @State private var showNewDeck = false
     @State private var newDeckName = ""
     @State private var renameTarget: AnkiDeck?
@@ -17,6 +20,19 @@ struct DecksHomeView: View {
     @State private var exportDeck: AnkiDeck?
     @State private var exportURL: URL?
     @State private var newDeckParent: AnkiDeck?
+    @State private var deleteTarget: AnkiDeck?
+    @State private var pendingCollectionPackage: URL?
+    @State private var pendingCollectionPackageScoped = false
+    @State private var showRestoreCollectionConfirm = false
+    @State private var restoringCollectionPackage = false
+    @State private var pendingDeckPackage: URL?
+    @State private var pendingDeckPackageScoped = false
+    @State private var showDeckImportOptions = false
+    @State private var importingDeckPackage = false
+
+    init(studyRequested: Binding<Bool> = .constant(false)) {
+        _studyRequested = studyRequested
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -31,12 +47,12 @@ struct DecksHomeView: View {
                             onStudy: { studyDeck = $0 },
                             onRename: {
                                 renameTarget = $0
-                                renameText = $0.displayName
+                                renameText = $0.name
                             },
                             onOptions: { optionsDeck = $0 },
                             onCustomStudy: { customStudyDeck = $0 },
                             onExport: { exportDeck($0) },
-                            onDelete: { try? store.deleteDeck($0) },
+                            onDelete: { deleteTarget = $0 },
                             onAddSubdeck: { parent in
                                 newDeckName = ""
                                 renameTarget = nil
@@ -53,26 +69,42 @@ struct DecksHomeView: View {
             .navigationBarTitleDisplayMode(.large)
             #endif
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        Task { await store.syncWithICloud() }
+                #if os(macOS)
+                let syncPlacement: ToolbarItemPlacement = .navigation
+                #else
+                let syncPlacement: ToolbarItemPlacement = .topBarLeading
+                #endif
+                ToolbarItem(placement: syncPlacement) {
+                    Menu {
+                        #if !ANKIOS_PARITY_HARNESS
+                        Button("Sincronizar com AnkiWeb", systemImage: "arrow.triangle.2.circlepath") {
+                            Task { await store.syncWithAnkiWeb() }
+                        }
+                        Divider()
+                        #endif
+                        Button("Sincronizar com iCloud", systemImage: "icloud") {
+                            Task { await store.syncWithICloud() }
+                        }
                     } label: {
-                        Image(systemName: store.iCloudSyncing ? "arrow.triangle.2.circlepath" : "icloud")
+                        Image(systemName: "arrow.triangle.2.circlepath")
                     }
-                    .disabled(store.iCloudSyncing)
-                    .accessibilityLabel(store.iCloudSyncing ? "Sincronizando" : "Sincronizar com iCloud")
+                    .disabled(store.collectionSyncing)
+                    .accessibilityLabel(store.collectionSyncing ? "Sincronizando" : "Opções de sincronização")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        Button("Importar .apkg", systemImage: "square.and.arrow.down") { showImport = true }
+                        Button("Importar coleção…", systemImage: "square.and.arrow.down") { showImport = true }
                         Button("Importar CSV", systemImage: "tablecells") { showCSVImport = true }
                         Button("Novo baralho", systemImage: "folder.badge.plus") {
                             newDeckParent = nil
                             showNewDeck = true
                         }
                         Button("Baralho filtrado", systemImage: "line.3.horizontal.decrease.circle") {
-                            if let created = try? store.createFilteredDeck() {
+                            do {
+                                let created = try store.createFilteredDeck()
                                 optionsDeck = created
+                            } catch {
+                                store.lastError = error.localizedDescription
                             }
                         }
                         Button("Adicionar nota", systemImage: "plus.circle") {
@@ -91,7 +123,7 @@ struct DecksHomeView: View {
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .glassMenuToolbar(prominent: true)
+                    .accessibilityLabel("Ações dos baralhos")
                 }
             }
             .navigationDestination(for: EditorRoute.self) { route in
@@ -107,32 +139,32 @@ struct DecksHomeView: View {
         }
         .fileImporter(
             isPresented: $showImport,
-            allowedContentTypes: [.ankiApkg, .ankiColpkg, .archive, .data],
+            allowedContentTypes: [.ankiApkg, .ankiColpkg, .mnemosyneDB, .archive, .data],
             allowsMultipleSelection: false
         ) { result in
-            Task {
-                do {
-                    guard let url = try result.get().first else { return }
-                    let scoped = url.startAccessingSecurityScopedResource()
-                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                    let msg = try await ApkgImporter(store: store).importPackage(at: url)
-                    store.lastError = msg
-                } catch {
-                    store.lastError = error.localizedDescription
-                }
+            do {
+                guard let url = try result.get().first else { return }
+                receivePackage(at: url)
+            } catch {
+                store.lastError = error.localizedDescription
             }
         }
         .fileImporter(isPresented: $showCSVImport, allowedContentTypes: [.commaSeparatedText, .plainText, .text, .data], allowsMultipleSelection: false) { result in
-            Task {
-                do {
-                    guard let url = try result.get().first else { return }
-                    let scoped = url.startAccessingSecurityScopedResource()
-                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                    let n = try CSVImporter(store: store).importFile(at: url)
-                    store.lastError = "CSV: \(n) nota(s) importada(s)."
-                } catch {
-                    store.lastError = error.localizedDescription
-                }
+            do {
+                guard let url = try result.get().first else { return }
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                let importedText = try String(contentsOf: url, encoding: .utf8)
+                pendingCSVName = url.lastPathComponent
+                pendingCSVText = importedText
+            } catch {
+                store.lastError = error.localizedDescription
+            }
+        }
+        .sheet(isPresented: Binding(get: { pendingCSVText != nil }, set: { if !$0 { pendingCSVText = nil; pendingCSVName = nil } })) {
+            if let pendingCSVText {
+                CSVImportReviewView(fileName: pendingCSVName ?? "Texto", text: pendingCSVText, store: store)
+                    .environmentObject(store)
             }
         }
         .sheet(item: $studyDeck) { deck in
@@ -152,11 +184,31 @@ struct DecksHomeView: View {
             CustomStudyView(deck: deck) { pendingSession = $0 }
                 .environmentObject(store)
         }
+        .sheet(isPresented: $showDeckImportOptions) {
+            ApkgImportOptionsSheet { withScheduling, withDeckConfigs, mergeNotetypes, updateNotes, updateNotetypes in
+                importingDeckPackage = true
+                showDeckImportOptions = false
+                Task {
+                    await importPendingDeckPackage(
+                        withScheduling: withScheduling,
+                        withDeckConfigs: withDeckConfigs,
+                        mergeNotetypes: mergeNotetypes,
+                        updateNotes: updateNotes,
+                        updateNotetypes: updateNotetypes
+                    )
+                }
+            }
+        }
         .alert("Novo baralho", isPresented: $showNewDeck) {
             TextField("Nome", text: $newDeckName)
             Button("Criar") {
-                try? store.createDeck(name: newDeckName, parent: newDeckParent)
-                newDeckParent = nil
+                guard !newDeckName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                do {
+                    try store.createDeck(name: newDeckName, parent: newDeckParent)
+                    newDeckParent = nil
+                } catch {
+                    store.lastError = error.localizedDescription
+                }
             }
             Button("Cancelar", role: .cancel) { newDeckParent = nil }
         }
@@ -167,30 +219,137 @@ struct DecksHomeView: View {
             TextField("Nome", text: $renameText)
             Button("Renomear") {
                 if let d = renameTarget {
-                    try? store.renameDeck(d, to: renameText)
+                    do { try store.renameDeck(d, to: renameText) }
+                    catch { store.lastError = error.localizedDescription }
                 }
                 renameTarget = nil
             }
             Button("Cancelar", role: .cancel) { renameTarget = nil }
+        }
+        .confirmationDialog(
+            deleteTarget.map { "Apagar \($0.displayName)?" } ?? "Apagar baralho?",
+            isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } }),
+            titleVisibility: .visible
+        ) {
+            if deleteTarget?.isFiltered == true {
+                Button("Apagar filtrado e devolver cartões") { deleteDeck(cardsToo: false) }
+            } else {
+                Button("Apagar baralho", role: .destructive) { deleteDeck(cardsToo: true) }
+            }
+            Button("Cancelar", role: .cancel) { deleteTarget = nil }
+        } message: {
+            Text(deleteTarget?.isFiltered == true
+                 ? "Os cartões voltam aos baralhos de origem."
+                 : "Os cartões dos subbaralhos também serão apagados.")
+        }
+        .confirmationDialog(
+            "Restaurar coleção do .colpkg?",
+            isPresented: $showRestoreCollectionConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Substituir coleção", role: .destructive) {
+                restoringCollectionPackage = true
+                Task {
+                    await restorePendingCollectionPackage()
+                    restoringCollectionPackage = false
+                }
+            }
+            Button("Cancelar", role: .cancel) {
+                showRestoreCollectionConfirm = false
+                releasePendingCollectionPackage()
+            }
+        } message: {
+            Text("A coleção atual será substituída. O app salvará um backup e manterá a mídia existente.")
+        }
+        .onChange(of: showRestoreCollectionConfirm) { _, isPresented in
+            if !isPresented && !restoringCollectionPackage {
+                releasePendingCollectionPackage()
+            }
+        }
+        .onChange(of: showDeckImportOptions) { _, isPresented in
+            if !isPresented && !importingDeckPackage {
+                releasePendingDeckPackage()
+            }
         }
         .sheet(isPresented: Binding(get: { exportURL != nil }, set: { if !$0 { exportURL = nil } })) {
             if let exportURL {
                 ShareSheet(items: [exportURL])
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ankiTriggerStudyMain)) { _ in
-            if let main = store.recommendedStudyDeck {
-                studyDeck = main
-            } else if let first = rootDecks.first(where: { $0.name != "Default" }) ?? rootDecks.first {
-                studyDeck = first
+        .onAppear(perform: consumeStudyRequest)
+        .onChange(of: studyRequested) { _, _ in consumeStudyRequest() }
+        .onChange(of: store.isBootstrapping) { _, _ in consumeStudyRequest() }
+        .onChange(of: store.collectionSyncing) { _, _ in consumeStudyRequest() }
+        .onChange(of: store.pendingPackageImport) { _, url in
+            guard let url else { return }
+            store.pendingPackageImport = nil
+            receivePackage(at: url)
+        }
+    }
+
+    private func consumeStudyRequest() {
+        guard studyRequested, !store.isBootstrapping, !store.collectionSyncing else { return }
+        studyRequested = false
+        studyDeck = store.currentDeckID().flatMap { store.deck(id: $0) }
+            ?? store.recommendedStudyDeck
+            ?? rootDecks.first(where: { $0.name != "Default" })
+            ?? rootDecks.first
+    }
+
+    private func receivePackage(at url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        if url.pathExtension.lowercased() == "colpkg" {
+            pendingCollectionPackage = url
+            pendingCollectionPackageScoped = scoped
+            showRestoreCollectionConfirm = true
+            return
+        }
+        if url.pathExtension.lowercased() == "db" {
+            Task {
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                do {
+                    store.lastError = try MnemosyneImporter(store: store).importFile(at: url)
+                } catch {
+                    store.lastError = error.localizedDescription
+                }
             }
+            return
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ankiTriggerImportApkg)) { _ in
-            showImport = true
+        pendingDeckPackage = url
+        pendingDeckPackageScoped = scoped
+        showDeckImportOptions = true
+    }
+
+    private func importPendingDeckPackage(
+        withScheduling: Bool,
+        withDeckConfigs: Bool,
+        mergeNotetypes: Bool,
+        updateNotes: PackageUpdateCondition,
+        updateNotetypes: PackageUpdateCondition
+    ) async {
+        guard let url = pendingDeckPackage else { return }
+        do {
+            store.lastError = try await ApkgImporter(store: store).importPackage(
+                at: url,
+                withScheduling: withScheduling,
+                withDeckConfigs: withDeckConfigs,
+                mergeNotetypes: mergeNotetypes,
+                updateNotes: updateNotes,
+                updateNotetypes: updateNotetypes
+            )
+        } catch {
+            store.lastError = error.localizedDescription
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ankiTriggerImportCSV)) { _ in
-            showCSVImport = true
+        importingDeckPackage = false
+        releasePendingDeckPackage()
+    }
+
+    private func releasePendingDeckPackage() {
+        if pendingDeckPackageScoped, let pendingDeckPackage {
+            pendingDeckPackage.stopAccessingSecurityScopedResource()
         }
+        pendingDeckPackage = nil
+        pendingDeckPackageScoped = false
     }
 
     private var header: some View {
@@ -271,7 +430,36 @@ struct DecksHomeView: View {
         for i in decks.indices {
             decks[i].collapsed = collapsed
         }
-        try? store.saveDecks(decks)
+        do { try store.saveDecks(decks) }
+        catch { store.lastError = error.localizedDescription }
+    }
+
+    private func deleteDeck(cardsToo: Bool) {
+        guard let deck = deleteTarget else { return }
+        do {
+            try store.deleteDeck(deck, cardsToo: cardsToo)
+        } catch {
+            store.lastError = error.localizedDescription
+        }
+        deleteTarget = nil
+    }
+
+    private func restorePendingCollectionPackage() async {
+        guard let url = pendingCollectionPackage else { return }
+        do {
+            store.lastError = try await ApkgImporter(store: store).importPackage(at: url)
+        } catch {
+            store.lastError = error.localizedDescription
+        }
+        releasePendingCollectionPackage()
+    }
+
+    private func releasePendingCollectionPackage() {
+        if pendingCollectionPackageScoped, let pendingCollectionPackage {
+            pendingCollectionPackage.stopAccessingSecurityScopedResource()
+        }
+        pendingCollectionPackage = nil
+        pendingCollectionPackageScoped = false
     }
 }
 

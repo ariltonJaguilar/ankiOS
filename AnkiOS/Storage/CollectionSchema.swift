@@ -26,7 +26,7 @@ enum CollectionSchema {
       usn integer not null,
       tags text not null,
       flds text not null,
-      sfld text not null,
+      sfld integer not null,
       csum integer not null,
       flags integer not null,
       data text not null
@@ -72,6 +72,7 @@ enum CollectionSchema {
     );
 
     CREATE INDEX IF NOT EXISTS ix_notes_mid ON notes (mid);
+    CREATE INDEX IF NOT EXISTS ix_notes_csum ON notes (csum);
     CREATE INDEX IF NOT EXISTS ix_cards_nid ON cards (nid);
     CREATE INDEX IF NOT EXISTS ix_cards_sched ON cards (did, queue, due);
     CREATE INDEX IF NOT EXISTS ix_cards_usn ON cards (usn);
@@ -79,6 +80,52 @@ enum CollectionSchema {
     CREATE INDEX IF NOT EXISTS ix_revlog_cid ON revlog (cid);
     CREATE INDEX IF NOT EXISTS ix_revlog_usn ON revlog (usn);
     """
+
+    static func migrateSortFieldAffinity(in db: SQLiteDatabase) throws {
+        var affinity: String?
+        try db.query("PRAGMA table_info(notes)") { statement in
+            if SQLiteDatabase.text(statement, 1) == "sfld" {
+                affinity = SQLiteDatabase.text(statement, 2).uppercased()
+            }
+        }
+        guard let affinity, affinity != "INTEGER" else { return }
+
+        var schemaObjects: [String] = []
+        try db.query("""
+            SELECT sql FROM sqlite_master
+            WHERE tbl_name = 'notes' AND type IN ('index', 'trigger') AND sql IS NOT NULL
+            ORDER BY type, name
+        """) { statement in
+            schemaObjects.append(SQLiteDatabase.text(statement, 0))
+        }
+
+        try db.exec("BEGIN IMMEDIATE;")
+        do {
+            try db.exec("""
+                ALTER TABLE notes RENAME TO notes_sortfield_migration;
+                CREATE TABLE notes (
+                  id integer primary key,
+                  guid text not null,
+                  mid integer not null,
+                  mod integer not null,
+                  usn integer not null,
+                  tags text not null,
+                  flds text not null,
+                  sfld integer not null,
+                  csum integer not null,
+                  flags integer not null,
+                  data text not null
+                );
+                INSERT INTO notes SELECT * FROM notes_sortfield_migration;
+                DROP TABLE notes_sortfield_migration;
+                """)
+            for sql in schemaObjects { try db.exec(sql) }
+            try db.exec("COMMIT;")
+        } catch {
+            try? db.exec("ROLLBACK;")
+            throw error
+        }
+    }
 
     static func emptyColJSON() -> (conf: String, models: String, decks: String, dconf: String, tags: String) {
         let now = Int64(Date().timeIntervalSince1970)
@@ -108,11 +155,11 @@ enum CollectionSchema {
             "timeLim": 0,
             "estTimes": true,
             "dueCounts": true,
-            "dayLearnFirst": false,
             "schedVer": 2,
-            "creationOffset": -180,
-            "rollday": 4,
-            "scheduler": "sm2"
+            "sched2021": true,
+            "nextPos": 1,
+            "creationOffset": -TimeZone.current.secondsFromGMT(for: Date()) / 60,
+            "rollover": 4
         ]
         let dconfObj = [
             "1": encodeJSONObject(defaultDconf(id: 1, now: now))
@@ -152,8 +199,8 @@ enum CollectionSchema {
                 ["name": "Back", "ord": 1, "sticky": false, "rtl": false, "font": "Arial", "size": 20, "description": "", "plainText": false, "collapsed": false, "excludeFromSearch": false]
             ],
             "css": AnkiNotetype.defaultCSS,
-            "latexPre": "",
-            "latexPost": "",
+            "latexPre": AnkiNotetype.defaultLatexPre,
+            "latexPost": AnkiNotetype.defaultLatexPost,
             "latexsvg": false,
             "tags": [],
             "vers": []
@@ -203,7 +250,8 @@ enum CollectionSchema {
             "newSortOrder": 0,
             "newGatherPriority": 0,
             "buryInterdayLearning": false,
-            "desiredRetention": 0.9
+            "desiredRetention": 0.9,
+            "historicalRetention": 0.9
         ]
     }
 

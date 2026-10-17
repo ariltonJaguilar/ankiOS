@@ -14,13 +14,15 @@ struct DeckOverviewView: View {
     @State private var pendingSession: AnkiDeck?
     @State private var sessionDeck: AnkiDeck?
     @State private var congrats = DeckCongrats.empty
+    @State private var queuedCounts: StudyQueues.Counts?
 
     private var counts: DeckCounts {
         store.deckCounts[deck.id] ?? .init(new: 0, learn: 0, review: 0)
     }
 
-    private var isRecommended: Bool {
-        store.recommendedStudyDeck?.id == deck.id
+    private var studyCounts: DeckCounts {
+        guard let queuedCounts else { return counts }
+        return DeckCounts(new: queuedCounts.new, learn: queuedCounts.learning, review: queuedCounts.review)
     }
 
     private var liveDeck: AnkiDeck {
@@ -33,7 +35,7 @@ struct DeckOverviewView: View {
                 AppBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
-                        if counts.total == 0 {
+                        if studyCounts.total == 0 {
                             DeckFinishedMessage(
                                 deck: liveDeck,
                                 info: congrats,
@@ -43,14 +45,9 @@ struct DeckOverviewView: View {
                         } else {
                             GlassCard {
                                 VStack(alignment: .leading, spacing: 10) {
-                                    if isRecommended {
-                                        Text("SEU BARALHO PRINCIPAL")
-                                            .font(.caption.weight(.bold))
-                                            .foregroundStyle(AppTheme.accent)
-                                    }
                                     Text(liveDeck.displayName)
                                         .font(AppTheme.titleFont)
-                                        .foregroundStyle(.white)
+                                        .foregroundStyle(AppTheme.primaryText)
                                     if liveDeck.pathComponents.count > 1 {
                                         Text(liveDeck.name)
                                             .font(.caption)
@@ -70,37 +67,9 @@ struct DeckOverviewView: View {
 
                             GlassCard {
                                 VStack(spacing: 12) {
-                                    countRow("Novo", counts.new, AppTheme.easy)
-                                    countRow("Aprender", counts.learn, AppTheme.danger)
-                                    countRow("Revisar", counts.review, AppTheme.good)
-                                    if buriedInTree > 0 {
-                                        HStack(spacing: 10) {
-                                            Circle()
-                                                .fill(AppTheme.mist.opacity(0.55))
-                                                .frame(width: 10, height: 10)
-                                            Text("Ocultos")
-                                                .foregroundStyle(AppTheme.secondaryText)
-                                            Spacer()
-                                            Text("\(buriedInTree)")
-                                                .font(.title3.monospacedDigit().weight(.bold))
-                                                .foregroundStyle(AppTheme.mist)
-                                        }
-                                    }
-                                    Divider().opacity(0.3)
-                                    HStack {
-                                        Text("Total hoje")
-                                            .foregroundStyle(AppTheme.secondaryText)
-                                        Spacer()
-                                        Text("\(counts.total)")
-                                            .font(.title2.monospacedDigit().weight(.bold))
-                                    }
-                                    if store.conf["estTimes"] as? Bool ?? true, counts.total > 0 {
-                                        let seconds = counts.new * 20 + counts.learn * 15 + counts.review * 10
-                                        Text("≈ \(max(1, seconds / 60)) min estimados")
-                                            .font(.caption)
-                                            .foregroundStyle(AppTheme.secondaryText)
-                                            .frame(maxWidth: .infinity, alignment: .trailing)
-                                    }
+                                    countRow("Novo", studyCounts.new, counts.new - studyCounts.new, AppTheme.easy)
+                                    countRow("Aprender", studyCounts.learn, counts.learn - studyCounts.learn, AppTheme.danger)
+                                    countRow("Revisar", studyCounts.review, counts.review - studyCounts.review, AppTheme.good)
                                 }
                             }
 
@@ -118,8 +87,20 @@ struct DeckOverviewView: View {
                             onCustomStudy: { showCustom = true },
                             onDescription: { showDescEditor = true },
                             onUnbury: requestUnbury,
-                            onRebuild: { try? FilteredDeckSupport.rebuild(liveDeck, store: store) },
-                            onEmpty: { try? FilteredDeckSupport.empty(liveDeck, store: store) }
+                            onRebuild: {
+                                do {
+                                    try FilteredDeckSupport.rebuild(liveDeck, store: store)
+                                    reloadOverviewCounts()
+                                }
+                                catch { store.lastError = error.localizedDescription }
+                            },
+                            onEmpty: {
+                                do {
+                                    try FilteredDeckSupport.empty(liveDeck, store: store)
+                                    reloadOverviewCounts()
+                                }
+                                catch { store.lastError = error.localizedDescription }
+                            }
                         )
                     }
                     .padding()
@@ -135,7 +116,10 @@ struct DeckOverviewView: View {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 14)
             }
-            .sheet(isPresented: $showStudy) {
+            .sheet(isPresented: $showStudy, onDismiss: {
+                reloadOverviewCounts()
+                reloadCongrats()
+            }) {
                 StudyView(deck: deck).environmentObject(store)
             }
             .sheet(isPresented: $showCustom, onDismiss: {
@@ -143,6 +127,7 @@ struct DeckOverviewView: View {
                     pendingSession = nil
                     sessionDeck = pending
                 }
+                reloadOverviewCounts()
                 reloadCongrats()
             }) {
                 CustomStudyView(deck: liveDeck) { pendingSession = $0 }
@@ -151,14 +136,20 @@ struct DeckOverviewView: View {
             .sheet(item: $sessionDeck) { created in
                 DeckOverviewView(deck: created).environmentObject(store)
             }
-            .sheet(isPresented: $showOptions) {
+            .sheet(isPresented: $showOptions, onDismiss: reloadOverviewCounts) {
                 DeckOptionsView(deck: deck).environmentObject(store)
             }
             .onAppear {
                 store.setCurrentDeck(deck.id)
+                reloadOverviewCounts()
                 reloadCongrats()
             }
-            .onChange(of: store.deckCounts) { _, _ in reloadCongrats() }
+            .onChange(of: store.deckCounts) { _, _ in
+                reloadOverviewCounts()
+                reloadCongrats()
+            }
+            .onChange(of: store.decks) { _, _ in reloadOverviewCounts() }
+            .onChange(of: store.deckConfigs) { _, _ in reloadOverviewCounts() }
             .sheet(isPresented: $showDescEditor) {
                 DeckDescriptionEditor(deck: liveDeck).environmentObject(store)
             }
@@ -168,8 +159,10 @@ struct DeckOverviewView: View {
         }
     }
 
-    private var buriedInTree: Int {
-        (try? store.cardStateCounts(deckID: deck.id).buried) ?? 0
+    private func reloadOverviewCounts() {
+        if let counts = try? store.queuedStudyCards(for: deck.id, limit: 0).counts {
+            queuedCounts = counts
+        }
     }
 
     private func requestUnbury() {
@@ -182,7 +175,9 @@ struct DeckOverviewView: View {
     }
 
     private func performUnbury(_ queues: Set<Int>) {
-        try? store.unburyDeckTree(deckID: deck.id, queues: queues)
+        do { try store.unburyDeckTree(deckID: deck.id, queues: queues) }
+        catch { store.lastError = error.localizedDescription }
+        reloadOverviewCounts()
         reloadCongrats()
     }
 
@@ -190,19 +185,27 @@ struct DeckOverviewView: View {
         congrats = (try? store.congratsState(for: deck.id)) ?? .empty
     }
 
-    private func countRow(_ title: String, _ value: Int, _ color: Color) -> some View {
+    private func countRow(_ title: String, _ value: Int, _ difference: Int, _ color: Color) -> some View {
         HStack(spacing: 10) {
             Circle()
                 .fill(color)
                 .frame(width: 10, height: 10)
-                .shadow(color: color.opacity(0.7), radius: 4)
+                .ankiShadow(color: color.opacity(0.7), radius: 4)
             Text(title)
-                .foregroundStyle(.white.opacity(0.92))
+                .foregroundStyle(AppTheme.primaryText.opacity(0.92))
             Spacer()
-            Text("\(value)")
-                .font(.title3.monospacedDigit().weight(.bold))
-                .foregroundStyle(color)
-                .shadow(color: color.opacity(0.45), radius: 6)
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text("\(value)")
+                    .font(.title3.monospacedDigit().weight(.bold))
+                    .foregroundStyle(color)
+                    .ankiShadow(color: color.opacity(0.45), radius: 6)
+                if difference != 0 {
+                    Text(difference > 0 ? "+\(difference)" : "\(difference)")
+                        .font(.caption.monospacedDigit().weight(.medium))
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .help("Diferença entre os cartões agendados e os disponíveis para estudo.")
+                }
+            }
         }
     }
 }
@@ -218,50 +221,50 @@ struct DeckFinishedMessage: View {
         VStack(alignment: .leading, spacing: 22) {
             Text("Parabéns! Você terminou este baralho por enquanto.")
                 .font(.system(.largeTitle, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(AppTheme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
             if info.showsLearnMessage {
                 Text("\(learnDueSentence) \(learnRemainingSentence)")
                     .font(.body)
-                    .foregroundStyle(.white.opacity(0.92))
+                    .foregroundStyle(AppTheme.primaryText.opacity(0.92))
                     .fixedSize(horizontal: false, vertical: true)
             }
             if info.reviewRemaining {
                 Text("O limite de revisão de hoje foi alcançado, porém ainda existem cartões a serem revisados. Para melhorar sua memória, considere aumentar o limite diário nas opções.")
                     .font(.body)
-                    .foregroundStyle(.white.opacity(0.92))
+                    .foregroundStyle(AppTheme.primaryText.opacity(0.92))
                     .fixedSize(horizontal: false, vertical: true)
             }
             if info.newRemaining {
                 Text("Há mais novos cartões disponíveis, mas o limite diário foi atingido. Você pode aumentar o limite nas opções, porém, tenha em mente que quanto mais novos cartões você estudar, maior será sua carga de revisão a curto prazo.")
                     .font(.body)
-                    .foregroundStyle(.white.opacity(0.92))
+                    .foregroundStyle(AppTheme.primaryText.opacity(0.92))
                     .fixedSize(horizontal: false, vertical: true)
             }
             if info.buried {
                 Text("Um ou mais cartões foram ocultados, e serão mostrados amanhã. Você pode [mostrá-las](anki://unbury) caso queira vê-los imediatamente.")
                     .font(.body)
-                    .foregroundStyle(.white.opacity(0.92))
+                    .foregroundStyle(AppTheme.primaryText.opacity(0.92))
                     .tint(Self.link)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if !info.isFiltered {
                 Text("Se você deseja estudar fora do horário regular, você pode usar o recurso de [estudo personalizado](anki://custom-study).")
                     .font(.body)
-                    .foregroundStyle(.white.opacity(0.92))
+                    .foregroundStyle(AppTheme.primaryText.opacity(0.92))
                     .tint(Self.link)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if !deck.desc.isEmpty {
                 Text(deck.desc)
                     .font(.body)
-                    .foregroundStyle(.white.opacity(0.92))
+                    .foregroundStyle(AppTheme.primaryText.opacity(0.92))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
                     .overlay {
                         RoundedRectangle(cornerRadius: 12)
-                            .stroke(.white.opacity(0.18), lineWidth: 1)
+                            .stroke(AppTheme.primaryText.opacity(0.18), lineWidth: 1)
                     }
             }
         }
@@ -355,8 +358,8 @@ extension View {
     /// Anki's unbury prompt, shown only when both bury types are present.
     func unburyChoice(isPresented: Binding<Bool>, apply: @escaping (Set<Int>) -> Void) -> some View {
         confirmationDialog("O que você gostaria de desocultar?", isPresented: isPresented, titleVisibility: .visible) {
-            Button("Cartões Ocultados Manualmente") { apply([-3]) }
-            Button("Irmãos Enterrados") { apply([-2]) }
+            Button("Cartões Ocultados Manualmente") { apply([AnkiCard.Queue.manuallyBuried.rawValue]) }
+            Button("Irmãos Ocultados Automaticamente") { apply([AnkiCard.Queue.siblingBuried.rawValue]) }
             Button("Todos os Cartões Ocultos") { apply([-2, -3]) }
             Button("Cancelar", role: .cancel) {}
         }
@@ -381,9 +384,9 @@ struct DeckDescriptionEditor: View {
                 AppBackground()
                 TextEditor(text: $text)
                     .scrollContentBackground(.hidden)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(AppTheme.primaryText)
                     .padding(16)
-                    .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 16))
+                    .ankiGlass(tint: .white.opacity(0.08), interactive: true, in: RoundedRectangle(cornerRadius: 16))
                     .padding(20)
             }
             .navigationTitle("Descrição")
@@ -409,7 +412,11 @@ struct DeckDescriptionEditor: View {
         }
         next[idx].desc = text
         next[idx].mod = Int64(Date().timeIntervalSince1970)
-        try? store.saveDecks(next)
-        dismiss()
+        do {
+            try store.saveDecks(next)
+            dismiss()
+        } catch {
+            store.lastError = error.localizedDescription
+        }
     }
 }

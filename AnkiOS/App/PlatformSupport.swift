@@ -69,6 +69,24 @@ private struct ShareSheetMac: View {
 
 extension View {
     @ViewBuilder
+    func ankiKeyboardDismissToolbar() -> some View {
+        #if os(iOS)
+        toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Ocultar teclado", systemImage: "keyboard.chevron.compact.down") {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
+                .labelStyle(.iconOnly)
+                .tint(AppTheme.accent)
+            }
+        }
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
     func ankiKeyboardType(_ type: AnkiKeyboardType) -> some View {
         #if os(iOS)
         self.keyboardType(type.uiKit)

@@ -24,7 +24,7 @@ struct CustomStudyView: View {
                         if let title = availabilityTitle {
                             Text(title)
                                 .font(.headline)
-                                .foregroundStyle(.white)
+                                .foregroundStyle(AppTheme.primaryText)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
 
@@ -36,34 +36,42 @@ struct CustomStudyView: View {
                                     HStack(spacing: 12) {
                                         Image(systemName: mode == item ? "largecircle.fill.circle" : "circle")
                                             .font(.body.weight(.semibold))
-                                            .foregroundStyle(mode == item ? AppTheme.accent : .white.opacity(0.7))
+                                            .foregroundStyle(mode == item ? AppTheme.accent : AppTheme.primaryText.opacity(0.7))
                                         Text(item.title)
                                             .font(.body)
-                                            .foregroundStyle(.white)
+                                            .foregroundStyle(AppTheme.primaryText)
                                             .multilineTextAlignment(.leading)
                                         Spacer(minLength: 0)
                                     }
                                     .padding(.vertical, 4)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(GlassButtonStyle(tint: mode == item ? AppTheme.accent : .white, prominent: false, tintStrength: 0.16, expands: true))
                             }
                         }
                         .padding(16)
-                        .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 16))
 
                         GlassInset {
                             VStack(alignment: .leading, spacing: 10) {
                                 Text(mode.leadingText)
-                                    .foregroundStyle(.white.opacity(0.92))
+                                    .foregroundStyle(AppTheme.primaryText.opacity(0.92))
                                     .fixedSize(horizontal: false, vertical: true)
-                                Stepper(value: $amount, in: mode.range) {
-                                    Text("\(amount)")
+                                HStack(spacing: 10) {
+                                    TextField("0", value: amountBinding, format: .number.grouping(.never))
+                                        .textFieldStyle(.plain)
+                                        .multilineTextAlignment(.trailing)
                                         .font(.title3.monospacedDigit().weight(.semibold))
-                                        .foregroundStyle(.white)
-                                        .frame(minWidth: 64, alignment: .leading)
+                                        .foregroundStyle(AppTheme.primaryText)
+                                        .frame(width: 88)
+                                        #if os(iOS)
+                                        .keyboardType(.numbersAndPunctuation)
+                                        #endif
+                                        .glassField(cornerRadius: 10)
+                                    Stepper("", value: amountBinding, in: mode.range)
+                                        .labelsHidden()
+                                        .fixedSize()
                                 }
                                 Text(mode.trailingText(amount: amount))
-                                    .foregroundStyle(.white.opacity(0.92))
+                                    .foregroundStyle(AppTheme.primaryText.opacity(0.92))
                             }
                         }
 
@@ -75,7 +83,7 @@ struct CustomStudyView: View {
                                     } label: {
                                         HStack {
                                             Text(item.title)
-                                                .foregroundStyle(.white)
+                                                .foregroundStyle(AppTheme.primaryText)
                                                 .multilineTextAlignment(.leading)
                                             Spacer(minLength: 0)
                                             if cramKind == item {
@@ -86,11 +94,10 @@ struct CustomStudyView: View {
                                         .padding(.vertical, 8)
                                         .padding(.horizontal, 4)
                                     }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(GlassButtonStyle(tint: cramKind == item ? AppTheme.accent : .white, prominent: false, tintStrength: 0.16, expands: true))
                                 }
                             }
                             .padding(12)
-                            .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 16))
                         }
                     }
                     .padding(20)
@@ -112,8 +119,12 @@ struct CustomStudyView: View {
                 }
             }
             .onAppear {
-                availability = (try? store.customStudyAvailability(for: deck.id)) ?? .empty
-                select(.extendNew)
+                do {
+                    availability = try store.customStudyAvailability(for: deck.id)
+                    select(.extendNew)
+                } catch {
+                    failure = error.localizedDescription
+                }
             }
             .sheet(isPresented: $showTags) {
                 SelectiveStudyView(
@@ -149,46 +160,45 @@ struct CustomStudyView: View {
     private var availabilityTitle: String? {
         switch mode {
         case .extendNew:
-            if availability.newChildren > 0 {
-                "Novos cartões disponíveis: \(availability.newOwn) em subdecks"
-            } else {
-                "Novos cartões disponíveis: \(availability.newOwn)"
-            }
+            "Cartões novos disponíveis: \(countWithChildren(availability.newOwn, children: availability.newChildren))"
         case .extendRev:
-            "Cartões disponíveis para revisão:"
+            "Cartões de revisão disponíveis: \(countWithChildren(availability.reviewOwn, children: availability.reviewChildren))"
         default:
             nil
         }
     }
 
+    private func countWithChildren(_ own: Int, children: Int) -> String {
+        children > 0 ? "\(own) (\(children) em sub-baralhos)" : "\(own)"
+    }
+
+    private var amountBinding: Binding<Int> {
+        Binding(
+            get: { amount },
+            set: { amount = min(max($0, mode.range.lowerBound), mode.range.upperBound) }
+        )
+    }
+
+    /// Anki pre-fills the limit spinners with the deck's last `extendNew`/`extendRev`.
     private func select(_ item: CustomStudyMode) {
         mode = item
-        let fallback: Int
-        let key: String?
+        let live = store.deck(id: deck.id) ?? deck
+        let value: Int
         switch item {
-        case .extendNew:
-            fallback = 0
-            key = "ankios.cs.new.\(deck.id)"
-        case .extendRev:
-            fallback = 0
-            key = "ankios.cs.rev.\(deck.id)"
-        case .forgot, .ahead, .preview:
-            fallback = 1
-            key = nil
-        case .cram:
-            fallback = 100
-            key = nil
+        case .extendNew: value = live.extendNew
+        case .extendRev: value = live.extendRev
+        case .forgot, .ahead, .preview: value = 1
+        case .cram: value = 100
         }
-        let remembered = key.flatMap { confInt($0) } ?? fallback
-        amount = min(max(remembered, item.range.lowerBound), item.range.upperBound)
+        amount = min(max(value, item.range.lowerBound), item.range.upperBound)
     }
 
     private func accept() {
         switch mode {
         case .extendNew:
-            applyLimit(newDelta: amount, reviewDelta: 0, memoryKey: "new")
+            applyLimit(newDelta: amount, reviewDelta: 0)
         case .extendRev:
-            applyLimit(newDelta: 0, reviewDelta: amount, memoryKey: "rev")
+            applyLimit(newDelta: 0, reviewDelta: amount)
         case .forgot:
             build(
                 query: "rated:\(amount):1 \(quotedDeck)",
@@ -222,10 +232,7 @@ struct CustomStudyView: View {
         return "deck:\"\(escaped)\""
     }
 
-    private func applyLimit(newDelta: Int, reviewDelta: Int, memoryKey: String) {
-        if max(newDelta, reviewDelta) > 0 {
-            remember(memoryKey, max(newDelta, reviewDelta))
-        }
+    private func applyLimit(newDelta: Int, reviewDelta: Int) {
         do {
             try store.extendTodayLimit(deckID: deck.id, newDelta: newDelta, reviewDelta: reviewDelta)
             dismiss()
@@ -282,32 +289,27 @@ struct CustomStudyView: View {
         dismiss()
     }
 
+    /// rslib `DeckConfigKey::CustomStudyIncludeTags/ExcludeTags.for_deck`.
+    private func tagsKey(_ kind: String) -> String {
+        "_deck_\(deck.id)_customStudy\(kind == "inc" ? "Include" : "Exclude")Tags"
+    }
+
     private func savedTags(_ kind: String) -> Set<String> {
-        let value = store.conf["ankios.cs.\(kind).\(deck.id)"]
-        let raw = (value as? String) ?? ""
-        return Set(raw.split(separator: " ").map(String.init).filter { !$0.isEmpty })
+        if let tags = store.conf[tagsKey(kind)] as? [String] { return Set(tags) }
+        let legacy = (store.conf["ankios.cs.\(kind).\(deck.id)"] as? String) ?? ""
+        return Set(AnkiTag.split(legacy))
     }
 
     private func rememberTags(include: String, exclude: String) {
         var conf = store.conf
-        conf["ankios.cs.inc.\(deck.id)"] = include
-        conf["ankios.cs.exc.\(deck.id)"] = exclude
-        try? store.saveConf(conf)
+        conf[tagsKey("inc")] = AnkiTag.split(include)
+        conf[tagsKey("exc")] = AnkiTag.split(exclude)
+        conf.removeValue(forKey: "ankios.cs.inc.\(deck.id)")
+        conf.removeValue(forKey: "ankios.cs.exc.\(deck.id)")
+        do { try store.saveConf(conf) }
+        catch { store.lastError = error.localizedDescription }
     }
 
-    private func remember(_ kind: String, _ value: Int) {
-        var conf = store.conf
-        conf["ankios.cs.\(kind).\(deck.id)"] = value
-        try? store.saveConf(conf)
-    }
-
-    private func confInt(_ key: String) -> Int? {
-        let value = store.conf[key]
-        if let number = value as? Int { return number }
-        if let number = value as? NSNumber { return number.intValue }
-        if let number = value as? Double { return Int(number) }
-        return nil
-    }
 }
 
 enum CustomStudyMode: String, CaseIterable, Identifiable {
@@ -347,7 +349,7 @@ enum CustomStudyMode: String, CaseIterable, Identifiable {
         case .extendNew, .extendRev:
             "cartões"
         case .forgot, .ahead, .preview:
-            amount == 1 ? "day" : "days"
+            amount == 1 ? "dia" : "dias"
         case .cram:
             "cartões do baralho"
         }
@@ -355,9 +357,9 @@ enum CustomStudyMode: String, CaseIterable, Identifiable {
 
     var range: ClosedRange<Int> {
         switch self {
-        case .extendNew, .extendRev: -9_999...9_999
+        case .extendNew, .extendRev: -99_999...99_999
         case .forgot: 1...30
-        case .ahead, .preview, .cram: 1...9_999
+        case .ahead, .preview, .cram: 1...99_999
         }
     }
 }
@@ -428,14 +430,14 @@ private struct SelectiveStudyView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         Toggle(isOn: $requireOne) {
                             Text("Deve ter pelo menos uma dessas etiquetas:")
-                                .foregroundStyle(.white)
+                                .foregroundStyle(AppTheme.primaryText)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .tint(AppTheme.accent)
                         tagList(selected: include, enabled: requireOne, toggle: toggleInclude)
                         Text("Excluir cartões com as etiquetas:")
                             .font(.headline.weight(.semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(AppTheme.primaryText)
                         tagList(selected: exclude, enabled: true, toggle: toggleExclude)
                     }
                     .padding(20)
@@ -494,19 +496,19 @@ private struct SelectiveStudyView: View {
                 } label: {
                     HStack {
                         Image(systemName: selected.contains(tag) ? "checkmark.square.fill" : "square")
-                            .foregroundStyle(selected.contains(tag) ? AppTheme.accent : .white.opacity(0.55))
+                            .foregroundStyle(selected.contains(tag) ? AppTheme.accent : AppTheme.primaryText.opacity(0.55))
                         Text(tag.replacingOccurrences(of: "_", with: " "))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(AppTheme.primaryText)
                         Spacer()
                     }
                     .padding(.vertical, 8)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GlassChipButtonStyle())
                 .disabled(!enabled)
             }
         }
         .padding(tags.isEmpty ? 8 : 14)
-        .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 14))
+        .ankiGlass(tint: .white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
         .opacity(enabled ? 1 : 0.45)
     }
 

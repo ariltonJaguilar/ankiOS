@@ -3,6 +3,8 @@ import SwiftUI
 struct NoteTypesView: View {
     @EnvironmentObject private var store: CollectionStore
     @State private var editing: AnkiNotetype?
+    @State private var pendingDeletion: AnkiNotetype?
+    @State private var pendingDeletionNoteCount = 0
 
     var body: some View {
         ScrollView {
@@ -15,25 +17,25 @@ struct NoteTypesView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(nt.name)
                                     .font(.headline)
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(AppTheme.primaryText)
                                 Text("\(nt.flds.count) campos · \(nt.tmpls.count) templates\(nt.isCloze ? " · cloze" : "")")
                                     .font(.caption)
                                     .foregroundStyle(AppTheme.secondaryText)
                             }
                             Spacer(minLength: 8)
                             Image(systemName: "chevron.right")
-                                .foregroundStyle(.white.opacity(0.55))
+                                .foregroundStyle(AppTheme.primaryText.opacity(0.55))
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
-                        .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 14))
+                        .ankiGlass(tint: .white.opacity(0.08), interactive: true, in: RoundedRectangle(cornerRadius: 14))
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
                         Button("Duplicar") { duplicateNoteType(nt) }
-                        Button("Apagar", role: .destructive) { deleteNoteType(nt) }
+                        Button("Apagar", role: .destructive) { requestDeleteNoteType(nt) }
                     }
                 }
                 typeAction("Adicionar Basic", systemImage: "plus") { createBasic() }
@@ -42,7 +44,8 @@ struct NoteTypesView: View {
                 typeAction("Adicionar Basic (digite a resposta)", systemImage: "keyboard") { createBasicTyping() }
                 typeAction("Adicionar tipo Cloze", systemImage: "plus.square.on.square") { createCloze() }
                 typeAction("Adicionar oclusão de imagem", systemImage: "square.dashed") {
-                    _ = try? ImageOcclusionNotetype.ensure(store)
+                    do { _ = try ImageOcclusionNotetype.ensure(store) }
+                    catch { store.lastError = error.localizedDescription }
                 }
             }
             .padding(20)
@@ -54,6 +57,22 @@ struct NoteTypesView: View {
         .sheet(item: $editing) { nt in
             TemplateEditorView(notetype: nt)
                 .environmentObject(store)
+        }
+        .confirmationDialog("Apagar tipo de nota?", isPresented: Binding(
+            get: { pendingDeletion != nil },
+            set: { if !$0 { pendingDeletion = nil } }
+        ), titleVisibility: .visible) {
+            if let nt = pendingDeletion {
+                Button("Apagar", role: .destructive) { deleteNoteType(nt) }
+            }
+            Button("Cancelar", role: .cancel) { pendingDeletion = nil }
+        } message: {
+            if pendingDeletionNoteCount > 0 {
+                let noteLabel = pendingDeletionNoteCount == 1 ? "nota" : "notas"
+                Text("Este tipo de nota tem \(pendingDeletionNoteCount) \(noteLabel). Apagá-lo também apagará essas notas e os cartões associados.")
+            } else {
+                Text("Este tipo de nota não está em uso.")
+            }
         }
     }
 
@@ -83,7 +102,7 @@ struct NoteTypesView: View {
         )
         var types = store.notetypes
         types.append(nt)
-        try? store.saveNotetypes(types)
+        save(types)
     }
 
     private func createBasicAndReversed() {
@@ -105,7 +124,7 @@ struct NoteTypesView: View {
         )
         var types = store.notetypes
         types.append(nt)
-        try? store.saveNotetypes(types)
+        save(types)
     }
 
     private func createBasicOptionalReversed() {
@@ -133,7 +152,7 @@ struct NoteTypesView: View {
         )
         var types = store.notetypes
         types.append(nt)
-        try? store.saveNotetypes(types)
+        save(types)
     }
 
     private func createBasicTyping() {
@@ -159,7 +178,7 @@ struct NoteTypesView: View {
         )
         var types = store.notetypes
         types.append(nt)
-        try? store.saveNotetypes(types)
+        save(types)
     }
 
     private func createCloze() {
@@ -180,7 +199,7 @@ struct NoteTypesView: View {
         )
         var types = store.notetypes
         types.append(nt)
-        try? store.saveNotetypes(types)
+        save(types)
     }
 
     private func duplicateNoteType(_ nt: AnkiNotetype) {
@@ -190,24 +209,34 @@ struct NoteTypesView: View {
         copy.mod = Int64(Date().timeIntervalSince1970)
         var types = store.notetypes
         types.append(copy)
-        try? store.saveNotetypes(types)
+        save(types)
+    }
+
+    private func requestDeleteNoteType(_ nt: AnkiNotetype) {
+        guard store.notetypes.count > 1 else {
+            store.lastError = "Adicione outro tipo de nota antes de apagar este."
+            return
+        }
+        do {
+            pendingDeletionNoteCount = try store.db.scalarInt("SELECT COUNT(*) FROM notes WHERE mid = ?", bind: {
+                SQLiteDatabase.bindInt64($0, 1, nt.id)
+            })
+        } catch {
+            store.lastError = error.localizedDescription
+            return
+        }
+        pendingDeletion = nt
     }
 
     private func deleteNoteType(_ nt: AnkiNotetype) {
-        let inUse = (try? store.db.scalarInt("SELECT COUNT(*) FROM notes WHERE mid = ?", bind: {
-            SQLiteDatabase.bindInt64($0, 1, nt.id)
-        })) ?? 0
-        guard inUse == 0 else {
-            store.lastError = "Tipo em uso por \(inUse) nota(s). Mude o tipo delas antes."
-            return
-        }
-        guard store.notetypes.count > 1 else {
-            store.lastError = "É preciso manter ao menos um tipo de nota."
-            return
-        }
-        var types = store.notetypes
-        types.removeAll { $0.id == nt.id }
-        try? store.saveNotetypes(types)
+        do { try store.deleteNotetypeUndoably(id: nt.id) }
+        catch { store.lastError = error.localizedDescription }
+        pendingDeletion = nil
+    }
+
+    private func save(_ types: [AnkiNotetype]) {
+        do { try store.saveNotetypes(types) }
+        catch { store.lastError = error.localizedDescription }
     }
 }
 
@@ -215,8 +244,16 @@ struct TemplateEditorView: View {
     @EnvironmentObject private var store: CollectionStore
     @Environment(\.dismiss) private var dismiss
     @State var notetype: AnkiNotetype
+    private let originalNotetype: AnkiNotetype
     @State private var selectedTemplate = 0
     @State private var previewSide = 0
+
+    init(notetype: AnkiNotetype) {
+        var prepared = notetype
+        prepared.assignMissingComponentIDs()
+        originalNotetype = prepared
+        _notetype = State(initialValue: prepared)
+    }
 
     var body: some View {
         NavigationStack {
@@ -232,48 +269,144 @@ struct TemplateEditorView: View {
                         GlassFormSection(title: "Campos") {
                             ForEach(Array(notetype.flds.enumerated()), id: \.offset) { idx, _ in
                                 GlassOptionRow(title: "Campo \(idx + 1)") {
-                                    HStack(spacing: 10) {
-                                        TextField("Nome", text: $notetype.flds[idx].name)
+                                    VStack(alignment: .trailing, spacing: 10) {
+                                        HStack(spacing: 10) {
+                                            TextField("Nome", text: $notetype.flds[idx].name)
+                                                .textFieldStyle(.plain)
+                                                .multilineTextAlignment(.trailing)
+                                                .frame(minWidth: 120)
+                                            Toggle("Fixo", isOn: $notetype.flds[idx].sticky)
+                                                .labelsHidden()
+                                                .tint(AppTheme.accent)
+                                            Button {
+                                                moveField(at: idx, by: -1)
+                                            } label: {
+                                                Image(systemName: "chevron.up")
+                                            }
+                                            .buttonStyle(GlassIconButtonStyle())
+                                            .accessibilityLabel("Mover campo para cima")
+                                            .disabled(idx == 0)
+                                            Button {
+                                                moveField(at: idx, by: 1)
+                                            } label: {
+                                                Image(systemName: "chevron.down")
+                                            }
+                                            .buttonStyle(GlassIconButtonStyle())
+                                            .accessibilityLabel("Mover campo para baixo")
+                                            .disabled(idx == notetype.flds.count - 1)
+                                            Button {
+                                                removeField(at: idx)
+                                            } label: {
+                                                Image(systemName: "minus.circle.fill")
+                                                    .foregroundStyle(AppTheme.danger)
+                                            }
+                                            .buttonStyle(GlassIconButtonStyle(tint: AppTheme.danger))
+                                            .disabled(notetype.flds.count <= 1 || notetype.flds[idx].preventDeletion)
+                                        }
+                                        VStack(alignment: .leading, spacing: 10) {
+                                            Toggle("RTL", isOn: $notetype.flds[idx].rtl)
+                                            Toggle("Editor HTML por padrão", isOn: $notetype.flds[idx].plainText)
+                                            Toggle("Recolher por padrão", isOn: $notetype.flds[idx].collapsed)
+                                            Toggle("Excluir busca", isOn: $notetype.flds[idx].excludeFromSearch)
+                                        }
+                                        .tint(AppTheme.accent)
+                                        HStack {
+                                            TextField("Fonte", text: $notetype.flds[idx].font)
+                                                .textFieldStyle(.plain)
+                                            Stepper("\(notetype.flds[idx].size) pt", value: $notetype.flds[idx].size, in: 6...200)
+                                                .fixedSize()
+                                        }
+                                        TextField("Descrição do campo", text: $notetype.flds[idx].description)
                                             .textFieldStyle(.plain)
                                             .multilineTextAlignment(.trailing)
-                                            .frame(minWidth: 120)
-                                        Toggle("Fixo", isOn: $notetype.flds[idx].sticky)
-                                            .labelsHidden()
-                                            .tint(AppTheme.accent)
                                     }
                                 }
+                            }
+                            GlassOptionRow(title: "Campo de ordenação") {
+                                Picker("", selection: $notetype.sortf) {
+                                    ForEach(notetype.flds.sorted { $0.ord < $1.ord }, id: \.ord) { field in
+                                        Text(field.name).tag(field.ord)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
                             }
                             Button("Adicionar campo") {
                                 let ord = notetype.flds.count
                                 notetype.flds.append(AnkiField(name: "Campo \(ord + 1)", ord: ord))
                             }
                             .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.16, expands: true))
-                            Button("Adicionar template") {
-                                let ord = notetype.tmpls.count
-                                notetype.tmpls.append(AnkiTemplate(
-                                    name: "Card \(ord + 1)",
-                                    ord: ord,
-                                    qfmt: "{{\(notetype.flds.first?.name ?? "Front")}}",
-                                    afmt: "{{FrontSide}}<hr id=answer>{{\(notetype.flds.dropFirst().first?.name ?? "Back")}}"
-                                ))
+                            if !notetype.isCloze {
+                                Button("Adicionar template") {
+                                    let ord = notetype.tmpls.count
+                                    notetype.tmpls.append(AnkiTemplate(
+                                        name: "Card \(ord + 1)",
+                                        ord: ord,
+                                        qfmt: "{{\(notetype.flds.first?.name ?? "Front")}}",
+                                        afmt: "{{FrontSide}}<hr id=answer>{{\(notetype.flds.dropFirst().first?.name ?? "Back")}}"
+                                    ))
+                                }
+                                .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.16, expands: true))
                             }
-                            .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.16, expands: true))
                         }
                         if !notetype.tmpls.isEmpty {
                             GlassFormSection(title: "Template") {
+                                templateField("Nome", text: $notetype.tmpls[selectedTemplate].name)
                                 GlassOptionRow(title: "Cartão") {
-                                    Picker("", selection: $selectedTemplate) {
-                                        ForEach(Array(notetype.tmpls.indices), id: \.self) { i in
-                                            Text(notetype.tmpls[i].name).tag(i)
+                                    HStack(spacing: 10) {
+                                        Picker("", selection: $selectedTemplate) {
+                                            ForEach(Array(notetype.tmpls.indices), id: \.self) { i in
+                                                Text(notetype.tmpls[i].name).tag(i)
+                                            }
                                         }
+                                        .labelsHidden()
+                                        .pickerStyle(.menu)
+                                        Button {
+                                            moveTemplate(at: selectedTemplate, by: -1)
+                                        } label: {
+                                            Image(systemName: "chevron.up")
+                                        }
+                                        .buttonStyle(GlassIconButtonStyle())
+                                        .accessibilityLabel("Mover cartão para cima")
+                                        .disabled(selectedTemplate == 0)
+                                        Button {
+                                            moveTemplate(at: selectedTemplate, by: 1)
+                                        } label: {
+                                            Image(systemName: "chevron.down")
+                                        }
+                                        .buttonStyle(GlassIconButtonStyle())
+                                        .accessibilityLabel("Mover cartão para baixo")
+                                        .disabled(selectedTemplate == notetype.tmpls.count - 1)
                                     }
-                                    .labelsHidden()
-                                    .pickerStyle(.menu)
                                 }
                                 templateField("Frente (qfmt)", text: $notetype.tmpls[selectedTemplate].qfmt)
                                 templateField("Verso (afmt)", text: $notetype.tmpls[selectedTemplate].afmt)
                                 templateField("Painel — pergunta (bqfmt)", text: $notetype.tmpls[selectedTemplate].bqfmt)
                                 templateField("Painel — resposta (bafmt)", text: $notetype.tmpls[selectedTemplate].bafmt)
+                                GlassOptionRow(title: "Fonte no verso") {
+                                    TextField("Arial", text: $notetype.tmpls[selectedTemplate].bfont)
+                                        .textFieldStyle(.plain)
+                                        .multilineTextAlignment(.trailing)
+                                }
+                                GlassOptionRow(title: "Tamanho no verso") {
+                                    Stepper("\(notetype.tmpls[selectedTemplate].bsize) pt", value: $notetype.tmpls[selectedTemplate].bsize, in: 6...200)
+                                        .fixedSize()
+                                }
+                                GlassOptionRow(title: "Baralho deste cartão") {
+                                    Picker("", selection: templateDeckBinding(selectedTemplate)) {
+                                        Text("Usar baralho da nota").tag(Optional<Int64>.none)
+                                        ForEach(store.decks.filter { !$0.isFiltered }) { deck in
+                                            Text(deck.name).tag(Optional(deck.id))
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                }
+                                Button("Apagar template", systemImage: "trash", role: .destructive) {
+                                    removeTemplate(at: selectedTemplate)
+                                }
+                                .disabled(notetype.tmpls.count <= 1)
+                                .buttonStyle(GlassButtonStyle(tint: AppTheme.danger, prominent: false, tintStrength: 0.18, expands: true))
                             }
                         }
                         GlassFormSection(title: "CSS") {
@@ -283,13 +416,23 @@ struct TemplateEditorView: View {
                                     .font(.system(.footnote, design: .monospaced))
                             }
                         }
+                        GlassFormSection(title: "LaTeX") {
+                            Toggle("Criar imagens escaláveis com dvisvgm", isOn: $notetype.latexsvg)
+                                .tint(AppTheme.accent)
+                            templateField("Cabeçalho", text: $notetype.latexPre)
+                            templateField("Rodapé", text: $notetype.latexPost)
+                        }
                         GlassFormSection(title: "Pré-visualização") {
                             Picker("Lado", selection: $previewSide) {
                                 Text("Frente").tag(0)
                                 Text("Verso").tag(1)
                             }
                             .pickerStyle(.segmented)
-                            CardWebView(html: previewHTML, baseURL: store.mediaRoot)
+                            CardWebView(
+                                html: previewHTML,
+                                baseURL: store.mediaRoot,
+                                onSpeechTap: { request in store.mediaStore.speak(request) }
+                            )
                                 .frame(height: 220)
                                 .clipShape(RoundedRectangle(cornerRadius: 14))
                         }
@@ -302,16 +445,45 @@ struct TemplateEditorView: View {
                     Button("Cancelar") { dismiss() }
                         .buttonStyle(GlassButtonStyle(tint: .white, tintStrength: 0.18, expands: true))
                     Button("Salvar") {
-                        var types = store.notetypes
-                        if let idx = types.firstIndex(where: { $0.id == notetype.id }) {
-                            notetype.mod = Int64(Date().timeIntervalSince1970)
-                            types[idx] = notetype
-                        } else {
-                            types.append(notetype)
+                        let normalizedFields = notetype.flds.map { AnkiField.normalizedName($0.name) }
+                        guard normalizedFields.allSatisfy({ $0 != nil }) else {
+                            store.lastError = "O nome de cada campo precisa conter pelo menos um caractere válido."
+                            return
                         }
-                        try? store.saveNotetypes(types)
-                        try? store.syncCardsForNotetype(mid: notetype.id)
-                        dismiss()
+                        notetype.flds = notetype.flds.enumerated().map { index, field in
+                            var field = field
+                            field.name = normalizedFields[index] ?? field.name
+                            return field
+                        }
+                        let fieldNames = notetype.flds.map { $0.name.folding(options: .caseInsensitive, locale: Locale(identifier: "en_US_POSIX")) }
+                        let templateNames = notetype.tmpls.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                        guard fieldNames.allSatisfy({ !$0.isEmpty }), Set(fieldNames).count == fieldNames.count else {
+                            store.lastError = "Cada campo precisa ter um nome único."
+                            return
+                        }
+                        guard templateNames.allSatisfy({ !$0.isEmpty }), Set(templateNames).count == templateNames.count else {
+                            store.lastError = "Cada template precisa ter um nome único."
+                            return
+                        }
+                        do {
+                            notetype.assignMissingComponentIDs()
+                            notetype.flds = notetype.flds.enumerated().map { index, field in
+                                var field = field
+                                field.ord = index
+                                return field
+                            }
+                            notetype.tmpls = notetype.tmpls.enumerated().map { index, template in
+                                var template = template
+                                template.ord = index
+                                return template
+                            }
+                            notetype.sortf = min(max(notetype.sortf, 0), max(notetype.flds.count - 1, 0))
+                            notetype.mod = Int64(Date().timeIntervalSince1970)
+                            try store.saveEditedNotetype(notetype, replacing: originalNotetype)
+                            dismiss()
+                        } catch {
+                            store.lastError = error.localizedDescription
+                        }
                     }
                     .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
                 }
@@ -336,6 +508,66 @@ struct TemplateEditorView: View {
         }
     }
 
+    private func templateDeckBinding(_ index: Int) -> Binding<Int64?> {
+        Binding(
+            get: { notetype.tmpls.indices.contains(index) ? notetype.tmpls[index].did : nil },
+            set: { if notetype.tmpls.indices.contains(index) { notetype.tmpls[index].did = $0 } }
+        )
+    }
+
+    private func removeField(at index: Int) {
+        guard notetype.flds.count > 1, notetype.flds.indices.contains(index), !notetype.flds[index].preventDeletion else { return }
+        notetype.flds.remove(at: index)
+        notetype.flds = notetype.flds.enumerated().map { ord, field in
+            var field = field
+            field.ord = ord
+            return field
+        }
+        if notetype.sortf == index {
+            notetype.sortf = min(index, notetype.flds.count - 1)
+        } else if notetype.sortf > index {
+            notetype.sortf -= 1
+        }
+    }
+
+    private func moveField(at index: Int, by offset: Int) {
+        let destination = index + offset
+        guard notetype.flds.indices.contains(index), notetype.flds.indices.contains(destination) else { return }
+        let sortFieldName = notetype.flds.first(where: { $0.ord == notetype.sortf })?.name
+        notetype.flds.swapAt(index, destination)
+        notetype.flds = notetype.flds.enumerated().map { ord, field in
+            var field = field
+            field.ord = ord
+            return field
+        }
+        if let sortFieldName, let newIndex = notetype.flds.firstIndex(where: { $0.name == sortFieldName }) {
+            notetype.sortf = newIndex
+        }
+    }
+
+    private func moveTemplate(at index: Int, by offset: Int) {
+        let destination = index + offset
+        guard notetype.tmpls.indices.contains(index), notetype.tmpls.indices.contains(destination) else { return }
+        notetype.tmpls.swapAt(index, destination)
+        notetype.tmpls = notetype.tmpls.enumerated().map { ord, template in
+            var template = template
+            template.ord = ord
+            return template
+        }
+        selectedTemplate = destination
+    }
+
+    private func removeTemplate(at index: Int) {
+        guard notetype.tmpls.count > 1, notetype.tmpls.indices.contains(index) else { return }
+        notetype.tmpls.remove(at: index)
+        notetype.tmpls = notetype.tmpls.enumerated().map { ord, template in
+            var template = template
+            template.ord = ord
+            return template
+        }
+        selectedTemplate = min(selectedTemplate, notetype.tmpls.count - 1)
+    }
+
     private var previewHTML: String {
         let fields = Dictionary(uniqueKeysWithValues: notetype.flds.enumerated().map { ($0.element.name, "Sample \($0.element.name)") })
         let tmpl = notetype.tmpls[safe: selectedTemplate]
@@ -346,14 +578,17 @@ struct TemplateEditorView: View {
         } else {
             body = TemplateEngine.render(template: tmpl?.afmt ?? "", fields: fields, frontSide: front, clozeOrd: nil, questionSide: false)
         }
-        return CardHTMLRenderer_wrap(body: body, css: notetype.css)
+        return CardHTMLRenderer_wrap(
+            body: AnkiLatexMarkup.replacing(in: body, svg: notetype.latexsvg),
+            css: notetype.css
+        )
     }
 }
 
 private func CardHTMLRenderer_wrap(body: String, css: String) -> String {
     """
     <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>body{color:#e8f4f5;background:transparent;font-family:-apple-system;padding:16px;} \(css)</style>
+    <style>body{color:#182127;background:transparent;font-family:-apple-system;padding:16px;} @media(prefers-color-scheme:dark){body{color:#e8f4f5;}} \(css)</style>
     </head><body><div class="card">\(body)</div></body></html>
     """
 }

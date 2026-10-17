@@ -7,19 +7,23 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E5D570000000000000000001 /* AnkiZstd.c in Sources */ = {isa = PBXBuildFile; fileRef = E5D570000000000000000002 /* AnkiZstd.c */; };
+		E5D570000000000000000003 /* zstd.c in Sources */ = {isa = PBXBuildFile; fileRef = E5D570000000000000000004 /* zstd.c */; };
 		07726071E0A157099FAEDD8F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 65199FB953BC5E2EB9A7F44B /* Assets.xcassets */; };
-		C0FFEE02A1C10D0000000001 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C0FFEE02A1C10D0000000002 /* AppIcon.icon */; };
 		C0FFEE01A1C10D0000000001 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = C0FFEE01A1C10D0000000002 /* LaunchScreen.storyboard */; platformFilter = ios; };
+		A11CE100000000000000A8 /* MathJax in Resources */ = {isa = PBXBuildFile; fileRef = A11CE100000000000000A9 /* MathJax */; };
 		081BBCDA901D5366A8FACA21 /* CardOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85BE8C079F04536BA23F9896 /* CardOperations.swift */; };
 		13937688BE4D53479AA91BC2 /* NoteEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A3DCC23BBE8572893689D0F /* NoteEditorView.swift */; };
 		20C3037D296C576DB250ED25 /* FilteredDeckSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D5A37A8829E52E1BC2451A3 /* FilteredDeckSupport.swift */; };
 		21A747F0038B570884F52B2E /* MediaStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DC9BC1107B955C081E66F39 /* MediaStore.swift */; };
 		2F0D2149298E527E9DA28A48 /* CardInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 076ED55DED175E9891C3F348 /* CardInfoView.swift */; };
 		30B9F25222915D998A5E6C18 /* FSRS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1296AFBDB95F10B971273D /* FSRS.swift */; };
+		A11CE100000000000000F5 /* FSRSParameterOptimizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE100000000000000F6 /* FSRSParameterOptimizer.swift */; };
+		A11CE100000000000000F7 /* FSRSParameterSimulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE100000000000000F8 /* FSRSParameterSimulator.swift */; };
 		352D5339B93E5DDC9CC42C75 /* NoteTypesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0168BD7349520CBFAC43D2 /* NoteTypesView.swift */; };
 		E0C10C010000000000000002 /* ImageOcclusionEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0C10C010000000000000001 /* ImageOcclusionEditor.swift */; };
-		E0C10C020000000000000002 /* katex.min.js in Resources */ = {isa = PBXBuildFile; fileRef = E0C10C020000000000000001 /* katex.min.js */; };
 		3539B0CEA14E5B5F8751A4EB /* Scheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43A324601F76520F970CE16D /* Scheduler.swift */; };
+		A11CE20000000000000000A2 /* StudyQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE20000000000000000A1 /* StudyQueue.swift */; };
 		3F4994F627835D799E4E314A /* DeckOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F962ECA418E5B518BD78EE2 /* DeckOptionsView.swift */; };
 		43765013E4C85E9FABE2E2F3 /* PreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 251B8A29BF9C510790D4D90C /* PreferencesView.swift */; };
 		532CB5BBFF0A5814BC868762 /* ZipArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D6F349804058B3A3E095F9 /* ZipArchive.swift */; };
@@ -30,12 +34,14 @@
 		68601E346AEE58B6A0F28B1F /* BrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 025ECC0A1C7052388FB3B384 /* BrowserView.swift */; };
 		6F0B0AEC5B285361B79D6313 /* AddNoteHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2D9DE7C3453558FBF3C54A9 /* AddNoteHomeView.swift */; };
 		6FF26B196E9BE1205D0F2483 /* CSVImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB0C6562E56DCDBAACF15B43 /* CSVImporter.swift */; };
+		D2B867A6C4BA4D1EBFCE0001 /* CSVImportReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2B867A6C4BA4D1EBFCE0002 /* CSVImportReviewView.swift */; };
 		7180D050DBB556B7B213CA5F /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4BF97C68D1E555F9F98AB31 /* Theme.swift */; };
 		854284C4B70459F9BBD8F437 /* StudyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CDAD52FE1A5D77AD93319B /* StudyView.swift */; };
 		8E3FCB226B445BBB83B901F2 /* CollectionSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57AB87F8C8395AC1BC6003F6 /* CollectionSchema.swift */; };
 		94A0A1D2560F5D34A64686F8 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249AD641C5C45D3686398498 /* RootView.swift */; };
 		9804D2E2A85B5D9D9717204F /* AnkiTutorialView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 541DE6EC2D465EAAA43C6CC0 /* AnkiTutorialView.swift */; };
 		A585D92313825AD69AAF0AA5 /* ApkgImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ED910B0BBEC5388B3F27169 /* ApkgImporter.swift */; };
+		A585D92313825AD69AAF0AA6 /* MnemosyneImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ED910B0BBEC5388B3F27170 /* MnemosyneImporter.swift */; };
 		A5FD0001B01DFA1E00000001 /* Zstd.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FD0001F11E5EF000000001 /* Zstd.swift */; };
 		A641D3CB60385302B93A0FF6 /* CollectionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2280102BA7BA5227BA42704D /* CollectionStore.swift */; };
 		B1C1D001A1C10D0000000001 /* ICloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C1D001A1C10D0000000002 /* ICloudSync.swift */; };
@@ -55,6 +61,8 @@
 		F20F11E50000000000000001 /* ProfilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20F11E50000000000000002 /* ProfilesView.swift */; };
 		FB0FD47300545EAE9019DC7A /* ApkgExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B931A411AB155F799FC6FF7 /* ApkgExporter.swift */; };
 		FCFBCF380EAA56E6999DF42C /* SM2.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9CC9B43EFA5884A01E339C /* SM2.swift */; };
+		A11CE100000000000000D7 /* AnkiBackend.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A11CE100000000000000D6 /* AnkiBackend.xcframework */; };
+		A11CE100000000000000D4 /* AnkiWebSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE100000000000000D5 /* AnkiWebSync.swift */; };
 		A11CE100000000000000B4 /* WidgetStudySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE100000000000000A4 /* WidgetStudySnapshot.swift */; };
 		A11CE100000000000000B5 /* WidgetStudyIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE100000000000000A5 /* WidgetStudyIntents.swift */; };
 		A11CE100000000000000B6 /* WidgetSnapshotPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE100000000000000A6 /* WidgetSnapshotPublisher.swift */; };
@@ -66,6 +74,7 @@
 		A11CE100000000000000BD /* ICloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C1D001A1C10D0000000002 /* ICloudSync.swift */; };
 		A11CE100000000000000BE /* FilteredDeckSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D5A37A8829E52E1BC2451A3 /* FilteredDeckSupport.swift */; };
 		A11CE100000000000000BF /* Scheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43A324601F76520F970CE16D /* Scheduler.swift */; };
+		A11CE20000000000000000A3 /* StudyQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE20000000000000000A1 /* StudyQueue.swift */; };
 		A11CE100000000000000C5 /* SM2.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9CC9B43EFA5884A01E339C /* SM2.swift */; };
 		A11CE100000000000000C6 /* FSRS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1296AFBDB95F10B971273D /* FSRS.swift */; };
 		A11CE100000000000000C7 /* MediaStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DC9BC1107B955C081E66F39 /* MediaStore.swift */; };
@@ -76,9 +85,15 @@
 		A11CE100000000000000B2 /* WidgetStudySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE100000000000000A4 /* WidgetStudySnapshot.swift */; };
 		A11CE100000000000000B3 /* WidgetStudyIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE100000000000000A5 /* WidgetStudyIntents.swift */; };
 		A11CE100000000000000B7 /* AnkiWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A11CE100000000000000A7 /* AnkiWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A11CE3000000000000000002 = {isa = PBXBuildFile; fileRef = A11CE3000000000000000001; };
+		A11CE300000000000000000E = {isa = PBXBuildFile; fileRef = A11CE300000000000000000D; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		E5D570000000000000000002 /* AnkiZstd.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = AnkiZstd.c; sourceTree = "<group>"; };
+		E5D570000000000000000004 /* zstd.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = src/zstd.c; sourceTree = "<group>"; };
+		E5D570000000000000000005 /* AnkiZstd.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AnkiZstd.h; sourceTree = "<group>"; };
+		E5D570000000000000000006 /* AnkiZstd-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "AnkiZstd-Bridging-Header.h"; sourceTree = "<group>"; };
 		025ECC0A1C7052388FB3B384 /* BrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserView.swift; sourceTree = "<group>"; };
 		076ED55DED175E9891C3F348 /* CardInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardInfoView.swift; sourceTree = "<group>"; };
 		0DC9BC1107B955C081E66F39 /* MediaStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaStore.swift; sourceTree = "<group>"; };
@@ -92,9 +107,11 @@
 		29143AFE48E75A73A2337FFF /* DecksHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecksHomeView.swift; sourceTree = "<group>"; };
 		2AA90D09786B524ABD24CCB0 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		2ED910B0BBEC5388B3F27169 /* ApkgImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApkgImporter.swift; sourceTree = "<group>"; };
+		2ED910B0BBEC5388B3F27170 /* MnemosyneImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MnemosyneImporter.swift; sourceTree = "<group>"; };
 		3B931A411AB155F799FC6FF7 /* ApkgExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApkgExporter.swift; sourceTree = "<group>"; };
 		3F0D864530B253D09AFFB457 /* AnkiOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiOSApp.swift; sourceTree = "<group>"; };
 		43A324601F76520F970CE16D /* Scheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scheduler.swift; sourceTree = "<group>"; };
+		A11CE20000000000000000A1 /* StudyQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudyQueue.swift; sourceTree = "<group>"; };
 		514363C6D7D858F090764008 /* AnkiModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiModels.swift; sourceTree = "<group>"; };
 		541DE6EC2D465EAAA43C6CC0 /* AnkiTutorialView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiTutorialView.swift; sourceTree = "<group>"; };
 		57AB87F8C8395AC1BC6003F6 /* CollectionSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionSchema.swift; sourceTree = "<group>"; };
@@ -109,6 +126,8 @@
 		7D5A37A8829E52E1BC2451A3 /* FilteredDeckSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilteredDeckSupport.swift; sourceTree = "<group>"; };
 		85BE8C079F04536BA23F9896 /* CardOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardOperations.swift; sourceTree = "<group>"; };
 		8C1296AFBDB95F10B971273D /* FSRS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FSRS.swift; sourceTree = "<group>"; };
+		A11CE100000000000000F6 /* FSRSParameterOptimizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FSRSParameterOptimizer.swift; sourceTree = "<group>"; };
+		A11CE100000000000000F8 /* FSRSParameterSimulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FSRSParameterSimulator.swift; sourceTree = "<group>"; };
 		90182949E4D65D698B9F5900 /* FieldFormatBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldFormatBar.swift; sourceTree = "<group>"; };
 		A5FD0001F11E5EF000000001 /* Zstd.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zstd.swift; sourceTree = "<group>"; };
 		AB732BA9C7E75593A2611C3E /* DeckRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckRowView.swift; sourceTree = "<group>"; };
@@ -119,12 +138,13 @@
 		C5EE5F0A7E5B0A7C5EE5F002 /* CSVExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSVExporter.swift; sourceTree = "<group>"; };
 		CD0168BD7349520CBFAC43D2 /* NoteTypesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteTypesView.swift; sourceTree = "<group>"; };
 		E0C10C010000000000000001 /* ImageOcclusionEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageOcclusionEditor.swift; sourceTree = "<group>"; };
-		E0C10C020000000000000001 /* katex.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "katex.min.js"; sourceTree = "<group>"; };
+		A11CE100000000000000A9 /* MathJax */ = {isa = PBXFileReference; lastKnownFileType = folder; path = MathJax; sourceTree = "<group>"; };
 		D45DF5854256541481610306 /* CardWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardWebView.swift; sourceTree = "<group>"; };
 		D8C676E086F150D3B187244F /* StatsHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsHomeView.swift; sourceTree = "<group>"; };
 		D9CDAD52FE1A5D77AD93319B /* StudyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudyView.swift; sourceTree = "<group>"; };
 		DCF9527F87F7553B86EF1D89 /* AnkiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AnkiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EB0C6562E56DCDBAACF15B43 /* CSVImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSVImporter.swift; sourceTree = "<group>"; };
+		D2B867A6C4BA4D1EBFCE0002 /* CSVImportReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSVImportReviewView.swift; sourceTree = "<group>"; };
 		F0922B0CEE31557BA4006C28 /* GlassComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassComponents.swift; sourceTree = "<group>"; };
 		F20F11E50000000000000002 /* ProfilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilesView.swift; sourceTree = "<group>"; };
 		FD9CC9B43EFA5884A01E339C /* SM2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SM2.swift; sourceTree = "<group>"; };
@@ -135,6 +155,11 @@
 		A11CE100000000000000A5 /* WidgetStudyIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetStudyIntents.swift; sourceTree = "<group>"; };
 		A11CE100000000000000A6 /* WidgetSnapshotPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshotPublisher.swift; sourceTree = "<group>"; };
 		A11CE100000000000000A7 /* AnkiWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AnkiWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A11CE100000000000000D5 /* AnkiWebSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiWebSync.swift; sourceTree = "<group>"; };
+		A11CE100000000000000D6 /* AnkiBackend.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = AnkiOS/AnkiBackendBridge/AnkiBackend.xcframework; sourceTree = SOURCE_ROOT; };
+		A11CE3000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tools/UITests/AnkiOSUITests.swift; sourceTree = SOURCE_ROOT; };
+		A11CE3000000000000000003 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = AnkiOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A11CE300000000000000000D = {isa = PBXFileReference; lastKnownFileType = file; path = Tools/UITests/Fixtures/official.apkg; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -142,9 +167,11 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A11CE100000000000000D7 /* AnkiBackend.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A11CE3000000000000000005 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -197,6 +224,7 @@
 				E216384685C0586C8A0B196C /* Scheduling */,
 				FE51E210C97D57BEA92FB1EA /* Storage */,
 				A11CE100000000000000F2 /* Widget */,
+				A11CE100000000000000D6 /* AnkiBackend.xcframework */,
 			);
 			path = AnkiOS;
 			sourceTree = "<group>";
@@ -263,11 +291,25 @@
 			isa = PBXGroup;
 			children = (
 				2ED910B0BBEC5388B3F27169 /* ApkgImporter.swift */,
+				2ED910B0BBEC5388B3F27170 /* MnemosyneImporter.swift */,
 				65D6F349804058B3A3E095F9 /* ZipArchive.swift */,
 				EB0C6562E56DCDBAACF15B43 /* CSVImporter.swift */,
+				D2B867A6C4BA4D1EBFCE0002 /* CSVImportReviewView.swift */,
 				A5FD0001F11E5EF000000001 /* Zstd.swift */,
+				E5D570000000000000000007 /* ZstdNative */,
 			);
 			path = Import;
+			sourceTree = "<group>";
+		};
+		E5D570000000000000000007 /* ZstdNative */ = {
+			isa = PBXGroup;
+			children = (
+				E5D570000000000000000002 /* AnkiZstd.c */,
+				E5D570000000000000000004 /* zstd.c */,
+				E5D570000000000000000005 /* AnkiZstd.h */,
+				E5D570000000000000000006 /* AnkiZstd-Bridging-Header.h */,
+			);
+			path = ZstdNative;
 			sourceTree = "<group>";
 		};
 		ACF5B528D0CA5A08872F7C69 /* Browser */ = {
@@ -281,6 +323,7 @@
 		B3B1339F0D9E5CC3BF10BB1A = {
 			isa = PBXGroup;
 			children = (
+                A11CE3000000000000000003,
 				DCF9527F87F7553B86EF1D89 /* AnkiOS.app */,
 				A11CE100000000000000A7 /* AnkiWidget.appex */,
 			);
@@ -289,7 +332,7 @@
 		BA27DDE9A6E55C6BBEF6E272 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				E0C10C020000000000000001 /* katex.min.js */,
+				A11CE100000000000000A9 /* MathJax */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -329,6 +372,7 @@
 		DE7B42F63DE8503A8D9D78BD = {
 			isa = PBXGroup;
 			children = (
+                A11CE3000000000000000001,
 				1B6B68B1F5F5546CA12BE95C /* AnkiOS */,
 				A11CE100000000000000F1 /* AnkiWidget */,
 				B3B1339F0D9E5CC3BF10BB1A,
@@ -339,7 +383,10 @@
 			isa = PBXGroup;
 			children = (
 				8C1296AFBDB95F10B971273D /* FSRS.swift */,
+				A11CE100000000000000F6 /* FSRSParameterOptimizer.swift */,
+				A11CE100000000000000F8 /* FSRSParameterSimulator.swift */,
 				43A324601F76520F970CE16D /* Scheduler.swift */,
+				A11CE20000000000000000A1 /* StudyQueue.swift */,
 				FD9CC9B43EFA5884A01E339C /* SM2.swift */,
 			);
 			path = Scheduling;
@@ -379,6 +426,7 @@
 				85BE8C079F04536BA23F9896 /* CardOperations.swift */,
 				57AB87F8C8395AC1BC6003F6 /* CollectionSchema.swift */,
 				2280102BA7BA5227BA42704D /* CollectionStore.swift */,
+				A11CE100000000000000D5 /* AnkiWebSync.swift */,
 				B1C1D001A1C10D0000000002 /* ICloudSync.swift */,
 				68C502EE602B511FB3D459D4 /* SQLiteDatabase.swift */,
 			);
@@ -424,6 +472,17 @@
 			productReference = A11CE100000000000000A7 /* AnkiWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		A11CE3000000000000000007 = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = A11CE3000000000000000008;
+            buildPhases = (A11CE3000000000000000004, A11CE3000000000000000005, A11CE3000000000000000006,);
+            buildRules = ();
+            dependencies = (A11CE300000000000000000C,);
+            name = AnkiOSUITests;
+            productName = AnkiOSUITests;
+            productReference = A11CE3000000000000000003;
+            productType = "com.apple.product-type.bundle.ui-testing";
+        };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -445,6 +504,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+                A11CE3000000000000000007 /* AnkiOSUITests */,
 				E88658DFC0C55D2A90E584CF /* AnkiOS */,
 				A11CE100000000000000D1 /* AnkiWidget */,
 			);
@@ -457,12 +517,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				07726071E0A157099FAEDD8F /* Assets.xcassets in Resources */,
-				C0FFEE02A1C10D0000000001 /* AppIcon.icon in Resources */,
 				C0FFEE01A1C10D0000000001 /* LaunchScreen.storyboard in Resources */,
-				E0C10C020000000000000002 /* katex.min.js in Resources */,
+				A11CE100000000000000A8 /* MathJax in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A11CE3000000000000000006 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A11CE300000000000000000E,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -498,20 +558,28 @@
 				2F0D2149298E527E9DA28A48 /* CardInfoView.swift in Sources */,
 				854284C4B70459F9BBD8F437 /* StudyView.swift in Sources */,
 				A585D92313825AD69AAF0AA5 /* ApkgImporter.swift in Sources */,
+				A585D92313825AD69AAF0AA6 /* MnemosyneImporter.swift in Sources */,
 				6FF26B196E9BE1205D0F2483 /* CSVImporter.swift in Sources */,
+				D2B867A6C4BA4D1EBFCE0001 /* CSVImportReviewView.swift in Sources */,
 				532CB5BBFF0A5814BC868762 /* ZipArchive.swift in Sources */,
 				A5FD0001B01DFA1E00000001 /* Zstd.swift in Sources */,
+				E5D570000000000000000001 /* AnkiZstd.c in Sources */,
+				E5D570000000000000000003 /* zstd.c in Sources */,
 				21A747F0038B570884F52B2E /* MediaStore.swift in Sources */,
 				CF02B39F0F4C59B5AC21140C /* AnkiModels.swift in Sources */,
 				644063824D1D54EC8878A056 /* CardHTMLRenderer.swift in Sources */,
 				D1A1986410B152728C2D3CB1 /* CardWebView.swift in Sources */,
 				BC3F32CA864E529C862CE77D /* TemplateEngine.swift in Sources */,
 				30B9F25222915D998A5E6C18 /* FSRS.swift in Sources */,
+				A11CE100000000000000F5 /* FSRSParameterOptimizer.swift in Sources */,
+				A11CE100000000000000F7 /* FSRSParameterSimulator.swift in Sources */,
 				FCFBCF380EAA56E6999DF42C /* SM2.swift in Sources */,
 				3539B0CEA14E5B5F8751A4EB /* Scheduler.swift in Sources */,
+				A11CE20000000000000000A2 /* StudyQueue.swift in Sources */,
 				081BBCDA901D5366A8FACA21 /* CardOperations.swift in Sources */,
 				8E3FCB226B445BBB83B901F2 /* CollectionSchema.swift in Sources */,
 				A641D3CB60385302B93A0FF6 /* CollectionStore.swift in Sources */,
+				A11CE100000000000000D4 /* AnkiWebSync.swift in Sources */,
 				B1C1D001A1C10D0000000001 /* ICloudSync.swift in Sources */,
 				F0086159890E5B798FCB64F3 /* SQLiteDatabase.swift in Sources */,
 				A11CE100000000000000B4 /* WidgetStudySnapshot.swift in Sources */,
@@ -520,6 +588,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A11CE3000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A11CE3000000000000000002,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXContainerItemProxy section */
@@ -530,6 +599,7 @@
 			remoteGlobalIDString = A11CE100000000000000D1;
 			remoteInfo = AnkiWidget;
 		};
+		A11CE300000000000000000B = {isa = PBXContainerItemProxy; containerPortal = 54FD6AD575E4505A969D7E85; proxyType = 1; remoteGlobalIDString = E88658DFC0C55D2A90E584CF; remoteInfo = AnkiOS; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -582,6 +652,7 @@
 				A11CE100000000000000BD /* ICloudSync.swift in Sources */,
 				A11CE100000000000000BE /* FilteredDeckSupport.swift in Sources */,
 				A11CE100000000000000BF /* Scheduler.swift in Sources */,
+				A11CE20000000000000000A3 /* StudyQueue.swift in Sources */,
 				A11CE100000000000000C5 /* SM2.swift in Sources */,
 				A11CE100000000000000C6 /* FSRS.swift in Sources */,
 				A11CE100000000000000C7 /* MediaStore.swift in Sources */,
@@ -599,6 +670,7 @@
 			target = A11CE100000000000000D1 /* AnkiWidget */;
 			targetProxy = A11CE100000000000000D3 /* PBXContainerItemProxy */;
 		};
+		A11CE300000000000000000C = {isa = PBXTargetDependency; target = E88658DFC0C55D2A90E584CF; targetProxy = A11CE300000000000000000B; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -610,6 +682,7 @@
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 6GY2KMR4QD;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AnkiOS/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = AnkiOS;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -624,6 +697,17 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.1;
 				CODE_SIGN_ENTITLEMENTS = AnkiOS/AnkiOS.entitlements;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					Security,
+					"-framework",
+					CoreFoundation,
+					"-framework",
+					SystemConfiguration,
+					"-lz",
+					"-lc++",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.bigbear.AnkiOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
@@ -631,6 +715,11 @@
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 6.0;
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/AnkiOS/AnkiBackendBridge",
+				);
+				SWIFT_OBJC_BRIDGING_HEADER = AnkiOS/Import/ZstdNative/AnkiZstd-Bridging-Header.h;
 				TARGETED_DEVICE_FAMILY = "1,2,6";
 			};
 			name = Release;
@@ -656,6 +745,7 @@
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 6GY2KMR4QD;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AnkiOS/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = AnkiOS;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -670,6 +760,17 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.1;
 				CODE_SIGN_ENTITLEMENTS = AnkiOS/AnkiOS.entitlements;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					Security,
+					"-framework",
+					CoreFoundation,
+					"-framework",
+					SystemConfiguration,
+					"-lz",
+					"-lc++",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.bigbear.AnkiOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
@@ -677,6 +778,11 @@
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 6.0;
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/AnkiOS/AnkiBackendBridge",
+				);
+				SWIFT_OBJC_BRIDGING_HEADER = AnkiOS/Import/ZstdNative/AnkiZstd-Bridging-Header.h;
 				TARGETED_DEVICE_FAMILY = "1,2,6";
 			};
 			name = Debug;
@@ -761,6 +867,42 @@
 			};
 			name = Release;
 		};
+		A11CE3000000000000000009 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                DEVELOPMENT_TEAM = 6GY2KMR4QD;
+                GENERATE_INFOPLIST_FILE = YES;
+                IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+                MACOSX_DEPLOYMENT_TARGET = 26.0;
+                PRODUCT_BUNDLE_IDENTIFIER = com.bigbear.AnkiOS.UITests;
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SDKROOT = auto;
+                SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+                SWIFT_VERSION = 6.0;
+                TARGETED_DEVICE_FAMILY = "1,2";
+                TEST_TARGET_NAME = AnkiOS;
+            };
+            name = Debug;
+        };
+		A11CE300000000000000000A = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                DEVELOPMENT_TEAM = 6GY2KMR4QD;
+                GENERATE_INFOPLIST_FILE = YES;
+                IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+                MACOSX_DEPLOYMENT_TARGET = 26.0;
+                PRODUCT_BUNDLE_IDENTIFIER = com.bigbear.AnkiOS.UITests;
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SDKROOT = auto;
+                SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+                SWIFT_VERSION = 6.0;
+                TARGETED_DEVICE_FAMILY = "1,2";
+                TEST_TARGET_NAME = AnkiOS;
+            };
+            name = Release;
+        };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -791,6 +933,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A11CE3000000000000000008 = {isa = XCConfigurationList; buildConfigurations = (A11CE3000000000000000009, A11CE300000000000000000A,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 	};
 	rootObject = 54FD6AD575E4505A969D7E85 /* Project object */;

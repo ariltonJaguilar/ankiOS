@@ -58,12 +58,12 @@ struct ImageOcclusionEditor: View {
                                 ForEach(masks) { mask in
                                     HStack {
                                         Text("Máscara \(index(of: mask) + 1)")
-                                            .foregroundStyle(.white)
+                                            .foregroundStyle(AppTheme.primaryText)
                                         Spacer()
                                         Button("Apagar", role: .destructive) {
                                             masks.removeAll { $0.id == mask.id }
                                         }
-                                        .buttonStyle(.borderless)
+                                        .buttonStyle(GlassChipButtonStyle(tint: AppTheme.danger.opacity(0.22)))
                                     }
                                     .padding(.horizontal, 4)
                                 }
@@ -151,8 +151,20 @@ struct ImageOcclusionEditor: View {
     }
 
     private func loadExisting() {
-        guard let noteID, let note = try? store.fetchNote(id: noteID),
-              let nt = store.notetype(id: note.mid) else { return }
+        guard let noteID else { return }
+        let note: AnkiNote
+        do {
+            guard let fetched = try store.fetchNote(id: noteID) else {
+                message = "A nota desta oclusão não existe mais."
+                return
+            }
+            note = fetched
+        }
+        catch { message = error.localizedDescription; return }
+        guard let nt = store.notetype(id: note.mid) else {
+            message = "O tipo de nota desta oclusão não está disponível."
+            return
+        }
         let values = note.fields
         func value(_ names: [String], fallback: Int) -> String {
             if let idx = ImageOcclusionNotetype.fieldIndex(nt, names: names), idx < values.count {

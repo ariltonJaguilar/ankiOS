@@ -12,7 +12,7 @@ extension WidgetStudyBridge {
                 WidgetSnapshotPublisher.publish(store)
             }
         }
-        WidgetCollectionPing.start()
+        if SharedProfiles.uiTestSession == nil { WidgetCollectionPing.start() }
     }
 }
 
@@ -60,12 +60,18 @@ enum WidgetSnapshotPublisher {
             next.revealedCardID = previous.revealedCardID
         }
         WidgetStudyStore.save(next)
-        WidgetCenter.shared.reloadAllTimelines()
+        if SharedProfiles.uiTestSession == nil { WidgetCenter.shared.reloadAllTimelines() }
     }
 
     @MainActor
     static func grade(cardID: Int64, rating raw: Int) async {
-        guard let rating = Rating(rawValue: raw), let store = await readyStore() else { return }
+        guard let rating = Rating(rawValue: raw),
+              let lock = try? SharedCollectionFileLock.acquire(profilesRoot: SharedProfiles.profilesRoot) else { return }
+        defer { lock.release() }
+        guard let store = await readyStore() else { return }
+        defer {
+            store.closeCollectionConnection()
+        }
         guard let card = try? store.fetchCard(id: cardID) else {
             publish(store)
             return
@@ -82,7 +88,13 @@ enum WidgetSnapshotPublisher {
     /// Practice cards already seen. Does not raise today's limit or include new cards.
     @MainActor
     static func studyAgain() async {
-        guard let store = await readyStore(), let deck = idleDeck(in: store) else { return }
+        guard let lock = try? SharedCollectionFileLock.acquire(profilesRoot: SharedProfiles.profilesRoot) else { return }
+        defer { lock.release() }
+        guard let store = await readyStore() else { return }
+        defer {
+            store.closeCollectionConnection()
+        }
+        guard let deck = idleDeck(in: store) else { return }
         let quoted = quotedDeck(deck.name)
         _ = try? store.buildCustomStudySession(
             query: "is:old -is:suspended \(quoted)",
@@ -111,9 +123,7 @@ enum WidgetSnapshotPublisher {
     private static func makeSnapshot(_ store: CollectionStore) -> WidgetStudySnapshot {
         guard let deck = studyDeck(in: store) else { return .empty }
         let counts = store.deckCounts[deck.id] ?? DeckCounts(new: 0, learn: 0, review: 0)
-        let config = store.config(for: deck)
-        let queue = (try? store.dueCards(for: deck.id, newLimit: config.new.perDay, revLimit: config.rev.perDay)) ?? []
-        guard let card = queue.first,
+        guard let card = try? store.peekStudyCard(for: deck.id),
               let note = try? store.fetchNote(id: card.nid),
               let notetype = store.notetype(id: note.mid) else {
             return idleSnapshot(store: store, deck: deck, counts: counts)
@@ -230,7 +240,7 @@ enum WidgetSnapshotPublisher {
             notetype: notetype,
             side: side,
             mediaBase: store.mediaRoot,
-            deckName: store.deck(id: card.did)?.name ?? ""
+            deckName: store.deck(id: card.odid != 0 ? card.odid : card.did)?.name ?? ""
         )
         let text = side == .question ? rendered.questionText : rendered.answerText
         let collapsed = text

@@ -4,18 +4,29 @@ import UniformTypeIdentifiers
 /// First-class Add screen (Anki “Adicionar”).
 struct AddNoteHomeView: View {
     @EnvironmentObject private var store: CollectionStore
+    @Environment(\.colorScheme) private var colorScheme
+    @Binding private var copyRequest: AddNoteCopyRequest?
+    @State private var didLoadDefaults = false
+    @State private var skipNextTypeSync = false
+    @State private var previousTypeID: Int64?
     @State private var selectedTypeID: Int64 = 0
     @State private var selectedDeckID: Int64 = 1
     @State private var fieldValues: [String] = []
     @State private var tags = ""
     @State private var statusMessage: String?
     @State private var showPreview = false
-    @State private var showMediaPicker = false
-    @State private var mediaTargetField = 0
-    @State private var useRichEditor = false
+    @State private var useRichEditor = true
     @State private var showOcclusion = false
     @State private var recentNotes: [RecentAddedNote] = []
     @State private var historyNoteID: Int64?
+    @State private var duplicateIDs: [Int64] = []
+    @State private var showDuplicateWarning = false
+    @State private var showMissingClozeConfirmation = false
+    @State private var pendingAllowMissingCloze = false
+
+    init(copyRequest: Binding<AddNoteCopyRequest?> = .constant(nil)) {
+        _copyRequest = copyRequest
+    }
 
     var body: some View {
         NavigationStack {
@@ -25,7 +36,7 @@ struct AddNoteHomeView: View {
                         GlassFormSection(title: "Baralho") {
                             GlassOptionRow(title: "Baralho") {
                                 Picker("", selection: $selectedDeckID) {
-                                    ForEach(store.decks) { d in
+                                    ForEach(store.decks.filter { !$0.isFiltered }) { d in
                                         Text(d.name).tag(d.id)
                                     }
                                 }
@@ -45,7 +56,22 @@ struct AddNoteHomeView: View {
                                 }
                                 .labelsHidden()
                                 .pickerStyle(.menu)
-                                .onChange(of: selectedTypeID) { _, _ in syncFields() }
+                                .onChange(of: selectedTypeID) { _, newTypeID in
+                                    if skipNextTypeSync {
+                                        skipNextTypeSync = false
+                                        previousTypeID = newTypeID
+                                        return
+                                    }
+                                    if let previousTypeID,
+                                       let previousType = store.notetype(id: previousTypeID),
+                                       let newType = store.notetype(id: newTypeID) {
+                                        fieldValues = NotetypeEditMapping.transferNoteFieldValues(fieldValues, from: previousType, to: newType)
+                                    } else {
+                                        syncFields()
+                                    }
+                                    previousTypeID = newTypeID
+                                    selectSavedDeckForCurrentType()
+                                }
                             }
                         }
                         Button("Oclusão de imagem") { showOcclusion = true }
@@ -55,28 +81,13 @@ struct AddNoteHomeView: View {
                                 ForEach(Array(nt.flds.enumerated()), id: \.offset) { idx, field in
                                     GlassInset {
                                         VStack(alignment: .leading, spacing: 6) {
-                                            HStack {
-                                                Text(field.name)
-                                                    .font(.caption.weight(.semibold))
-                                                    .foregroundStyle(AppTheme.mist)
-                                                if field.sticky {
-                                                    Text("sticky")
-                                                        .font(.caption2)
-                                                        .foregroundStyle(AppTheme.secondaryText)
-                                                }
-                                            }
-                                            FieldFormatBar(text: binding(idx), isClozeType: nt.isCloze)
-                                            if useRichEditor {
-                                                RichFieldEditor(html: binding(idx))
-                                            } else {
-                                                TextField(field.name, text: binding(idx), axis: .vertical)
-                                                    .lineLimit(3...10)
-                                            }
-                                            Button("Anexar mídia…") {
-                                                mediaTargetField = idx
-                                                showMediaPicker = true
-                                            }
-                                            .buttonStyle(GlassChipButtonStyle())
+                                            NoteFieldEditor(
+                                                html: binding(idx), field: field, isClozeType: nt.isCloze,
+                                                mediaBase: store.mediaRoot, sourceMode: !useRichEditor,
+                                                nextClozeNumber: (ClozeHelper.ords(in: fieldValues).max() ?? -1) + 2
+                                            )
+                                            .id("\(nt.id)-\(field.ord)")
+
                                         }
                                     }
                                 }
@@ -96,17 +107,17 @@ struct AddNoteHomeView: View {
                                     } label: {
                                         Text(item.title)
                                             .font(.subheadline)
-                                            .foregroundStyle(.white)
+                                            .foregroundStyle(AppTheme.primaryText)
                                             .lineLimit(1)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                     }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.14, expands: true))
                                 }
                             }
                         }
                         if let statusMessage {
                             Text(statusMessage)
-                                .foregroundStyle(AppTheme.good)
+                                .foregroundStyle(statusMessage == "Nota adicionada." ? AppTheme.good : AppTheme.danger)
                                 .padding(.horizontal, 4)
                         }
                     }
@@ -117,36 +128,53 @@ struct AddNoteHomeView: View {
                 VStack(spacing: 10) {
                     HStack(spacing: 12) {
                         Button("Pré-visualizar") { showPreview = true }
+                            .accessibilityIdentifier("add.preview")
                             .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.16, expands: true))
-                        Button(useRichEditor ? "Texto" : "HTML") { useRichEditor.toggle() }
+                        Button(useRichEditor ? "Editar HTML" : "Editor visual") { useRichEditor.toggle() }
+                            .accessibilityIdentifier("add.source")
                             .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.16, expands: true))
                     }
                     HStack(spacing: 12) {
-                        Button("Adicionar e novo") { addNote(keepOpen: true) }
-                            .buttonStyle(GlassButtonStyle(tint: .white, tintStrength: 0.18, expands: true))
-                        Button("Adicionar") { addNote(keepOpen: false) }
+                        Button("Adicionar") { addNote() }
+                            .accessibilityIdentifier("add.submit")
                             .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
                     }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
+                .alert("Nota Cloze sem omissões", isPresented: $showMissingClozeConfirmation) {
+                    Button("Adicionar mesmo assim") {
+                        addNote(allowMissingCloze: true)
+                    }
+                    Button("Cancelar", role: .cancel) {}
+                } message: {
+                    Text("Esta nota não contém nenhuma omissão Cloze. Deseja adicioná-la mesmo assim?")
+                }
             }
             .background(AppBackground())
             .navigationTitle("Adicionar")
+            .ankiKeyboardDismissToolbar()
+            .alert("Nota possivelmente duplicada", isPresented: $showDuplicateWarning) {
+                Button("Adicionar mesmo assim") {
+                    addNote(
+                        skipDuplicateCheck: true,
+                        allowMissingCloze: pendingAllowMissingCloze
+                    )
+                }
+                Button("Cancelar", role: .cancel) { duplicateIDs = [] }
+            } message: {
+                Text("O primeiro campo já aparece em \(duplicateIDs.count) nota(s) deste tipo.")
+            }
             .sheet(isPresented: $showPreview) {
                 previewSheet
-            }
-            .fileImporter(
-                isPresented: $showMediaPicker,
-                allowedContentTypes: [.image, .audio, .movie, .data],
-                allowsMultipleSelection: false
-            ) { result in
-                attachMedia(result)
             }
             .onAppear {
                 loadDefaults()
                 reloadHistory()
+                didLoadDefaults = true
+                consumeCopyRequest()
             }
+            .onChange(of: copyRequest) { _, _ in consumeCopyRequest() }
             .sheet(isPresented: Binding(
                 get: { historyNoteID != nil },
                 set: { if !$0 { historyNoteID = nil; reloadHistory() } }
@@ -160,27 +188,6 @@ struct AddNoteHomeView: View {
                 ImageOcclusionEditor(deckID: selectedDeckID)
                     .environmentObject(store)
             }
-        }
-    }
-
-    private func attachMedia(_ result: Result<[URL], Error>) {
-        do {
-            guard let url = try result.get().first else { return }
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            let name = try store.mediaStore.importFile(from: url)
-            let lower = name.lowercased()
-            let snippet: String
-            if ["mp3", "wav", "m4a", "ogg", "aac"].contains(where: { lower.hasSuffix($0) }) {
-                snippet = "[sound:\(name)]"
-            } else {
-                snippet = #"<img src="\#(name)">"#
-            }
-            while fieldValues.count <= mediaTargetField { fieldValues.append("") }
-            fieldValues[mediaTargetField] += (fieldValues[mediaTargetField].isEmpty ? "" : " ") + snippet
-            statusMessage = "Mídia anexada: \(name)"
-        } catch {
-            store.lastError = error.localizedDescription
         }
     }
 
@@ -200,9 +207,15 @@ struct AddNoteHomeView: View {
                 )
                 let result = CardHTMLRenderer.renderCard(
                     note: note, card: card, notetype: nt,
-                    side: .question, mediaBase: store.mediaRoot
+                    side: .question, mediaBase: store.mediaRoot,
+                    deckName: store.deck(id: selectedDeckID)?.name ?? "",
+                    nightMode: colorScheme == .dark
                 )
-                CardWebView(html: result.html, baseURL: store.mediaRoot)
+                CardWebView(
+                    html: result.html,
+                    baseURL: store.mediaRoot,
+                    onSpeechTap: { request in store.mediaStore.speak(request) }
+                )
                     .navigationTitle("Pré-visualização")
                     .safeAreaInset(edge: .bottom) {
                         Button("Fechar") { showPreview = false }
@@ -237,13 +250,46 @@ struct AddNoteHomeView: View {
             selectedTypeID = store.notetypes.first?.id ?? 0
         }
         let addToCur = store.conf["addToCur"] as? Bool ?? true
-        if addToCur, let cur = store.currentDeckID(), store.deck(id: cur) != nil {
+        if addToCur, let cur = store.currentDeckID(), store.deck(id: cur)?.isFiltered == false {
             selectedDeckID = cur
         } else {
-            selectedDeckID = store.decks.first(where: { $0.name != "Default" })?.id
-                ?? store.decks.first?.id ?? 1
+            selectedDeckID = store.decks.first(where: { !$0.isFiltered && $0.name != "Default" })?.id
+                ?? store.decks.first(where: { !$0.isFiltered })?.id ?? 1
         }
+        selectSavedDeckForCurrentType()
         syncFields()
+        previousTypeID = selectedTypeID
+    }
+
+    private func consumeCopyRequest() {
+        guard didLoadDefaults, let request = copyRequest else { return }
+        guard store.notetype(id: request.note.mid) != nil else {
+            store.lastError = "O tipo da nota original não está disponível."
+            copyRequest = nil
+            return
+        }
+        skipNextTypeSync = selectedTypeID != request.note.mid
+        selectedTypeID = request.note.mid
+        previousTypeID = request.note.mid
+        selectedDeckID = request.deckID
+        fieldValues = request.note.fields
+        tags = request.note.tagList.joined(separator: " ")
+        store.setCurrentDeck(request.deckID)
+        statusMessage = nil
+        copyRequest = nil
+    }
+
+    private func selectSavedDeckForCurrentType() {
+        guard store.conf["deckSelectionBehavior"] as? String == "noteType",
+              let remembered = store.conf["lastDeckByNoteType"] as? [String: Any],
+              let value = remembered[String(selectedTypeID)] else { return }
+        let deckID: Int64?
+        if let number = value as? NSNumber { deckID = number.int64Value }
+        else if let integer = value as? Int64 { deckID = integer }
+        else if let integer = value as? Int { deckID = Int64(integer) }
+        else { deckID = nil }
+        guard let deckID, store.deck(id: deckID)?.isFiltered == false else { return }
+        selectedDeckID = deckID
     }
 
     private func syncFields() {
@@ -259,22 +305,56 @@ struct AddNoteHomeView: View {
         recentNotes = store.recentNoteSummaries().map { RecentAddedNote(id: $0.id, title: $0.title) }
     }
 
-    private func addNote(keepOpen: Bool) {
+    private func addNote(skipDuplicateCheck: Bool = false, allowMissingCloze: Bool = false) {
+        let fieldIssue = store.notetype(id: selectedTypeID).map {
+            ClozeHelper.fieldIssue(fields: fieldValues, notetype: $0)
+        } ?? .normal
+        switch fieldIssue {
+        case .clozeOutsideClozeNotetype:
+            statusMessage = "Omissões Cloze só podem ser usadas em um tipo de nota Cloze."
+            return
+        case .clozeInNonClozeField:
+            statusMessage = "Este campo não aceita omissões Cloze."
+            return
+        case .normal, .missingCloze:
+            break
+        }
+        guard let firstField = fieldValues.first,
+              !store.stripHTMLPreservingMediaFilenames(firstField).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            statusMessage = "O primeiro campo precisa ter conteúdo para adicionar a nota."
+            return
+        }
+        if fieldIssue == .missingCloze && !allowMissingCloze {
+            showMissingClozeConfirmation = true
+            return
+        }
         do {
+            if !skipDuplicateCheck {
+                let matches = try store.duplicateNoteIDs(mid: selectedTypeID, fields: fieldValues)
+                if !matches.isEmpty {
+                    duplicateIDs = matches
+                    pendingAllowMissingCloze = allowMissingCloze
+                    showDuplicateWarning = true
+                    return
+                }
+            }
             try store.addNote(mid: selectedTypeID, did: selectedDeckID, fields: fieldValues, tags: tags)
             store.setCurrentDeck(selectedDeckID)
             var conf = store.conf
             conf["curModel"] = selectedTypeID
-            try? store.saveConf(conf)
+            if conf["deckSelectionBehavior"] as? String == "noteType" {
+                var remembered = conf["lastDeckByNoteType"] as? [String: Any] ?? [:]
+                remembered[String(selectedTypeID)] = selectedDeckID
+                conf["lastDeckByNoteType"] = remembered
+            }
+            try store.saveConf(conf)
             statusMessage = "Nota adicionada."
             reloadHistory()
-            if keepOpen {
-                // Clear non-sticky
-                if let nt = store.notetype(id: selectedTypeID) {
-                    fieldValues = nt.flds.map { $0.sticky ? (fieldValues[safe: $0.ord] ?? "") : "" }
+            if let nt = store.notetype(id: selectedTypeID) {
+                let addedValues = fieldValues
+                fieldValues = nt.flds.enumerated().map { index, field in
+                    field.sticky ? (addedValues[safe: index] ?? "") : ""
                 }
-            } else {
-                fieldValues = fieldValues.map { _ in "" }
             }
             store.notifyDeckContentAdded()
         } catch {

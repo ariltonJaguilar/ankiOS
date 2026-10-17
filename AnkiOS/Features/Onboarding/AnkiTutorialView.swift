@@ -98,20 +98,20 @@ struct AnkiTutorialView: View {
                 .font(.system(size: 52))
                 .foregroundStyle(AppTheme.accent)
                 .frame(width: 108, height: 108)
-                .glassEffect(.regular.tint(AppTheme.accent.opacity(0.28)).interactive(), in: .circle)
+                .background(AppTheme.accent.opacity(0.12), in: .circle)
 
             Text(item.title)
                 .font(AppTheme.titleFont)
-                .foregroundStyle(.white)
+                .foregroundStyle(AppTheme.primaryText)
                 .multilineTextAlignment(.center)
 
             Text(item.body)
                 .font(.body)
-                .foregroundStyle(.white.opacity(0.88))
+                .foregroundStyle(AppTheme.primaryText.opacity(0.88))
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)
-                .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 22))
+                .ankiGlass(tint: .white.opacity(0.08), in: RoundedRectangle(cornerRadius: 22))
 
             Spacer()
         }
@@ -132,16 +132,20 @@ private struct TutorialPage {
 enum TutorialGate {
     private static let key = "ankios.hasSeenStudyTutorial"
 
+    private static var defaults: UserDefaults {
+        SharedProfiles.uiTestSession == nil ? .standard : SharedProfiles.defaults
+    }
+
     static var hasSeen: Bool {
-        UserDefaults.standard.bool(forKey: key)
+        defaults.bool(forKey: key)
     }
 
     static func markSeen() {
-        UserDefaults.standard.set(true, forKey: key)
+        defaults.set(true, forKey: key)
     }
 
     static func resetForDebug() {
-        UserDefaults.standard.removeObject(forKey: key)
+        defaults.removeObject(forKey: key)
     }
 
     @MainActor
