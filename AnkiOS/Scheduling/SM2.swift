@@ -8,6 +8,116 @@ struct ScheduleResult: Sendable {
     var revlogFactor: Int
 }
 
+struct LoadBalancerDueCard: Sendable {
+    var noteID: Int64
+    var deckConfigID: Int64
+    var dayOffset: Int
+}
+
+struct ReviewLoadBalancerContext: Sendable {
+    var cards: [LoadBalancerDueCard]
+    var nextDayAt: Int
+
+    func findInterval(
+        interval: Float,
+        minimum: Int,
+        maximum: Int,
+        deckConfigID: Int64,
+        noteID: Int64?,
+        fuzz: Float,
+        easyDayPercents: [Double]
+    ) -> Int? {
+        guard interval <= 90, minimum <= 90 else { return nil }
+        let presetCards = cards.filter { $0.deckConfigID == deckConfigID }
+        guard !presetCards.isEmpty else { return nil }
+        let (lower, upper) = AnkiFuzz.constrainedBounds(interval: interval, minimum: minimum, maximum: maximum)
+        let candidates = Array(lower...upper)
+        let dueByDay = Dictionary(grouping: presetCards, by: \.dayOffset)
+        let counts = candidates.map { dueByDay[$0]?.count ?? 0 }
+        let weekdays = candidates.map { weekday(interval: $0, nextDayAt: nextDayAt) }
+        let easyDays = parseEasyDays(easyDayPercents)
+        let easyModifiers = easyDayModifiers(easyDays, weekdays: weekdays, counts: counts)
+        let siblingOffsets: Set<Int>
+        if let noteID {
+            siblingOffsets = Set(cards.lazy.filter { $0.noteID == noteID }.map(\.dayOffset))
+        } else {
+            siblingOffsets = []
+        }
+        var weights: [Float] = []
+        weights.reserveCapacity(candidates.count)
+        for (index, day) in candidates.enumerated() {
+            let count = counts[index]
+            let weight: Float
+            if count == 0 {
+                weight = 1
+            } else {
+                let countWeight = powf(1 / Float(count), 2.15)
+                let intervalFactor = 1 / Float(max(day, 1))
+                let intervalWeight = intervalFactor * intervalFactor * intervalFactor
+                let sibling = siblingModifier(day: day, siblingOffsets: siblingOffsets)
+                weight = countWeight * intervalWeight * sibling * easyModifiers[index]
+            }
+            weights.append(weight)
+        }
+        var total: Float = 0
+        var cumulative: [Float] = []
+        cumulative.reserveCapacity(weights.count)
+        for weight in weights {
+            total += weight
+            cumulative.append(total)
+        }
+        guard total > 0 else { return nil }
+        let chosen = min(max(fuzz, 0), Float(1).nextDown) * total
+        guard let index = cumulative.firstIndex(where: { $0 > chosen }) else {
+            return candidates.last
+        }
+        return candidates[index]
+    }
+
+    private func parseEasyDays(_ percentages: [Double]) -> [Float] {
+        if percentages.count == 7 { return percentages.map(Float.init) }
+        return Array(repeating: 1, count: 7)
+    }
+
+    private func easyDayModifiers(_ percentages: [Float], weekdays: [Int], counts: [Int]) -> [Float] {
+        let totalCount = counts.reduce(0, +)
+        let totalPercent = weekdays.reduce(Float.zero) { partial, weekday in
+            partial + loadModifier(percentages[weekday])
+        }
+        return zip(weekdays, counts).map { weekday, count in
+            let stored = percentages[weekday]
+            if stored == 0 { return 0.0001 }
+            if stored == 1 { return 1 }
+            let otherCount = Float(totalCount - count)
+            let otherPercent = totalPercent - 0.5
+            let threshold = otherPercent == 0 ? Float.infinity : otherCount / otherPercent
+            return Float(count) / 0.5 > threshold ? 0.0001 : 1
+        }
+    }
+
+    private func loadModifier(_ percentage: Float) -> Float {
+        if percentage == 0 { return 0.0001 }
+        if percentage == 1 { return 1 }
+        return 0.5
+    }
+
+    private func siblingModifier(day: Int, siblingOffsets: Set<Int>) -> Float {
+        let steps = [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]
+        let modifiers: [Float] = [1, 0.8, 0.6, 0.4, 0.2, 0.000001, 0.2, 0.4, 0.6, 0.8, 1]
+        return siblingOffsets.reduce(Float(1)) { product, siblingDay in
+            guard let index = steps.firstIndex(of: day - siblingDay) else { return product }
+            return product * modifiers[index]
+        }
+    }
+
+    private func weekday(interval: Int, nextDayAt: Int) -> Int {
+        let timestamp = nextDayAt + (interval - 1) * 86_400
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return (calendar.component(.weekday, from: Date(timeIntervalSince1970: TimeInterval(timestamp))) + 5) % 7
+    }
+}
+
 /// Anki v3 scheduler (SM-2), matching `rslib` learning steps, review intervals and button times.
 enum SM2Scheduler {
     static func preview(
@@ -22,7 +132,8 @@ enum SM2Scheduler {
         clampReviewDue: Bool = true,
         fsrs: FSRSForecast? = nil,
         dueCounts: [Int] = [],
-        nextDayAt: Int = 0
+        nextDayAt: Int = 0,
+        loadBalancer: ReviewLoadBalancerContext? = nil
     ) -> ScheduleResult {
         let ctx = Context(
             config: config,
@@ -35,7 +146,9 @@ enum SM2Scheduler {
             clampReviewDue: clampReviewDue,
             fsrs: fsrs,
             dueCounts: dueCounts,
-            nextDayAt: nextDayAt
+            nextDayAt: nextDayAt,
+            loadBalancer: loadBalancer,
+            noteID: card.nid
         )
         let learnSteps = ctx.learningSteps
         let relearnSteps = ctx.relearningSteps
@@ -101,6 +214,8 @@ enum SM2Scheduler {
         var fsrs: FSRSForecast?
         var dueCounts: [Int]
         var nextDayAt: Int
+        var loadBalancer: ReviewLoadBalancerContext?
+        var noteID: Int64
         var learningSteps: LearningSteps {
             LearningSteps(minutes: fsrs != nil && config.new.delays.isEmpty ? FSRSEmptyStepDefaults.learning : config.new.delays)
         }
@@ -360,6 +475,17 @@ enum SM2Scheduler {
     }
 
     private static func fuzzDays(_ interval: Double, minimum: Int, ctx: Context) -> Int {
+        if let loadBalancer = ctx.loadBalancer {
+            return loadBalancer.findInterval(
+                interval: Float(interval),
+                minimum: minimum,
+                maximum: ctx.maxIvl,
+                deckConfigID: ctx.config.id,
+                noteID: ctx.config.rev.bury ? ctx.noteID : nil,
+                fuzz: Float(ctx.fuzz),
+                easyDayPercents: ctx.config.easyDayPercents
+            ) ?? AnkiFuzz.apply(factor: ctx.fuzz, interval: interval, minimum: minimum, maximum: ctx.maxIvl)
+        }
         if EasyDayLoad.isActive(ctx.config.easyDayPercents) {
             return EasyDayLoad.pick(
                 interval: interval,
@@ -399,12 +525,7 @@ enum SM2Scheduler {
     }
 
     private static func graduate(_ card: inout AnkiCard, days requested: Int, ctx: Context) -> Outcome {
-        let scheduled = AnkiFuzz.apply(
-            factor: ctx.fuzz,
-            interval: Double(requested),
-            minimum: 1,
-            maximum: ctx.maxIvl
-        )
+        let scheduled = fuzzDays(Double(requested), minimum: 1, ctx: ctx)
         card.type = 2
         card.queue = 2
         card.left = 0
@@ -425,21 +546,11 @@ enum SM2Scheduler {
     }
 
     private static func lapsedInterval(scheduled: Int, ctx: Context) -> Int {
-        AnkiFuzz.apply(
-            factor: ctx.fuzz,
-            interval: Double(Float(max(scheduled, 1)) * Float(ctx.lapseMult)),
-            minimum: ctx.lapseMin,
-            maximum: ctx.maxIvl
-        )
+        fuzzDays(Double(Float(max(scheduled, 1)) * Float(ctx.lapseMult)), minimum: ctx.lapseMin, ctx: ctx)
     }
 
     private static func constrain(_ raw: Float, minimum: Int, ctx: Context) -> Int {
-        AnkiFuzz.apply(
-            factor: ctx.fuzz,
-            interval: Double(raw * ctx.modifier),
-            minimum: minimum,
-            maximum: ctx.maxIvl
-        )
+        fuzzDays(Double(raw * ctx.modifier), minimum: minimum, ctx: ctx)
     }
 
     /// Early reviews are rounded, without the fuzz applied to on-time reviews.
@@ -677,7 +788,7 @@ enum AnkiFuzz {
         return min(maximum, max(minimum, Int(picked.rounded(.down))))
     }
 
-    private static func constrainedBounds(interval: Float, minimum: Int, maximum: Int) -> (Int, Int) {
+    static func constrainedBounds(interval: Float, minimum: Int, maximum: Int) -> (Int, Int) {
         let clamped = min(max(interval, Float(minimum)), Float(maximum))
         var lower = Int((clamped - delta(clamped)).rounded())
         var upper = Int((clamped + delta(clamped)).rounded())

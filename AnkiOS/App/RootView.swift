@@ -9,10 +9,15 @@ struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @AppStorage("ankios.reduceMotion", store: SharedProfiles.defaults) private var reduceMotion = true
     @AppStorage("ankios.minimalistMode", store: SharedProfiles.defaults) private var minimalistMode = false
-    @State private var selectedTab: AppTab = .decks
+    @SceneStorage("ankios.selectedTab") private var selectedTab: AppTab = .decks
     @State private var pendingToolAction: SettingsView.Action?
     @State private var studyRequested = false
     @State private var pendingNoteCopy: AddNoteCopyRequest?
+    @State private var pendingBrowserSearchQuery: String?
+    @State private var syncAnkiWebAfterLoginDismissal = false
+    #if os(iOS)
+    @State private var pendingAnkiInfoSuccessURL: URL?
+    #endif
 
     var body: some View {
         ZStack {
@@ -98,11 +103,41 @@ struct RootView: View {
                 .frame(minWidth: 560, minHeight: 640)
         }
         #endif
-        .alert("Error", isPresented: Binding(
-            get: { store.lastError != nil },
-            set: { if !$0 { store.lastError = nil } }
-        )) {
-            Button("OK", role: .cancel) { store.lastError = nil }
+        #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+        .sheet(isPresented: Binding(
+            get: { store.pendingAnkiWebLoginPanel },
+            set: { store.pendingAnkiWebLoginPanel = $0 }
+        ), onDismiss: {
+            guard syncAnkiWebAfterLoginDismissal else { return }
+            syncAnkiWebAfterLoginDismissal = false
+            Task { await store.syncWithAnkiWeb() }
+        }) {
+            AnkiWebLoginPanel(onConnected: { syncAnkiWebAfterLoginDismissal = true })
+                .environmentObject(store)
+        }
+        .sheet(item: $store.pendingAnkiWebFullSync) { prompt in
+            AnkiWebFullSyncPanel(
+                prompt: prompt,
+                onUpload: {
+                    Task { await store.completeAnkiWebFullSync(upload: true, prompt: prompt) }
+                },
+                onDownload: {
+                    Task { await store.completeAnkiWebFullSync(upload: false, prompt: prompt) }
+                },
+                onCancel: { store.pendingAnkiWebFullSync = nil }
+            )
+            #if os(iOS)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+            #else
+            .frame(minWidth: 500, minHeight: 520)
+            #endif
+        }
+        #endif
+        .alert("Error", isPresented: errorAlertPresented) {
+            Button("OK", role: .cancel) {
+                store.lastError = nil
+            }
         } message: {
             Text(store.lastError ?? "")
         }
@@ -118,57 +153,9 @@ struct RootView: View {
             }
             #endif
         }
+        #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
         .task(id: periodicMediaSyncKey) {
-            #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
-            let interval = store.ankiWebPeriodicMediaSyncMinutes
-            guard scenePhase == .active,
-                  store.ankiWebConfigured,
-                  store.ankiWebMediaSyncEnabled,
-                  interval > 0 else { return }
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .seconds(Double(interval * 60)))
-                } catch {
-                    return
-                }
-                guard !Task.isCancelled, scenePhase == .active else { return }
-                await store.syncAnkiWebMediaOnly()
-            }
-            #endif
-        }
-        #if !ANKIOS_PARITY_HARNESS
-        .confirmationDialog(
-            "Sincronização completa necessária",
-            isPresented: Binding(
-                get: { store.pendingAnkiWebFullSync != nil },
-                set: { if !$0 { store.pendingAnkiWebFullSync = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let prompt = store.pendingAnkiWebFullSync {
-                if prompt.direction == .upload || prompt.direction == .either {
-                    Button("Enviar coleção local", role: .destructive) {
-                        Task { await store.completeAnkiWebFullSync(upload: true) }
-                    }
-                }
-                if prompt.direction == .download || prompt.direction == .either {
-                    Button("Baixar coleção do AnkiWeb", role: .destructive) {
-                        Task { await store.completeAnkiWebFullSync(upload: false) }
-                    }
-                }
-            }
-            Button("Cancelar", role: .cancel) { store.pendingAnkiWebFullSync = nil }
-        } message: {
-            if let prompt = store.pendingAnkiWebFullSync {
-                switch prompt.direction {
-                case .either:
-                    Text("\(prompt.message) Enviar substitui a coleção do AnkiWeb; baixar substitui a coleção deste aparelho.")
-                case .upload:
-                    Text("\(prompt.message) A coleção do AnkiWeb será substituída pela coleção deste aparelho.")
-                case .download:
-                    Text("\(prompt.message) A coleção deste aparelho será substituída pela coleção do AnkiWeb.")
-                }
-            }
+            await runPeriodicMediaSync()
         }
         #endif
         .onReceive(NotificationCenter.default.publisher(for: .ankiOpenAdd)) { _ in
@@ -205,18 +192,22 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ankiOpenBrowser)) { _ in
             selectedTab = .browse
         }
-        .onOpenURL { url in
-            let fileExtension = url.pathExtension.lowercased()
-            guard fileExtension == "apkg" || fileExtension == "colpkg" else { return }
-            Task { @MainActor in
-                while store.isBootstrapping || store.collectionSyncing {
-                    try? await Task.sleep(for: .milliseconds(50))
-                }
-                await store.bootstrapIfNeeded()
-                selectedTab = .decks
-                store.pendingPackageImport = url
-            }
+        .onOpenURL { handleSystemURL($0) }
+        #if os(iOS)
+        .confirmationDialog(
+            "Allow access to add information?",
+            isPresented: Binding(
+                get: { pendingAnkiInfoSuccessURL != nil },
+                set: { if !$0 { pendingAnkiInfoSuccessURL = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Permitir") { copyAnkiInfoAndReturn() }
+            Button("Cancelar", role: .cancel) { pendingAnkiInfoSuccessURL = nil }
+        } message: {
+            Text("The requesting app will receive the profile, deck, and note type names via the clipboard.")
         }
+        #endif
         .task(id: store.activeProfile) {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(300))
@@ -231,8 +222,39 @@ struct RootView: View {
         .modifier(ReducedMotionViewModifier(isEnabled: reduceMotion || systemReduceMotion || minimalistMode, isMinimalist: minimalistMode))
     }
 
+#if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
     private var periodicMediaSyncKey: String {
         "\(store.activeProfile):\(store.ankiWebSyncSettingsRevision):\(scenePhase == .active)"
+    }
+
+    private func runPeriodicMediaSync() async {
+        let interval = store.ankiWebPeriodicMediaSyncMinutes
+        guard scenePhase == .active,
+              store.ankiWebConfigured,
+              store.ankiWebMediaSyncEnabled,
+              interval > 0 else { return }
+        let delay = Duration.seconds(Double(interval) * 60)
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            let isSceneActive = scenePhase == ScenePhase.active
+            guard isSceneActive else { return }
+            await store.syncAnkiWebMediaOnly()
+        }
+    }
+#endif
+
+    private var errorAlertPresented: Binding<Bool> {
+        Binding(
+            get: { store.lastError != nil },
+            set: { isPresented in
+                if !isPresented { store.lastError = nil }
+            }
+        )
     }
 
     private func openCopyInAddScreen(_ request: AddNoteCopyRequest) {
@@ -250,11 +272,166 @@ struct RootView: View {
         selectedTab = .tools
     }
 
+    private func handleSystemURL(_ url: URL) {
+        #if os(iOS)
+        if handleAnkiMobileURL(url) { return }
+        #endif
+        let scheme = url.scheme
+        let host = url.host
+        if scheme == "ankios" && host == "study" {
+            selectedTab = .decks
+            studyRequested = true
+            return
+        }
+        guard PackageImportRoute.canOpenFromSystem(url) else { return }
+        let packageImport = PendingPackageImport(
+            url: url,
+            securityScopedAccess: url.startAccessingSecurityScopedResource()
+        )
+        Task { @MainActor in
+            while store.isBootstrapping || store.collectionSyncing {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            await store.bootstrapIfNeeded()
+            selectedTab = .decks
+            store.pendingPackageImport = packageImport
+        }
+    }
+
+    #if os(iOS)
+    private func handleAnkiMobileURL(_ url: URL) -> Bool {
+        guard let request = AnkiMobileURLRequest(url: url) else { return false }
+        switch request {
+        case .launch:
+            return true
+        case .search(let query):
+            Task { @MainActor in
+                await waitForCollectionReady()
+                pendingBrowserSearchQuery = query
+                selectedTab = .browse
+            }
+        case .sync:
+            Task { @MainActor in
+                await waitForCollectionReady()
+                await store.syncWithAnkiWeb()
+            }
+        case .addNote(let typeName, let deckName, let fields, let tags, let profile, let allowsDuplicates, let successURL):
+            Task { @MainActor in
+                await waitForCollectionReady()
+                await addNoteFromAnkiURL(
+                    typeName: typeName,
+                    deckName: deckName,
+                    fields: fields,
+                    tags: tags,
+                    profile: profile,
+                    allowsDuplicates: allowsDuplicates,
+                    successURL: successURL
+                )
+            }
+        case .infoForAdding(let successURL):
+            guard let successURL else {
+                store.lastError = AnkiMobileURLRequestError.missingSuccessURL.localizedDescription
+                return true
+            }
+            Task { @MainActor in
+                await waitForCollectionReady()
+                pendingAnkiInfoSuccessURL = successURL
+            }
+        }
+        return true
+    }
+
+    private func waitForCollectionReady() async {
+        while store.isBootstrapping || store.collectionSyncing {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        await store.bootstrapIfNeeded()
+    }
+
+    private func addNoteFromAnkiURL(
+        typeName: String?,
+        deckName: String?,
+        fields: [String: String],
+        tags: String?,
+        profile: String?,
+        allowsDuplicates: Bool,
+        successURL: URL?
+    ) async {
+        do {
+            if let profile, profile != store.activeProfile {
+                throw AnkiMobileURLRequestError.invalidProfileName
+            }
+            guard let typeName, let noteType = store.notetypes.first(where: { $0.name == typeName }) else {
+                throw AnkiMobileURLRequestError.noteTypeNotFound
+            }
+            guard let deckName, let deck = store.decks.first(where: { !$0.isFiltered && $0.name == deckName }) else {
+                throw AnkiMobileURLRequestError.deckNotFound
+            }
+            var noteFields = noteType.flds.map { fields[$0.name] ?? "" }
+            guard let firstField = noteFields.first,
+                  !store.stripHTMLPreservingMediaFilenames(firstField).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw AnkiMobileURLRequestError.emptyFirstField
+            }
+            noteFields = try await importRemoteMedia(in: noteFields)
+            if !allowsDuplicates,
+               !(try store.duplicateNoteIDs(mid: noteType.id, fields: noteFields)).isEmpty {
+                throw AnkiMobileURLRequestError.duplicateNote
+            }
+            try store.addNote(mid: noteType.id, did: deck.id, fields: noteFields, tags: tags ?? "")
+            if let successURL {
+                UIApplication.shared.open(successURL, options: [:], completionHandler: nil)
+            }
+        } catch {
+            store.lastError = error.localizedDescription
+        }
+    }
+
+    private func importRemoteMedia(in fields: [String]) async throws -> [String] {
+        var imported = fields
+        for index in imported.indices {
+            guard let media = AnkiRemoteMedia(fieldValue: imported[index]) else { continue }
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await URLSession.shared.data(from: media.url)
+            } catch {
+                throw AnkiMobileURLRequestError.mediaDownloadFailed
+            }
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                throw AnkiMobileURLRequestError.mediaDownloadFailed
+            }
+            let filename = try store.mediaStore.importRemoteFile(data, suggestedName: media.filename)
+            let escapedFilename = filename.replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "\"", with: "&quot;")
+            imported[index] = media.isAudio ? "[sound:\(filename)]" : "<img src=\"\(escapedFilename)\">"
+        }
+        return imported
+    }
+
+    private func copyAnkiInfoAndReturn() {
+        guard let successURL = pendingAnkiInfoSuccessURL else { return }
+        pendingAnkiInfoSuccessURL = nil
+        let payload: [String: Any] = [
+            "profile": store.activeProfile,
+            "decks": store.decks.filter { !$0.isFiltered }.map(\.name),
+            "notetypes": store.notetypes.map(\.name)
+        ]
+        do {
+            let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+            UIPasteboard.general.setData(data, forPasteboardType: "net.ankimobile.json")
+            UIApplication.shared.open(successURL, options: [:], completionHandler: nil)
+        } catch {
+            store.lastError = error.localizedDescription
+        }
+    }
+    #endif
+
     #if os(iOS)
     private var iosRoot: some View {
         TabView(selection: $selectedTab) {
             DecksHomeView(studyRequested: $studyRequested)
-                .tabItem { Label("Baralhos", systemImage: "rectangle.stack.fill") }
+                .tabItem { Label("tab.decks", systemImage: "rectangle.stack.fill") }
                 .tag(AppTab.decks)
 
             AddNoteHomeView(copyRequest: $pendingNoteCopy)
@@ -264,7 +441,9 @@ struct RootView: View {
             BrowserView(
                 onCreateCopy: openCopyInAddScreen,
                 onAddNote: openAddScreen,
-                onManageNoteTypes: openNoteTypes
+                onManageNoteTypes: openNoteTypes,
+                isActive: selectedTab == .browse,
+                pendingSearchQuery: $pendingBrowserSearchQuery
             )
                 .tabItem { Label("Painel", systemImage: "sidebar.left") }
                 .tag(AppTab.browse)
@@ -284,7 +463,7 @@ struct RootView: View {
     private var macRoot: some View {
         NavigationSplitView {
             List(selection: $selectedTab) {
-                Label("Baralhos", systemImage: "rectangle.stack.fill").tag(AppTab.decks)
+                Label("tab.decks", systemImage: "rectangle.stack.fill").tag(AppTab.decks)
                 Label("Adicionar", systemImage: "plus.circle.fill").tag(AppTab.add)
                 Label("Painel", systemImage: "sidebar.left").tag(AppTab.browse)
                 Label("Estatísticas", systemImage: "chart.bar.fill").tag(AppTab.stats)
@@ -315,7 +494,7 @@ struct RootView: View {
     #endif
 }
 
-enum AppTab: Hashable {
+enum AppTab: String, Hashable {
     case decks, add, browse, stats, tools
 }
 
@@ -363,3 +542,110 @@ struct BootSplashView: View {
         }
     }
 }
+
+#if os(iOS)
+private enum AnkiMobileURLRequest {
+    case launch
+    case addNote(
+        typeName: String?,
+        deckName: String?,
+        fields: [String: String],
+        tags: String?,
+        profile: String?,
+        allowsDuplicates: Bool,
+        successURL: URL?
+    )
+    case infoForAdding(successURL: URL?)
+    case search(String)
+    case sync
+
+    init?(url: URL) {
+        guard url.scheme?.lowercased() == "anki" else { return nil }
+        guard url.host?.lowercased() == "x-callback-url" else {
+            self = .launch
+            return
+        }
+        let action = url.pathComponents.dropFirst().joined(separator: "/")
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        var values: [String: String] = [:]
+        for item in items where values[item.name] == nil {
+            values[item.name] = item.value ?? ""
+        }
+        let successURL = values["x-success"].flatMap { URL(string: $0) }
+
+        switch action {
+        case "addnote":
+            var fields: [String: String] = [:]
+            for item in items where item.name.hasPrefix("fld") && item.name.count > 3 {
+                let name = String(item.name.dropFirst(3))
+                if fields[name] == nil { fields[name] = item.value ?? "" }
+            }
+            self = .addNote(
+                typeName: values["type"],
+                deckName: values["deck"],
+                fields: fields,
+                tags: values["tags"],
+                profile: values["profile"],
+                allowsDuplicates: values["dupes"] == "1",
+                successURL: successURL
+            )
+        case "infoForAdding":
+            self = .infoForAdding(successURL: successURL)
+        case "search":
+            self = .search(values["query"] ?? "")
+        case "sync":
+            self = .sync
+        case "":
+            self = .launch
+        default:
+            return nil
+        }
+    }
+}
+
+private enum AnkiMobileURLRequestError: LocalizedError {
+    case missingSuccessURL
+    case invalidProfileName
+    case noteTypeNotFound
+    case deckNotFound
+    case emptyFirstField
+    case duplicateNote
+    case mediaDownloadFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .missingSuccessURL: String(localized: "An x-success URL must be provided.", table: "Localizable", bundle: .main)
+        case .invalidProfileName: String(localized: "Invalid profile name.", table: "Localizable", bundle: .main)
+        case .noteTypeNotFound: String(localized: "The provided note type does not exist.", table: "Localizable", bundle: .main)
+        case .deckNotFound: String(localized: "The provided deck does not exist.", table: "Localizable", bundle: .main)
+        case .emptyFirstField: String(localized: "The first field can not be blank.", table: "Localizable", bundle: .main)
+        case .duplicateNote: String(localized: "A note with the same first field already exists.", table: "Localizable", bundle: .main)
+        case .mediaDownloadFailed: String(localized: "Unable to download media from the provided URL.", table: "Localizable", bundle: .main)
+        }
+    }
+}
+
+private struct AnkiRemoteMedia {
+    let url: URL
+    let filename: String
+    let isAudio: Bool
+
+    init?(fieldValue: String) {
+        let value = fieldValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let components = URLComponents(string: value),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let url = components.url else { return nil }
+        let pathName = components.path.split(separator: "/").last.map(String.init) ?? ""
+        let fakePath = components.queryItems?.first(where: { $0.name == "fakePath" })?.value
+        let candidate = fakePath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? pathName
+        let fileExtension = URL(fileURLWithPath: candidate).pathExtension.lowercased()
+        let audioExtensions: Set<String> = ["mp3", "wav", "m4a", "ogg", "aac", "flac", "opus", "aiff", "aif", "spx"]
+        let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "gif", "webp", "svg"]
+        guard audioExtensions.contains(fileExtension) || imageExtensions.contains(fileExtension) else { return nil }
+        self.url = url
+        self.filename = candidate
+        self.isAudio = audioExtensions.contains(fileExtension)
+    }
+}
+#endif

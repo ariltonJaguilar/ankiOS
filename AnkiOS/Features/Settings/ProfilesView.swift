@@ -18,6 +18,7 @@ struct ProfilesView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(AppTheme.primaryText)
                             .lineLimit(1)
+                            .accessibilityIdentifier("profiles.activeProfile")
                     }
                 }
                 GlassFormSection(title: "Perfis") {
@@ -47,7 +48,7 @@ struct ProfilesView: View {
                                 renameTarget = name
                                 renameName = name
                             }
-                            Button("Excluir…", systemImage: "trash", role: .destructive) {
+                            Button("profiles.delete", systemImage: "trash", role: .destructive) {
                                 deleteTarget = name
                             }
                             .disabled(name == store.activeProfile || profiles.count < 2)
@@ -119,7 +120,7 @@ struct ProfilesView: View {
             }
             Button("Cancelar", role: .cancel) { deleteTarget = nil }
         } message: {
-            Text("A coleção e a mídia serão removidas deste aparelho e dos outros aparelhos na próxima sincronização com iCloud.")
+            Text("A coleção e a mídia deste perfil serão removidas deste aparelho.")
         }
     }
 

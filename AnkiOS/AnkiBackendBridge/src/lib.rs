@@ -323,7 +323,15 @@ pub unsafe extern "C" fn ankios_anki_sync_abort(
         let handle = handle.as_ref().ok_or_else(|| "backend is missing".to_owned())?;
         handle
             .backend
+            .set_wants_abort()
+            .map_err(|error| error.to_string())?;
+        handle
+            .backend
             .abort_sync()
+            .map_err(|error| error.to_string())?;
+        handle
+            .backend
+            .abort_media_sync()
             .map_err(|error| error.to_string())?;
         Ok(json!({"aborted": true}))
     })

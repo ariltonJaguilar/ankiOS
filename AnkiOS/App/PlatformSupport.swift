@@ -30,6 +30,11 @@ struct ShareSheet: View {
     }
 }
 
+struct ShareSheetItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
 #if os(iOS)
 private struct ShareSheetIOS: UIViewControllerRepresentable {
     let items: [Any]

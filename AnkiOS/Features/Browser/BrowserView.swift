@@ -2,17 +2,25 @@ import SwiftUI
 
 /// Anki Browser / Painel: sidebar filters + card list + note editor.
 struct BrowserView: View {
+    private enum BrowserAlert: Equatable {
+        case addTag, removeTag, replaceTag, setDue, saveSearch, renameSavedSearch
+    }
+
     @EnvironmentObject private var store: CollectionStore
     @Environment(\.colorScheme) private var colorScheme
     let onCreateCopy: (AddNoteCopyRequest) -> Void
     let onAddNote: () -> Void
     let onManageNoteTypes: () -> Void
+    let onClose: (() -> Void)?
+    let isActive: Bool
+    @Binding private var pendingSearchQuery: String?
 
     @State private var selectedFilter: BrowserFilter = .all
     @State private var query = ""
     @State private var committedSearchQuery = "deck:current"
     @State private var searchHistory: [String] = []
     @State private var loadedInitialQuery = false
+    @State private var browserStatusMessage: String?
     @State private var rows: [CollectionStore.BrowserRow] = []
     @State private var hasMoreRows = false
     @State private var selectedCardID: Int64?
@@ -22,14 +30,11 @@ struct BrowserView: View {
     @State private var showAnswerPreview = false
     @State private var showMove = false
     @State private var showChangeType = false
-    @State private var showTagEditor = false
-    @State private var showRemoveTag = false
-    @State private var showReplaceTag = false
+    @State private var activeAlert: BrowserAlert?
     @State private var tagInput = ""
     @State private var tagFrom = ""
     @State private var tagTo = ""
     @State private var dueDateInput = "1"
-    @State private var showSetDue = false
     @State private var showFindReplace = false
     @State private var exportURL: URL?
     @State private var showSearchHelp = false
@@ -37,10 +42,10 @@ struct BrowserView: View {
     @State private var sortKey: BrowserSort = .sortField
     @State private var sortDescending = false
     @State private var notesMode = false
+    @State private var restoredSortKey: BrowserSort?
+    @State private var restoredSortDirection: Bool?
     @State private var previewRow: CollectionStore.BrowserRow?
-    @State private var showSaveSearch = false
     @State private var saveSearchName = ""
-    @State private var showRenameSavedSearch = false
     @State private var savedSearchToRename = ""
     @State private var savedSearchRenameText = ""
     @State private var replaceTagAcrossCollection = false
@@ -64,11 +69,17 @@ struct BrowserView: View {
     init(
         onCreateCopy: @escaping (AddNoteCopyRequest) -> Void = { _ in },
         onAddNote: @escaping () -> Void = {},
-        onManageNoteTypes: @escaping () -> Void = {}
+        onManageNoteTypes: @escaping () -> Void = {},
+        onClose: (() -> Void)? = nil,
+        isActive: Bool = true,
+        pendingSearchQuery: Binding<String?> = .constant(nil)
     ) {
         self.onCreateCopy = onCreateCopy
         self.onAddNote = onAddNote
         self.onManageNoteTypes = onManageNoteTypes
+        self.onClose = onClose
+        self.isActive = isActive
+        _pendingSearchQuery = pendingSearchQuery
     }
 
     private var exportSheetPresented: Binding<Bool> {
@@ -76,6 +87,129 @@ struct BrowserView: View {
             get: { exportURL != nil },
             set: { isPresented in if !isPresented { exportURL = nil } }
         )
+    }
+
+    private var browserAlertPresented: Binding<Bool> {
+        Binding(
+            get: { activeAlert != nil },
+            set: { if !$0 { activeAlert = nil } }
+        )
+    }
+
+    private var browserAlertTitle: String {
+        switch activeAlert {
+        case .some(.addTag): "Adicionar tag"
+        case .some(.removeTag): "Remover tag"
+        case .some(.replaceTag): "Substituir tag"
+        case .some(.setDue): "Definir due (dias)"
+        case .some(.saveSearch): "Salvar busca atual"
+        case .some(.renameSavedSearch): "Renomear busca salva"
+        case nil: ""
+        }
+    }
+
+    @ViewBuilder
+    private var browserAlertActions: some View {
+        switch activeAlert {
+        case .some(.addTag):
+            TextField("tag", text: $tagInput)
+                .accessibilityIdentifier("browser.addTag.input")
+            Button("OK") {
+                let nids = targetNoteIDs()
+                performUndoableBrowserAction(noteIDs: nids, message: "Etiquetas adicionadas") {
+                    try store.addTag(to: nids, tag: tagInput)
+                }
+                tagInput = ""
+                runSearch()
+            }
+            Button("Cancelar", role: .cancel) {}
+        case .some(.removeTag):
+            TextField("tag", text: $tagInput)
+            Button("OK") {
+                let nids = targetNoteIDs()
+                performUndoableBrowserAction(noteIDs: nids, message: "Etiquetas removidas") {
+                    try store.removeTag(from: nids, tag: tagInput)
+                }
+                tagInput = ""
+                runSearch()
+            }
+            Button("Cancelar", role: .cancel) {}
+        case .some(.replaceTag):
+            TextField("De", text: $tagFrom)
+            TextField("Para", text: $tagTo)
+            Button("OK") {
+                let nids: [Int64]
+                do {
+                    nids = replaceTagAcrossCollection ? try store.noteIDs(matchingTag: tagFrom) : targetNoteIDs()
+                } catch {
+                    store.lastError = error.localizedDescription
+                    return
+                }
+                performUndoableBrowserAction(noteIDs: nids, message: "Etiquetas substituídas") {
+                    try store.replaceTag(in: nids, from: tagFrom, to: tagTo)
+                }
+                replaceTagAcrossCollection = false
+                tagFrom = ""
+                tagTo = ""
+                runSearch()
+            }
+            Button("Cancelar", role: .cancel) { replaceTagAcrossCollection = false }
+        case .some(.setDue):
+            TextField("5, 0-2 ou 60-90!", text: $dueDateInput)
+            Button("OK") {
+                guard let due = CollectionStore.parseDueDateInput(dueDateInput) else {
+                    store.lastError = "Use dias, um intervalo como 0-2 ou ! para atualizar o intervalo."
+                    return
+                }
+                let ids = targets()
+                performUndoableBrowserAction(cardIDs: ids, message: "Datas due alteradas", removeManualRevlog: true) {
+                    try store.setDueDate(
+                        cardIDs: ids,
+                        minDays: due.min,
+                        maxDays: due.max,
+                        updateInterval: due.updateInterval
+                    )
+                }
+                runSearch()
+            }
+            Button("Cancelar", role: .cancel) {}
+        case .some(.saveSearch):
+            TextField("Nome da busca", text: $saveSearchName)
+            Button("Salvar") {
+                let q = effectiveSearchQuery
+                do {
+                    try store.addSavedSearch(name: saveSearchName, query: q)
+                    saveSearchName = ""
+                } catch {
+                    store.lastError = error.localizedDescription
+                }
+            }
+            Button("Cancelar", role: .cancel) { saveSearchName = "" }
+        case .some(.renameSavedSearch):
+            TextField("Nome da busca", text: $savedSearchRenameText)
+            Button("Salvar") {
+                do {
+                    try store.renameSavedSearch(from: savedSearchToRename, to: savedSearchRenameText)
+                    savedSearchToRename = ""
+                    savedSearchRenameText = ""
+                } catch {
+                    store.lastError = error.localizedDescription
+                }
+            }
+            Button("Cancelar", role: .cancel) {
+                savedSearchToRename = ""
+                savedSearchRenameText = ""
+            }
+        case nil:
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    @ViewBuilder
+    private var browserAlertMessage: some View {
+        if activeAlert == .saveSearch {
+            Text("A busca “\(effectiveSearchQuery)” será salva na coleção.")
+        }
     }
 
     private var browserPanels: some View {
@@ -112,6 +246,12 @@ struct BrowserView: View {
                 applyBrowserSearchRequest(request)
                 runSearch()
             })
+            .onChange(of: pendingSearchQuery) { _, _ in
+                if applyPendingSearchQuery() { runSearch() }
+            }
+            .onChange(of: isActive) { _, _ in
+                if applyPendingSearchQuery() { runSearch() }
+            }
     }
 
     private var browserContent: some View {
@@ -123,6 +263,13 @@ struct BrowserView: View {
             .background(AppBackground())
             .background(browserUndoShortcut)
             .navigationTitle("Painel")
+            .toolbar {
+                if let onClose {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Fechar", action: onClose)
+                    }
+                }
+            }
             .ankiKeyboardDismissToolbar()
             .onChange(of: store.undoRevision) { _, _ in runSearch() }
             .onChange(of: store.activeProfile) { _, _ in
@@ -161,6 +308,7 @@ struct BrowserView: View {
                         }
                         runSearch()
                     }
+                    .accessibilityIdentifier("browser.noteType.\(nt.name)")
                 }
             }
             .confirmationDialog("Apagar notas selecionadas?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
@@ -169,84 +317,10 @@ struct BrowserView: View {
             } message: {
                 Text("Essa ação remove as notas selecionadas e todos os cartões correspondentes. Você poderá desfazer logo depois.")
             }
-            .alert("Adicionar tag", isPresented: $showTagEditor) {
-                TextField("tag", text: $tagInput)
-                Button("OK") {
-                    let nids = targetNoteIDs()
-                    performUndoableBrowserAction(noteIDs: nids, message: "Etiquetas adicionadas") {
-                        try store.addTag(to: nids, tag: tagInput)
-                    }
-                    tagInput = ""
-                    runSearch()
-                }
-                Button("Cancelar", role: .cancel) {}
-            }
-            .alert("Remover tag", isPresented: $showRemoveTag) {
-                TextField("tag", text: $tagInput)
-                Button("OK") {
-                    let nids = targetNoteIDs()
-                    performUndoableBrowserAction(noteIDs: nids, message: "Etiquetas removidas") {
-                        try store.removeTag(from: nids, tag: tagInput)
-                    }
-                    tagInput = ""
-                    runSearch()
-                }
-                Button("Cancelar", role: .cancel) {}
-            }
-            .alert("Substituir tag", isPresented: $showReplaceTag) {
-                TextField("De", text: $tagFrom)
-                TextField("Para", text: $tagTo)
-                Button("OK") {
-                    let nids: [Int64]
-                    do {
-                        nids = replaceTagAcrossCollection ? try store.noteIDs(matchingTag: tagFrom) : targetNoteIDs()
-                    } catch {
-                        store.lastError = error.localizedDescription
-                        return
-                    }
-                    performUndoableBrowserAction(noteIDs: nids, message: "Etiquetas substituídas") {
-                        try store.replaceTag(in: nids, from: tagFrom, to: tagTo)
-                    }
-                    replaceTagAcrossCollection = false
-                    tagFrom = ""; tagTo = ""
-                    runSearch()
-                }
-                Button("Cancelar", role: .cancel) { replaceTagAcrossCollection = false }
-            }
-            .alert("Definir due (dias)", isPresented: $showSetDue) {
-                TextField("5, 0-2 ou 60-90!", text: $dueDateInput)
-                Button("OK") {
-                    guard let due = CollectionStore.parseDueDateInput(dueDateInput) else {
-                        store.lastError = "Use dias, um intervalo como 0-2 ou ! para atualizar o intervalo."
-                        return
-                    }
-                    let ids = targets()
-                    performUndoableBrowserAction(cardIDs: ids, message: "Datas due alteradas", removeManualRevlog: true) {
-                        try store.setDueDate(
-                            cardIDs: ids,
-                            minDays: due.min,
-                            maxDays: due.max,
-                            updateInterval: due.updateInterval
-                        )
-                    }
-                    runSearch()
-                }
-                Button("Cancelar", role: .cancel) {}
-            }
-            .alert("Salvar busca atual", isPresented: $showSaveSearch) {
-                TextField("Nome da busca", text: $saveSearchName)
-                Button("Salvar") {
-                    let q = effectiveSearchQuery
-                    do {
-                        try store.addSavedSearch(name: saveSearchName, query: q)
-                        saveSearchName = ""
-                    } catch {
-                        store.lastError = error.localizedDescription
-                    }
-                }
-                Button("Cancelar", role: .cancel) { saveSearchName = "" }
+            .alert(browserAlertTitle, isPresented: browserAlertPresented) {
+                browserAlertActions
             } message: {
-                Text("A busca “\(effectiveSearchQuery)” será salva na coleção.")
+                browserAlertMessage
             }
             .sheet(isPresented: $showFindReplace) {
                 let noteIDs = targetNoteIDs()
@@ -254,8 +328,9 @@ struct BrowserView: View {
                     noteIDs: noteIDs,
                     selectedFieldNames: (try? store.fieldNames(forNoteIDs: noteIDs)) ?? [],
                     allFieldNames: Array(Set(store.notetypes.flatMap { $0.flds.map(\.name) })).sorted()
-                ) {
+                ) { count in
                     runSearch()
+                    showBrowserStatus("Substituído em \(count) nota(s).")
                 }
                 .environmentObject(store)
             }
@@ -270,7 +345,10 @@ struct BrowserView: View {
                 .environmentObject(store)
             }
             .sheet(isPresented: exportSheetPresented) {
-                if let exportURL { ShareSheet(items: [exportURL]) }
+                if let exportURL {
+                    ShareSheet(items: [exportURL])
+                        .accessibilityIdentifier("browser.export.share-sheet")
+                }
             }
             .sheet(isPresented: $showSearchHelp) {
                 NavigationStack {
@@ -304,19 +382,28 @@ struct BrowserView: View {
             }
             .task { loadBrowser() }
             .onChange(of: sortKey) { _, key in
-                var conf = store.conf
-                conf["browserSortType"] = key.sortValue
-                sortDescending = key.defaultDescending
-                conf["browserSortDescending"] = key.defaultDescending
-                do { try store.saveConf(conf) }
-                catch { store.lastError = error.localizedDescription }
+                if restoredSortKey == key {
+                    restoredSortKey = nil
+                    runSearch()
+                    return
+                }
+                restoredSortKey = nil
+                let descending = key.defaultDescending
+                if sortDescending != descending {
+                    restoredSortDirection = descending
+                    sortDescending = descending
+                }
+                persistBrowserSortPreference(key, descending: descending, notesMode: notesMode)
                 runSearch()
             }
             .onChange(of: sortDescending) { _, descending in
-                var conf = store.conf
-                conf["browserSortDescending"] = descending
-                do { try store.saveConf(conf) }
-                catch { store.lastError = error.localizedDescription }
+                if restoredSortDirection == descending {
+                    restoredSortDirection = nil
+                    runSearch()
+                    return
+                }
+                restoredSortDirection = nil
+                persistBrowserSortPreference(sortKey, descending: descending, notesMode: notesMode)
                 runSearch()
             }
             .onChange(of: browserColumns) { _, columns in
@@ -326,27 +413,41 @@ struct BrowserView: View {
                 catch { store.lastError = error.localizedDescription }
             }
             .onChange(of: notesMode) { _, enabled in
-                if enabled && !sortKey.supportsNotesMode { sortKey = .sortField }
+                restoreBrowserSortPreference(for: enabled)
                 runSearch()
             }
             .onChange(of: selectedCardID) { _, id in
                 loadEditor(for: id)
             }
-            .alert("Renomear busca salva", isPresented: $showRenameSavedSearch) {
-                TextField("Nome da busca", text: $savedSearchRenameText)
-                Button("Salvar") {
-                    do {
-                        try store.renameSavedSearch(from: savedSearchToRename, to: savedSearchRenameText)
-                        savedSearchToRename = ""
-                        savedSearchRenameText = ""
-                    } catch {
-                        store.lastError = error.localizedDescription
-                    }
+            .overlay(alignment: .bottom) {
+                if let browserStatusMessage {
+                    Text(browserStatusMessage)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(AppTheme.primaryText)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay {
+                            Capsule().strokeBorder(AppTheme.primaryText.opacity(0.14), lineWidth: 1)
+                        }
+                        .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+                        .accessibilityIdentifier("browser.operation.status")
+                        .padding(.bottom, 20)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                Button("Cancelar", role: .cancel) {
-                    savedSearchToRename = ""
-                    savedSearchRenameText = ""
-                }
+            }
+        }
+    }
+
+    private func showBrowserStatus(_ message: String) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+            browserStatusMessage = message
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard browserStatusMessage == message else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                browserStatusMessage = nil
             }
         }
     }
@@ -396,10 +497,10 @@ struct BrowserView: View {
                             .help("Remover busca salva")
                         }
                         .contextMenu {
-                            Button("Renomear…", systemImage: "pencil") {
+                            Button("browser.rename", systemImage: "pencil") {
                                 savedSearchToRename = item.name
                                 savedSearchRenameText = item.name
-                                showRenameSavedSearch = true
+                                activeAlert = .renameSavedSearch
                             }
                             Button("Remover", systemImage: "trash", role: .destructive) {
                                 do { try store.removeSavedSearch(named: item.name) }
@@ -409,9 +510,9 @@ struct BrowserView: View {
                         .glassListRow(selected: false)
                     }
                 }
-                Button("Salvar busca atual…") {
+                Button("browser.save-current-search") {
                     saveSearchName = suggestedSaveSearchName
-                    showSaveSearch = true
+                    activeAlert = .saveSearch
                 }
                 .foregroundStyle(AppTheme.accent)
             }
@@ -435,7 +536,7 @@ struct BrowserView: View {
                 filterRow(.isLeech)
                 filterRow(.noFlag)
             }
-            Section("Baralhos") {
+            Section("browser.sidebar.decks") {
                 filterRow(.all)
                 ForEach(store.decks) { deck in
                     filterRow(.deck(deck.name))
@@ -475,7 +576,7 @@ struct BrowserView: View {
             selectFilter(filter)
         } label: {
             HStack {
-                Text(filter.title)
+                filter.localizedTitle
                     .lineLimit(1)
                     .foregroundStyle(.primary)
                 Spacer()
@@ -493,11 +594,11 @@ struct BrowserView: View {
             EmptyView()
         } else if case .tag(let tag) = filter {
             row.contextMenu {
-                Button("Renomear tag…", systemImage: "pencil") {
+                Button("browser.rename-tag", systemImage: "pencil") {
                     tagFrom = tag
                     tagTo = ""
                     replaceTagAcrossCollection = true
-                    showReplaceTag = true
+                    activeAlert = .replaceTag
                 }
                 Button("Excluir tag", systemImage: "trash", role: .destructive) {
                     do {
@@ -532,8 +633,10 @@ struct BrowserView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(BrowserFilter.mobileDefaults, id: \.self) { filter in
-                    Button(filter.title) {
+                    Button {
                         selectFilter(filter)
+                    } label: {
+                        filter.localizedTitle
                     }
                     .buttonStyle(GlassButtonStyle(
                         tint: selectedFilter == filter ? AppTheme.accent : .white,
@@ -584,11 +687,11 @@ struct BrowserView: View {
 
             HStack {
                 Picker("Modo", selection: $notesMode) {
-                    Text("Cartões").tag(false)
+                    Text("browser.cards-mode").tag(false)
                     Text("Notas").tag(true)
                 }
                 .pickerStyle(.segmented)
-                Picker("Ordenar", selection: $sortKey) {
+                Picker("browser.sort", selection: $sortKey) {
                     ForEach(BrowserSort.allCases.filter { !notesMode || $0.supportsNotesMode }, id: \.self) { s in
                         Text(s.title).tag(s)
                     }
@@ -611,9 +714,13 @@ struct BrowserView: View {
                             }
                         } label: {
                             if browserColumns.contains(column.id) {
-                                Label(column.title, systemImage: "checkmark")
+                                Label {
+                                    browserColumnTitle(column)
+                                } icon: {
+                                    Image(systemName: "checkmark")
+                                }
                             } else {
-                                Text(column.title)
+                                browserColumnTitle(column)
                             }
                         }
                     }
@@ -693,57 +800,14 @@ struct BrowserView: View {
     }
 
     private var sortedRows: [CollectionStore.BrowserRow] {
-        guard notesMode else { return rows }
-        let ascending: [CollectionStore.BrowserRow]
-        switch sortKey {
-        case .sortField: ascending = rows.sorted { $0.note.sfld.localizedCaseInsensitiveCompare($1.note.sfld) == .orderedAscending }
-        case .due:
-            ascending = rows.sorted { ($0.nextDueTimestamp ?? .max) < ($1.nextDueTimestamp ?? .max) }
-        case .created: ascending = rows.sorted { $0.note.id < $1.note.id }
-        case .modified:
-            ascending = rows.sorted { $0.note.mod < $1.note.mod }
-        case .interval:
-            ascending = rows.sorted { ($0.averageInterval ?? -.infinity) < ($1.averageInterval ?? -.infinity) }
-        case .ease:
-            ascending = rows.sorted { ($0.averageEase ?? -.infinity) < ($1.averageEase ?? -.infinity) }
-        case .reps: ascending = rows.sorted { $0.totalReps < $1.totalReps }
-        case .lapses: ascending = rows.sorted { $0.totalLapses < $1.totalLapses }
-        case .deck: ascending = rows.sorted { $0.deckName.localizedCaseInsensitiveCompare($1.deckName) == .orderedAscending }
-        case .template: ascending = rows.sorted { $0.cardCount < $1.cardCount }
-        case .noteType: ascending = rows.sorted { $0.notetypeName.localizedCaseInsensitiveCompare($1.notetypeName) == .orderedAscending }
-        case .tags:
-            ascending = rows.sorted {
-                $0.note.tagList.joined(separator: " ").localizedCaseInsensitiveCompare($1.note.tagList.joined(separator: " ")) == .orderedAscending
-            }
-        case .originalPosition:
-            ascending = rows.sorted {
-                (FSRSCardData.originalPosition(in: $0.card.data) ?? ($0.card.type == 0 ? $0.card.due : Int.max))
-                    < (FSRSCardData.originalPosition(in: $1.card.data) ?? ($1.card.type == 0 ? $1.card.due : Int.max))
-            }
-        case .stability:
-            ascending = rows.sorted {
-                (FSRSCardData.memory(in: $0.card.data)?.stability ?? -.infinity)
-                    < (FSRSCardData.memory(in: $1.card.data)?.stability ?? -.infinity)
-            }
-        case .difficulty:
-            ascending = rows.sorted {
-                (FSRSCardData.memory(in: $0.card.data)?.difficulty ?? -.infinity)
-                    < (FSRSCardData.memory(in: $1.card.data)?.difficulty ?? -.infinity)
-            }
-        case .retrievability:
-            ascending = rows.sorted {
-                (store.browserRetrievability(for: $0.card) ?? -.infinity)
-                    < (store.browserRetrievability(for: $1.card) ?? -.infinity)
-            }
-        }
-        return sortDescending ? Array(ascending.reversed()) : ascending
+        rows
     }
 
     private var availableBrowserColumns: [(id: String, title: String)] {
         var columns: [(String, String)] = [
-            ("question", "Pergunta"), ("answer", "Resposta"), ("type", "Cartão"), ("noteType", "Nota"), ("deck", "Baralho"),
+            ("question", "Pergunta"), ("answer", "Resposta"), ("type", "Cartão"), ("noteType", "Nota"), ("deck", "browser.column.deck"),
             ("due", "Vencimento"), ("interval", "Intervalo"), ("ease", "Facilidade"),
-            ("reps", "Revisões"), ("lapses", "Falhas"), ("tags", "Etiquetas"),
+            ("reps", "browser.review-count"), ("lapses", "Falhas"), ("tags", "Etiquetas"),
             ("created", "Criado"), ("cardModified", "Cartão modificado"),
             ("noteModified", "Nota modificada"), ("sortField", "Campo de ordenação"),
             ("originalPosition", "Posição original"), ("stability", "Estabilidade FSRS"),
@@ -752,6 +816,13 @@ struct BrowserView: View {
         let fields = Set(store.notetypes.flatMap { $0.flds.map(\.name) })
         columns += fields.sorted().map { ("field:\($0)", $0) }
         return columns.map { (id: $0.0, title: $0.1) }
+    }
+
+    private func browserColumnTitle(_ column: (id: String, title: String)) -> Text {
+        if column.id.hasPrefix("field:") {
+            return Text(verbatim: column.title)
+        }
+        return Text(LocalizedStringKey(column.title))
     }
 
     /// Notes mode: one row per note (first card).
@@ -831,6 +902,7 @@ struct BrowserView: View {
                         VStack(spacing: 10) {
                             Button("Salvar") { saveEditor(row: row) }
                                 .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, expands: true))
+                                .accessibilityIdentifier("browser.editor.save")
                             if row.card.queue == -2 || row.card.queue == -3 {
                                 Button("Desocultar") {
                                     performUndoableBrowserAction(cardIDs: [row.card.id], message: "Cartão desocultado") {
@@ -896,16 +968,19 @@ struct BrowserView: View {
             Menu {
                 ForEach(store.savedSearches, id: \.name) { item in
                     Button(item.name) { applySavedSearch(item.query) }
+                        .accessibilityIdentifier("browser.savedSearch.item.\(item.name)")
                 }
                 if !store.savedSearches.isEmpty { Divider() }
-                Button("Salvar busca atual…", systemImage: "bookmark") {
+                Button("browser.save-current-search", systemImage: "bookmark") {
                     saveSearchName = suggestedSaveSearchName
-                    showSaveSearch = true
+                    activeAlert = .saveSearch
                 }
+                .accessibilityIdentifier("browser.savedSearch.saveCurrent")
             } label: {
                 Image(systemName: "bookmark")
             }
             .panelGlassMenu()
+            .accessibilityIdentifier("browser.savedSearch.menu")
             Menu {
                 Button("Pré-visualizar cartão", systemImage: "eye") {
                     if let id = selectedCardID, let row = rows.first(where: { $0.id == id }) {
@@ -921,6 +996,7 @@ struct BrowserView: View {
                 Button("Selecionar todos") {
                     selectAllSearchResults()
                 }
+                .accessibilityIdentifier("browser.selectAll")
                 Button("Inverter seleção") {
                     do {
                         selectedIDs = try allSearchCardIDs().subtracting(selectedIDs)
@@ -930,6 +1006,7 @@ struct BrowserView: View {
                     }
                     catch { store.lastError = error.localizedDescription }
                 }
+                .accessibilityIdentifier("browser.selection.invert")
                 Button("Procurar duplicatas") {
                     selectedIDs.removeAll()
                     query = "dupe:"
@@ -940,6 +1017,7 @@ struct BrowserView: View {
                 Button("Selecionar notas", systemImage: "note.text") {
                     selectNotes(targetNoteIDs())
                 }
+                .accessibilityIdentifier("browser.selection.notes")
                 Button("Encontrar duplicatas por campo…", systemImage: "doc.on.doc") {
                     showDuplicateFinder = true
                 }
@@ -978,15 +1056,18 @@ struct BrowserView: View {
                     }
                 }
                 Button("Marcar / desmarcar", systemImage: "star") { bulkMark() }
+                    .accessibilityIdentifier("browser.selection.mark")
                 Toggle("Suspender", isOn: Binding(
                     get: { currentBrowserRow?.card.queue == -1 },
                     set: { setSelectionSuspended($0) }
                 ))
+                .accessibilityIdentifier("browser.selection.suspend")
                 Button("Suspender nota", systemImage: "pause.circle.fill") { suspendNotes() }
                 Toggle("Ocultar", isOn: Binding(
                     get: { currentBrowserRow.map { $0.card.queue == -2 || $0.card.queue == -3 } ?? false },
                     set: { setSelectionBuried($0) }
                 ))
+                .accessibilityIdentifier("browser.selection.bury")
                 Button("Desocultar todos", systemImage: "eye.circle") {
                     do {
                         let cards = try store.cards(inQueue: -2) + store.cards(inQueue: -3)
@@ -999,38 +1080,54 @@ struct BrowserView: View {
                 Divider()
                 Button("Mover…", systemImage: "folder") { showMove = true }
                 Button("Mudar tipo de nota…", systemImage: "doc.badge.gearshape") { showChangeType = true }
-                Button("Adicionar tag…", systemImage: "tag") { showTagEditor = true }
-                Button("Remover tag…", systemImage: "tag.slash") { showRemoveTag = true }
-                Button("Substituir tag…", systemImage: "arrow.left.arrow.right") { showReplaceTag = true }
-                Button("Localizar e substituir…", systemImage: "text.magnifyingglass") { showFindReplace = true }
-                Button("Definir due…", systemImage: "calendar") { showSetDue = true }
-                Button("Avaliar agora…", systemImage: "checkmark") { showGradeNow = true }
+                    .accessibilityIdentifier("browser.changeNoteType")
+                Button("browser.add-tags", systemImage: "tag") { activeAlert = .addTag }
+                    .accessibilityIdentifier("browser.addTag")
+                Button("Remover tag…", systemImage: "tag.slash") { activeAlert = .removeTag }
+                Button("Substituir tag…", systemImage: "arrow.left.arrow.right") { activeAlert = .replaceTag }
+                Button("browser.find-replace", systemImage: "text.magnifyingglass") { showFindReplace = true }
+                    #if os(macOS)
+                    .accessibilityIdentifier("browser.findReplace")
+                    #endif
+                Button("Definir due…", systemImage: "calendar") { activeAlert = .setDue }
+                Button("browser.grade-now", systemImage: "checkmark") { showGradeNow = true }
                     .disabled(targets().isEmpty)
                 Button("Repor (esquecer)…", systemImage: "arrow.counterclockwise") {
                     forgetRestorePosition = store.conf["browserForgetRestorePosition"] as? Bool ?? false
                     forgetResetCounts = store.conf["browserForgetResetCounts"] as? Bool ?? false
                     showForgetCards = true
                 }
+                .accessibilityIdentifier("browser.forgetCards")
                 Button("Exportar seleção (.apkg)", systemImage: "square.and.arrow.up") { exportSelection() }
+                    .accessibilityIdentifier("browser.export.apkg")
                 Button("Exportar seleção (TSV)", systemImage: "tablecells") { exportSelectionTSV() }
+                    .accessibilityIdentifier("browser.export.tsv")
                 Button("Criar filtrado desta busca", systemImage: "line.3.horizontal.decrease.circle") {
                     createFilteredFromSearch()
                 }
-                Button("Reposicionar novos…", systemImage: "arrow.up.arrow.down") {
+                Button("browser.reposition-new", systemImage: "arrow.up.arrow.down") {
                     showReposition = true
                 }
+                .accessibilityIdentifier("browser.reposition")
                 Divider()
                 Button("Apagar…", systemImage: "trash", role: .destructive) { showDeleteConfirmation = true }
             } label: {
-                Text("Ações ▾")
+                HStack(spacing: 0) {
+                    Text("browser.actions")
+                    Text(verbatim: " ▾")
+                }
             }
             .panelGlassMenu()
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("browser.actions")
+            .accessibilityIdentifier("browser.actions.menu")
             Button("Desocultar") { bulkUnbury() }
                 .buttonStyle(GlassChipButtonStyle())
             Button("Dessuspender") { bulkUnsuspend() }
                 .buttonStyle(GlassChipButtonStyle())
             Button(useRichEditor ? "Editar HTML" : "Editor visual") { useRichEditor.toggle() }
                 .buttonStyle(GlassChipButtonStyle())
+                .accessibilityIdentifier("browser.toggleRichEditor")
             Button {
                 showSearchHelp = true
             } label: {
@@ -1066,9 +1163,11 @@ struct BrowserView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         GlassOptionRow(title: "Posição inicial") {
                             Stepper("\(repositionStart)", value: $repositionStart, in: 0...999_999)
+                                .accessibilityIdentifier("browser.reposition.start")
                         }
                         GlassOptionRow(title: "Passo") {
                             Stepper("\(repositionStep)", value: $repositionStep, in: 1...999)
+                                .accessibilityIdentifier("browser.reposition.step")
                         }
                         GlassOptionRow(title: "Ordem aleatória") {
                             Toggle("", isOn: $repositionRandom).labelsHidden().tint(AppTheme.accent)
@@ -1210,24 +1309,15 @@ struct BrowserView: View {
 
     private func loadBrowser() {
         if !loadedInitialQuery {
-            let defaultSearch = store.conf["browserDefaultSearch"] as? String ?? ""
+            let defaultSearch = store.conf["defaultSearchText"] as? String
+                ?? store.conf["browserDefaultSearch"] as? String ?? ""
             let hasDefaultSearch = !defaultSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             query = hasDefaultSearch ? defaultSearch : ""
             committedSearchQuery = hasDefaultSearch ? defaultSearch : "deck:current"
             searchHistory = SharedProfiles.defaults.stringArray(forKey: searchHistoryDefaultsKey) ?? []
             loadedInitialQuery = true
         }
-        let legacySort = store.conf["sortType"] as? Int ?? 0
-        let storedBrowserSort = store.conf["browserSortType"] as? Int
-        if storedBrowserSort == nil && legacySort >= 2 {
-            var conf = store.conf
-            conf["browserSortType"] = legacySort
-            conf["sortType"] = 0
-            do { try store.saveConf(conf) }
-            catch { store.lastError = error.localizedDescription }
-        }
-        sortKey = BrowserSort.fromStoredBrowserSortType(storedBrowserSort ?? (legacySort >= 2 ? legacySort : 0))
-        sortDescending = store.conf["browserSortDescending"] as? Bool ?? sortKey.defaultDescending
+        restoreBrowserSortPreference(for: notesMode)
         if let savedColumns = store.conf["browserColumns"] as? [String], !savedColumns.isEmpty {
             browserColumns = Set(savedColumns)
             if browserColumns.remove("cardCount") != nil {
@@ -1240,7 +1330,34 @@ struct BrowserView: View {
             applyBrowserSearchRequest(request)
             store.consumeBrowserSearchRequest(id: request.id)
         }
+        applyPendingSearchQuery()
         runSearch()
+    }
+
+    private func restoreBrowserSortPreference(for notesMode: Bool) {
+        let preference = BrowserSort.preference(from: store.conf, notesMode: notesMode)
+        let key = notesMode && !preference.sortKey.supportsNotesMode ? .sortField : preference.sortKey
+        let descending = key == preference.sortKey ? preference.descending : key.defaultDescending
+        if sortKey != key {
+            restoredSortKey = key
+            sortKey = key
+        }
+        if sortDescending != descending {
+            restoredSortDirection = descending
+            sortDescending = descending
+        }
+        let sortTypeKey = notesMode ? "noteSortType" : "sortType"
+        let directionKey = notesMode ? "browserNoteSortBackwards" : "sortBackwards"
+        if key != preference.sortKey || store.conf[sortTypeKey] as? String == nil || store.conf[directionKey] as? Bool == nil {
+            persistBrowserSortPreference(key, descending: descending, notesMode: notesMode)
+        }
+    }
+
+    private func persistBrowserSortPreference(_ key: BrowserSort, descending: Bool, notesMode: Bool) {
+        var conf = store.conf
+        BrowserSort.savePreference(key, descending: descending, notesMode: notesMode, into: &conf)
+        do { try store.saveConf(conf) }
+        catch { store.lastError = error.localizedDescription }
     }
 
     private func selectFilter(_ filter: BrowserFilter) {
@@ -1292,6 +1409,13 @@ struct BrowserView: View {
         committedSearchQuery = normalized
     }
 
+    private func applyPendingSearchQuery() -> Bool {
+        guard isActive, loadedInitialQuery, let pendingSearchQuery else { return false }
+        applyBrowserSearchRequest(BrowserSearchRequest(query: pendingSearchQuery))
+        self.pendingSearchQuery = nil
+        return true
+    }
+
     private func rememberSearch(_ value: String) {
         guard !value.isEmpty else { return }
         searchHistory.removeAll { $0 == value }
@@ -1305,7 +1429,7 @@ struct BrowserView: View {
     @discardableResult
     private func runSearch() -> Bool {
         do {
-            rows = try store.search(query: effectiveSearchQuery, limit: 500, sortType: sortKey.sortValue(notesMode: notesMode), sortDescending: sortDescending)
+            rows = try store.search(query: effectiveSearchQuery, limit: 500, sortType: sortKey.sortValue(notesMode: notesMode), sortDescending: sortDescending, notesMode: notesMode)
             hasMoreRows = rows.count == 500
             if !selectedIDs.isEmpty {
                 selectedIDs.formIntersection(try allSearchCardIDs())
@@ -1336,7 +1460,8 @@ struct BrowserView: View {
                 query: effectiveSearchQuery,
                 limit: requestedCount + 1,
                 sortType: sortKey.sortValue(notesMode: notesMode),
-                sortDescending: sortDescending
+                sortDescending: sortDescending,
+                notesMode: notesMode
             )
             rows = Array(expanded.prefix(requestedCount))
             hasMoreRows = expanded.count > requestedCount
@@ -1356,15 +1481,13 @@ struct BrowserView: View {
     }
 
     private func allSearchCardIDs() throws -> Set<Int64> {
-        var allIDs = Set<Int64>()
-        var offset = 0
-        while true {
-            let batch = try store.search(query: effectiveSearchQuery, limit: 500, offset: offset, sortType: sortKey.sortValue(notesMode: notesMode), sortDescending: sortDescending)
-            allIDs.formUnion(batch.map(\.id))
-            offset += batch.count
-            if batch.count < 500 { break }
-        }
-        return allIDs
+        Set(try BrowserSelection.allRowIDs(
+            query: effectiveSearchQuery,
+            sortType: sortKey.sortValue(notesMode: notesMode),
+            sortDescending: sortDescending,
+            notesMode: notesMode,
+            store: store
+        ))
     }
 
     private func loadEditor(for id: Int64?) {
@@ -1406,10 +1529,8 @@ struct BrowserView: View {
         } else {
             rowIDs = selectedCardID.map { [$0] } ?? []
         }
-        guard notesMode else { return rowIDs }
         do {
-            let noteIDs = try store.noteIDs(ofCards: rowIDs)
-            return try store.cardIDs(ofNotes: noteIDs)
+            return try BrowserSelection.targetCardIDs(rowIDs, notesMode: notesMode, store: store)
         } catch {
             store.lastError = error.localizedDescription
             return []
@@ -1419,21 +1540,14 @@ struct BrowserView: View {
     private func selectedCardIDsInSearchOrder() -> [Int64] {
         guard !selectedIDs.isEmpty else { return [] }
         do {
-            var ordered: [Int64] = []
-            var offset = 0
-            while true {
-                let batch = try store.search(
-                    query: effectiveSearchQuery,
-                    limit: 500,
-                    offset: offset,
-                    sortType: sortKey.sortValue(notesMode: notesMode),
-                    sortDescending: sortDescending
-                )
-                ordered.append(contentsOf: batch.lazy.map(\.id).filter { selectedIDs.contains($0) })
-                offset += batch.count
-                if batch.count < 500 { break }
-            }
-            return ordered
+            return try BrowserSelection.orderedRowIDs(
+                selectedIDs: selectedIDs,
+                query: effectiveSearchQuery,
+                sortType: sortKey.sortValue(notesMode: notesMode),
+                sortDescending: sortDescending,
+                notesMode: notesMode,
+                store: store
+            )
         } catch {
             store.lastError = error.localizedDescription
             return selectedIDs.sorted()
@@ -1739,13 +1853,64 @@ struct BrowserView: View {
     }
 }
 
+@MainActor
+enum BrowserSelection {
+    static func allRowIDs(
+        query: String,
+        sortType: Int,
+        sortDescending: Bool,
+        notesMode: Bool,
+        store: CollectionStore
+    ) throws -> [Int64] {
+        var ids: [Int64] = []
+        var offset = 0
+        while true {
+            let batch = try store.search(
+                query: query,
+                limit: 500,
+                offset: offset,
+                sortType: sortType,
+                sortDescending: sortDescending,
+                notesMode: notesMode
+            )
+            ids.append(contentsOf: batch.map(\.id))
+            offset += batch.count
+            if batch.count < 500 { return ids }
+        }
+    }
+
+    static func orderedRowIDs(
+        selectedIDs: Set<Int64>,
+        query: String,
+        sortType: Int,
+        sortDescending: Bool,
+        notesMode: Bool,
+        store: CollectionStore
+    ) throws -> [Int64] {
+        guard !selectedIDs.isEmpty else { return [] }
+        return try allRowIDs(
+            query: query,
+            sortType: sortType,
+            sortDescending: sortDescending,
+            notesMode: notesMode,
+            store: store
+        ).filter { selectedIDs.contains($0) }
+    }
+
+    static func targetCardIDs(_ rowIDs: [Int64], notesMode: Bool, store: CollectionStore) throws -> [Int64] {
+        guard notesMode else { return rowIDs }
+        let noteIDs = try store.noteIDs(ofCards: rowIDs)
+        return try store.cardIDs(ofNotes: noteIDs)
+    }
+}
+
 private struct BrowserSearchRequestModifier: ViewModifier {
     @EnvironmentObject private var store: CollectionStore
     let action: (BrowserSearchRequest) -> Void
 
     func body(content: Content) -> some View {
-        content.onChange(of: store.browserSearchRequest?.id) { _, requestID in
-            guard requestID != nil, let request = store.browserSearchRequest else { return }
+        content.task(id: store.browserSearchRequest?.id) {
+            guard let request = store.browserSearchRequest else { return }
             action(request)
             store.consumeBrowserSearchRequest(id: request.id)
         }
@@ -1804,6 +1969,7 @@ enum BrowserSort: CaseIterable, Hashable {
         if self == .modified && !notesMode { return 9 }
         if notesMode {
             switch self {
+            case .deck: return 23
             case .due: return 15
             case .interval: return 16
             case .ease: return 17
@@ -1831,18 +1997,18 @@ enum BrowserSort: CaseIterable, Hashable {
         }
     }
 
-    var title: String {
+    var title: LocalizedStringKey {
         switch self {
         case .sortField: "Campo de ordenação"
         case .due: "Vencimento"
         case .created: "Criado"
         case .modified: "Modificado"
         case .interval: "Intervalo"
-        case .deck: "Baralho"
+        case .deck: "browser.column.deck"
         case .ease: "Facilidade"
-        case .reps: "Revisões"
+        case .reps: "browser.review-count"
         case .lapses: "Falhas"
-        case .template: "Cartões"
+        case .template: "browser.cards-mode"
         case .noteType: "Tipo de nota"
         case .tags: "Etiquetas"
         case .originalPosition: "Posição original"
@@ -1851,6 +2017,74 @@ enum BrowserSort: CaseIterable, Hashable {
         case .retrievability: "Retenção prevista"
         }
     }
+
+    func ankiColumn(notesMode: Bool) -> String {
+        switch self {
+        case .sortField: "noteFld"
+        case .due: "cardDue"
+        case .created: "noteCrt"
+        case .modified: notesMode ? "noteMod" : "cardMod"
+        case .interval: "cardIvl"
+        case .deck: "deck"
+        case .ease: "cardEase"
+        case .reps: "cardReps"
+        case .lapses: "cardLapses"
+        case .template: "template"
+        case .noteType: "note"
+        case .tags: "noteTags"
+        case .originalPosition: "originalPosition"
+        case .stability: "stability"
+        case .difficulty: "difficulty"
+        case .retrievability: "retrievability"
+        }
+    }
+
+    static func fromAnkiColumn(_ column: String) -> BrowserSort? {
+        switch column {
+        case "noteFld": .sortField
+        case "cardDue": .due
+        case "noteCrt": .created
+        case "cardMod", "noteMod": .modified
+        case "cardIvl": .interval
+        case "deck": .deck
+        case "cardEase": .ease
+        case "cardReps": .reps
+        case "cardLapses": .lapses
+        case "template": .template
+        case "note": .noteType
+        case "noteTags": .tags
+        case "originalPosition": .originalPosition
+        case "stability": .stability
+        case "difficulty": .difficulty
+        case "retrievability": .retrievability
+        default: nil
+        }
+    }
+
+    static func preference(from conf: [String: Any], notesMode: Bool) -> (sortKey: BrowserSort, descending: Bool) {
+        let sortTypeKey = notesMode ? "noteSortType" : "sortType"
+        let directionKey = notesMode ? "browserNoteSortBackwards" : "sortBackwards"
+        let officialSort = (conf[sortTypeKey] as? String).flatMap(fromAnkiColumn)
+        let legacySort = notesMode
+            ? (conf["browserNoteSortType"] as? Int ?? conf["browserSortType"] as? Int)
+            : (conf["browserSortType"] as? Int ?? conf["sortType"] as? Int)
+        let sortKey = officialSort ?? fromStoredBrowserSortType(legacySort ?? 0)
+        let legacyDirection = notesMode
+            ? (conf["browserNoteSortDescending"] as? Bool ?? conf["browserSortDescending"] as? Bool)
+            : (conf["browserSortDescending"] as? Bool)
+        let descending = conf[directionKey] as? Bool ?? legacyDirection ?? sortKey.defaultDescending
+        return (sortKey, descending)
+    }
+
+    static func savePreference(_ sortKey: BrowserSort, descending: Bool, notesMode: Bool, into conf: inout [String: Any]) {
+        conf[notesMode ? "noteSortType" : "sortType"] = sortKey.ankiColumn(notesMode: notesMode)
+        conf[notesMode ? "browserNoteSortBackwards" : "sortBackwards"] = descending
+        if !notesMode {
+            conf.removeValue(forKey: "browserSortType")
+            conf.removeValue(forKey: "browserSortDescending")
+        }
+    }
+
 }
 
 enum AnkiFlagColor {
@@ -1864,6 +2098,21 @@ enum AnkiFlagColor {
         case 6: "Turquesa"
         case 7: "Roxo"
         default: "Bandeira \(flag)"
+        }
+    }
+
+    static func localizedName(_ flag: Int) -> LocalizedStringKey {
+        LocalizedStringKey(name(flag))
+    }
+}
+
+extension Rating {
+    var localizedTitle: LocalizedStringKey {
+        switch self {
+        case .again: "De novo"
+        case .hard: "Difícil"
+        case .good: "Bom"
+        case .easy: "Fácil"
         }
     }
 }
@@ -1886,9 +2135,9 @@ enum BrowserFilter: Hashable {
         case .addedToday: "Adicionados hoje"
         case .studiedToday: "Estudados hoje"
         case .flag(let n): AnkiFlagColor.name(n)
-        case .isNew: "Novo"
-        case .isLearn: "Aprendizagem"
-        case .isReview: "Revisão"
+        case .isNew: String(localized: "browser.card-state.new")
+        case .isLearn: String(localized: "browser.card-state.learning")
+        case .isReview: String(localized: "browser.card-state.review")
         case .isSuspended: "Suspenso"
         case .isBuried: "Oculto"
         case .isMarked: "Marcado"
@@ -1897,6 +2146,26 @@ enum BrowserFilter: Hashable {
         case .deck(let n): n.components(separatedBy: "::").last ?? n
         case .noteType(let n): n
         case .tag(let n): n
+        }
+    }
+
+    var localizedTitle: Text {
+        switch self {
+        case .all: Text("Todos")
+        case .dueToday: Text("A revisar agora")
+        case .addedToday: Text("Adicionados hoje")
+        case .studiedToday: Text("Estudados hoje")
+        case .flag(let n): Text(AnkiFlagColor.localizedName(n))
+        case .isNew: Text("browser.card-state.new")
+        case .isLearn: Text("browser.card-state.learning")
+        case .isReview: Text("browser.card-state.review")
+        case .isSuspended: Text("Suspenso")
+        case .isBuried: Text("Oculto")
+        case .isMarked: Text("Marcado")
+        case .isLeech: Text("Leech")
+        case .noFlag: Text("Sem bandeira")
+        case .deck(let name): Text(verbatim: name.components(separatedBy: "::").last ?? name)
+        case .noteType(let name), .tag(let name): Text(verbatim: name)
         }
     }
 
@@ -1952,7 +2221,10 @@ struct BrowserRowView: View {
                 HStack(spacing: 10) {
                     ForEach(columns.filter { $0 != "question" }.sorted(), id: \.self) { column in
                         if let value = columnValue(column) {
-                            Text("\(columnTitle(column)): \(value)")
+                            HStack(spacing: 0) {
+                                columnTitle(column)
+                                Text(verbatim: ": \(value)")
+                            }
                                 .font(.caption2)
                                 .foregroundStyle(column == "type" ? AppTheme.mist : AppTheme.secondaryText)
                                 .lineLimit(1)
@@ -1988,29 +2260,33 @@ struct BrowserRowView: View {
         }
     }
 
-    private func columnTitle(_ column: String) -> String {
+    private func columnTitle(_ column: String) -> Text {
         switch column {
-        case "question": "Campo"
-        case "answer": "Resposta"
-        case "type": notesMode ? "Cartões" : "Cartão"
-        case "noteType": "Tipo de nota"
-        case "deck": "Baralho"
-        case "due": "Vencimento"
-        case "interval": "Intervalo"
-        case "ease": "Facilidade"
-        case "reps": "Revisões"
-        case "lapses": "Falhas"
-        case "tags": "Etiquetas"
-        case "created": "Criado"
-        case "cardModified": "Cartão modificado"
-        case "noteModified": "Nota modificada"
-        case "cardCount": "Cartões"
-        case "sortField": "Campo de ordenação"
-        case "originalPosition": "Posição original"
-        case "stability": "Estabilidade FSRS"
-        case "difficulty": "Dificuldade FSRS"
-        case "retrievability": "Retenção prevista"
-        default: String(column.dropFirst("field:".count))
+        case "question": return Text("browser.question-column")
+        case "answer": return Text("Resposta")
+        case "type": return notesMode ? Text("browser.cards-mode") : Text("Cartão")
+        case "noteType": return Text("Tipo de nota")
+        case "deck": return Text("browser.column.deck")
+        case "due": return Text("Vencimento")
+        case "interval": return Text("Intervalo")
+        case "ease": return Text("Facilidade")
+        case "reps": return Text("browser.review-count")
+        case "lapses": return Text("Falhas")
+        case "tags": return Text("Etiquetas")
+        case "created": return Text("Criado")
+        case "cardModified": return Text("Cartão modificado")
+        case "noteModified": return Text("Nota modificada")
+        case "cardCount": return Text("browser.cards-mode")
+        case "sortField": return Text("Campo de ordenação")
+        case "originalPosition": return Text("Posição original")
+        case "stability": return Text("Estabilidade FSRS")
+        case "difficulty": return Text("Dificuldade FSRS")
+        case "retrievability": return Text("Retenção prevista")
+        default:
+            if column.hasPrefix("field:") {
+                return Text(verbatim: String(column.dropFirst("field:".count)))
+            }
+            return Text(LocalizedStringKey(column))
         }
     }
 
@@ -2045,14 +2321,14 @@ struct BrowserRowView: View {
             return row.card.queue < 0 ? "[\(date)]" : date
         case "interval":
             if !notesMode {
-                if row.card.type == 0 { return "Novo" }
+                if row.card.type == 0 { return String(localized: "browser.card-state.new") }
                 if row.card.type == 1 { return "Aprendendo" }
             }
             let interval = notesMode ? row.averageInterval : Double(row.card.ivl)
             guard let interval else { return nil }
             return "\(Int(interval.rounded()))d"
         case "ease":
-            if !notesMode && row.card.type == 0 { return "Novo" }
+            if !notesMode && row.card.type == 0 { return String(localized: "browser.card-state.new") }
             let factor = notesMode ? row.averageEase : Double(row.card.factor)
             guard let factor else { return nil }
             return "\(Int(factor / 10))%"
@@ -2173,8 +2449,8 @@ struct BrowserRowView: View {
                     .font(.caption2)
             }
             switch row.card.queue {
-            case 0: Text("novo").foregroundStyle(AppTheme.easy)
-            case 1, 3: Text("aprender").foregroundStyle(AppTheme.danger)
+            case 0: Text("browser.card-state.new").foregroundStyle(AppTheme.easy)
+            case 1, 3: Text("browser.card-state.learning").foregroundStyle(AppTheme.danger)
             case 2: Text("revisar").foregroundStyle(AppTheme.good)
             case -1: Text("suspenso").foregroundStyle(AppTheme.danger)
             default: Text("oculto").foregroundStyle(AppTheme.secondaryText)
@@ -2218,8 +2494,10 @@ struct CardPreviewSheet: View {
             .safeAreaInset(edge: .bottom) {
                 HStack(spacing: 12) {
                     Button("Fechar") { dismiss() }
+                        .accessibilityIdentifier("browser.preview.close")
                         .buttonStyle(GlassButtonStyle(tint: .white, tintStrength: 0.18, expands: true))
                     Button(showAnswer ? "Pergunta" : "Resposta") { showAnswer.toggle() }
+                        .accessibilityIdentifier("browser.preview.toggleAnswer")
                         .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
                 }
                 .padding(.horizontal, 20)
@@ -2233,7 +2511,7 @@ struct FindReplaceSheet: View {
     let noteIDs: [Int64]
     let selectedFieldNames: [String]
     let allFieldNames: [String]
-    let onComplete: () -> Void
+    let onComplete: (Int) -> Void
     @EnvironmentObject private var store: CollectionStore
     @Environment(\.dismiss) private var dismiss
     @State private var find = ""
@@ -2251,12 +2529,12 @@ struct FindReplaceSheet: View {
                     VStack(alignment: .leading, spacing: 18) {
                         GlassFormSection(title: "Localizar e substituir") {
                             Picker("Onde", selection: $target) {
-                                Text("Campos").tag(0)
+                                Text("browser.find-replace.fields").tag(0)
                                 Text("Etiquetas").tag(1)
                             }
                             .pickerStyle(.segmented)
                             if target == 0 {
-                                Picker("Campo", selection: $selectedField) {
+                                Picker("browser.field-label", selection: $selectedField) {
                                     Text("Todos os campos").tag("")
                                     ForEach(selectedOnly ? selectedFieldNames : allFieldNames, id: \.self) { field in
                                         Text(field).tag(field)
@@ -2332,8 +2610,7 @@ struct FindReplaceSheet: View {
                     matchCase: matchCase
                 )
             if count > 0 { store.registerBrowserUndo(snapshot) }
-            store.lastError = "Substituído em \(count) nota(s)."
-            onComplete()
+            onComplete(count)
             dismiss()
         } catch {
             store.lastError = error.localizedDescription
@@ -2379,7 +2656,7 @@ struct FindDuplicatesSheet: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         GlassFormSection(title: "Duplicatas") {
-                            Picker("Campo", selection: $selectedField) {
+                            Picker("browser.field-label", selection: $selectedField) {
                                 ForEach(fieldNames, id: \.self) { field in
                                     Text(field).tag(field)
                                 }
@@ -2471,7 +2748,7 @@ private struct GradeNowView: View {
                 AppBackground()
                 VStack(spacing: 12) {
                     ForEach(Rating.allCases, id: \.self) { rating in
-                        Button(rating.title) {
+                        Button(rating.localizedTitle) {
                             onGrade(rating)
                             dismiss()
                         }

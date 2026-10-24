@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ANKIOS_UI_SYNC_ENDPOINT</key>
+	<string>$(ANKIOS_UI_SYNC_ENDPOINT)</string>
+	<key>ANKIOS_UI_SYNC_CANCEL_ENDPOINT</key>
+	<string>$(ANKIOS_UI_SYNC_CANCEL_ENDPOINT)</string>
+	<key>ANKIOS_UI_REMOTE_MEDIA_URL</key>
+	<string>$(ANKIOS_UI_REMOTE_MEDIA_URL)</string>
+	<key>ANKIOS_UI_SHARED_DECK_FIXTURE_URL</key>
+	<string>$(ANKIOS_UI_SHARED_DECK_FIXTURE_URL)</string>
+	<key>ANKIOS_UI_INFO_CONSUMER</key>
+	<string>$(ANKIOS_UI_INFO_CONSUMER)</string>
+	<key>ANKIOS_UI_CAMERA_AVAILABILITY_ONLY</key>
+	<string>$(ANKIOS_UI_CAMERA_AVAILABILITY_ONLY)</string>
+</dict>
+</plist>

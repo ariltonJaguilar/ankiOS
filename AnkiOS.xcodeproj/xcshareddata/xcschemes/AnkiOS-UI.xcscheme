@@ -6,7 +6,9 @@
   </BuildActionEntries></BuildAction>
   <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES">
     <Testables><TestableReference skipped="NO" parallelizable="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A11CE3000000000000000007" BuildableName="AnkiOSUITests.xctest" BlueprintName="AnkiOSUITests" ReferencedContainer="container:AnkiOS.xcodeproj"/></TestableReference></Testables>
-    <EnvironmentVariables><EnvironmentVariable key="ANKIOS_UI_SYNC_ENDPOINT" value="$(ANKIOS_UI_SYNC_ENDPOINT)" isEnabled="YES"/></EnvironmentVariables>
+    <EnvironmentVariables>
+      <EnvironmentVariable key="ANKIOS_UI_SYNC_ENDPOINT" value="$(ANKIOS_UI_SYNC_ENDPOINT)" isEnabled="YES"/>
+    </EnvironmentVariables>
   </TestAction>
   <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="YES"><BuildableProductRunnable runnableDebuggingMode="0"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="E88658DFC0C55D2A90E584CF" BuildableName="AnkiOS.app" BlueprintName="AnkiOS" ReferencedContainer="container:AnkiOS.xcodeproj"/></BuildableProductRunnable></LaunchAction>
   <AnalyzeAction buildConfiguration="Debug"/>

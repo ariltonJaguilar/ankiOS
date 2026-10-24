@@ -137,7 +137,7 @@ final class ApkgExporter {
         guard try db.scalarInt("SELECT ver FROM col") == 11 else {
             throw ImportError.decodeFailed("A exportação moderna exige uma coleção de origem no esquema V11.")
         }
-        let conf = try jsonObject(db.scalarText("SELECT conf FROM col") ?? "{}")
+        let conf = try CollectionSchema.collectionConfig(from: db)
         let models = try jsonObject(db.scalarText("SELECT models FROM col") ?? "{}")
         let decks = try jsonObject(db.scalarText("SELECT decks FROM col") ?? "{}")
         let deckConfigs = try jsonObject(db.scalarText("SELECT dconf FROM col") ?? "{}")
@@ -146,6 +146,7 @@ final class ApkgExporter {
 
         try db.exec("""
             BEGIN IMMEDIATE;
+            DROP TABLE IF EXISTS config;
             CREATE TABLE config (key TEXT NOT NULL PRIMARY KEY, usn INTEGER NOT NULL, mtime_secs INTEGER NOT NULL, val BLOB NOT NULL) WITHOUT ROWID;
             CREATE TABLE deck_config (id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL COLLATE unicase, mtime_secs INTEGER NOT NULL, usn INTEGER NOT NULL, config BLOB NOT NULL);
             CREATE TABLE tags (tag TEXT NOT NULL PRIMARY KEY COLLATE unicase, usn INTEGER NOT NULL, collapsed BOOLEAN NOT NULL, config BLOB NULL) WITHOUT ROWID;
@@ -428,7 +429,7 @@ final class ApkgExporter {
         ]
         appendProtoOther(
             from: deck,
-            excluding: ["id", "name", "mod", "usn", "collapsed", "browserCollapsed", "desc", "md", "dyn", "conf", "extendNew", "extendRev", "newToday", "revToday", "lrnToday", "timeToday", "terms", "resched", "previewDelay", "ankiosSearchOrder", "ankiosIncludeTags", "ankiosExcludeTags", "previewAgain", "previewHard", "previewGood", "ankiosSearchOrder2", "desiredRetention", "newLimit", "reviewLimit", "newLimitToday", "reviewLimitToday"],
+            excluding: ["id", "name", "mod", "usn", "collapsed", "browserCollapsed", "desc", "md", "dyn", "conf", "extendNew", "extendRev", "newToday", "revToday", "lrnToday", "timeToday", "terms", "resched", "previewDelay", "ankiosSearchOrder", "ankiosIncludeTags", "ankiosExcludeTags", "previewAgain", "previewHard", "previewGood", "previewAgainSecs", "previewHardSecs", "previewGoodSecs", "ankiosSearchOrder2", "desiredRetention", "newLimit", "reviewLimit", "newLimitToday", "reviewLimitToday"],
             to: &fields
         )
         return ProtoWriter.message(fields)
@@ -447,9 +448,9 @@ final class ApkgExporter {
             }
             fields.append(contentsOf: [
                 ProtoWriter.uint(field: 4, value: uint(deck["previewDelay"])),
-                ProtoWriter.uint(field: 5, value: uint(deck["previewHard"])),
-                ProtoWriter.uint(field: 6, value: uint(deck["previewGood"])),
-                ProtoWriter.uint(field: 7, value: uint(deck["previewAgain"]))
+                ProtoWriter.uint(field: 5, value: uint(deck["previewHardSecs"] ?? deck["previewHard"])),
+                ProtoWriter.uint(field: 6, value: uint(deck["previewGoodSecs"] ?? deck["previewGood"])),
+                ProtoWriter.uint(field: 7, value: uint(deck["previewAgainSecs"] ?? deck["previewAgain"]))
             ])
             return ProtoWriter.message([ProtoWriter.bytes(field: 2, value: ProtoWriter.message(fields))])
         }

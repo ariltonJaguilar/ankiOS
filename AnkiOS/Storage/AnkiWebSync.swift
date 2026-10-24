@@ -242,11 +242,6 @@ final class AnkiBackendSession: @unchecked Sendable {
                 ankios_anki_sync_abort(handle, error)
             }
         } catch {}
-        do {
-            let _: EmptyResponse = try withError { error in
-                ankios_anki_media_sync_abort(handle, error)
-            }
-        } catch {}
     }
 
     func close() throws {

@@ -19,6 +19,8 @@ enum CardHTMLRenderer {
         var answerSounds: [String]
         var questionSpeech: [SpeechRequest]
         var answerSpeech: [SpeechRequest]
+        var questionPlayback: [PlaybackItem]
+        var answerPlayback: [PlaybackItem]
         var hasTypeAnswer: Bool
         /// Visible text stripped of HTML — used as a native SwiftUI face so Liquid Glass never shows a blank card.
         var plainText: String
@@ -35,6 +37,11 @@ enum CardHTMLRenderer {
         var text: String
         var speed: Float
         var voices: [String]
+    }
+
+    enum PlaybackItem: Hashable, Sendable {
+        case file(String)
+        case speech(SpeechRequest)
     }
 
     static func renderCard(
@@ -58,6 +65,8 @@ enum CardHTMLRenderer {
                 answerSounds: [],
                 questionSpeech: [],
                 answerSpeech: [],
+                questionPlayback: [],
+                answerPlayback: [],
                 hasTypeAnswer: false,
                 plainText: "Template ausente",
                 questionText: "Template ausente",
@@ -167,6 +176,8 @@ enum CardHTMLRenderer {
             : []
         let questionSpeech = speechRequests(in: front)
         let answerSpeech = side == .answer ? speechRequests(in: answerOnlySource) : []
+        let questionPlayback = playbackItems(in: front)
+        let answerPlayback = side == .answer ? playbackItems(in: answerOnlySource) : []
         let plain = [questionPlain, answerPlain]
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
@@ -188,6 +199,8 @@ enum CardHTMLRenderer {
             answerSounds: answerSounds,
             questionSpeech: questionSpeech,
             answerSpeech: answerSpeech,
+            questionPlayback: questionPlayback,
+            answerPlayback: answerPlayback,
             hasTypeAnswer: hasTypeAnswer,
             plainText: plain.isEmpty ? " " : plain,
             questionText: questionPlain,
@@ -200,29 +213,54 @@ enum CardHTMLRenderer {
         guard let regex = try? NSRegularExpression(
             pattern: #"<anki-tts\s+data-lang="([^"]+)"\s+data-speed="([^"]+)"\s+data-voices="([^"]*)"\s+data-text="([^"]*)">"#
         ) else { return [] }
-        return regex.matches(in: html, range: NSRange(html.startIndex..., in: html)).compactMap { match in
-            guard let languageRange = Range(match.range(at: 1), in: html),
-                  let speedRange = Range(match.range(at: 2), in: html),
-                  let voicesRange = Range(match.range(at: 3), in: html),
-                  let dataRange = Range(match.range(at: 4), in: html),
-                  let data = Data(base64Encoded: String(html[dataRange])),
-                  let rawText = String(data: data, encoding: .utf8) else { return nil }
-            let voicesData = Data(base64Encoded: String(html[voicesRange])) ?? Data()
-            let voices = (try? JSONDecoder().decode([String].self, from: voicesData)) ?? []
-            let text = visibleText(rawText)
-                .replacingOccurrences(of: "&nbsp;", with: " ")
-                .replacingOccurrences(of: "&amp;", with: "&")
-                .replacingOccurrences(of: "&lt;", with: "<")
-                .replacingOccurrences(of: "&gt;", with: ">")
-                .replacingOccurrences(of: "&quot;", with: "\"")
-            guard !text.isEmpty else { return nil }
-            return SpeechRequest(
-                language: String(html[languageRange]),
-                text: text,
-                speed: Float(html[speedRange]) ?? 1,
-                voices: voices
-            )
+        return regex.matches(in: html, range: NSRange(html.startIndex..., in: html)).compactMap {
+            speechRequest(in: html, match: $0)
         }
+    }
+
+    private static func playbackItems(in html: String) -> [PlaybackItem] {
+        var indexed: [(location: Int, item: PlaybackItem)] = []
+        if let soundRegex = try? NSRegularExpression(
+            pattern: #"<div\s+class="sound"\s+data-file="([^"]+)"[^>]*>[\s\S]*?</div>"#
+        ) {
+            for match in soundRegex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+                guard let range = Range(match.range(at: 1), in: html) else { continue }
+                indexed.append((match.range.location, .file(String(html[range]))))
+            }
+        }
+        if let speechRegex = try? NSRegularExpression(
+            pattern: #"<anki-tts\s+data-lang="([^"]+)"\s+data-speed="([^"]+)"\s+data-voices="([^"]*)"\s+data-text="([^"]*)">"#
+        ) {
+            for match in speechRegex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+                guard let request = speechRequest(in: html, match: match) else { continue }
+                indexed.append((match.range.location, .speech(request)))
+            }
+        }
+        return indexed.sorted { $0.location < $1.location }.map { $0.item }
+    }
+
+    private static func speechRequest(in html: String, match: NSTextCheckingResult) -> SpeechRequest? {
+        guard let languageRange = Range(match.range(at: 1), in: html),
+              let speedRange = Range(match.range(at: 2), in: html),
+              let voicesRange = Range(match.range(at: 3), in: html),
+              let dataRange = Range(match.range(at: 4), in: html),
+              let data = Data(base64Encoded: String(html[dataRange])),
+              let rawText = String(data: data, encoding: .utf8) else { return nil }
+        let voicesData = Data(base64Encoded: String(html[voicesRange])) ?? Data()
+        let voices = (try? JSONDecoder().decode([String].self, from: voicesData)) ?? []
+        let text = visibleText(rawText)
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+        guard !text.isEmpty else { return nil }
+        return SpeechRequest(
+            language: String(html[languageRange]),
+            text: text,
+            speed: Float(html[speedRange]) ?? 1,
+            voices: voices
+        )
     }
 
     /// Anki marks the answer with `<hr id=answer>`.
@@ -237,11 +275,16 @@ enum CardHTMLRenderer {
     }
 
     private static func visibleText(_ html: String) -> String {
-        html
+        let withoutNonVisibleCode = html.replacingOccurrences(
+            of: #"(?is)<!--.*?-->|<script\b[^>]*>.*?</script>|<style\b[^>]*>.*?</style>"#,
+            with: " ",
+            options: .regularExpression
+        )
+        let stripped = withoutNonVisibleCode
             .replacingOccurrences(of: #"<div class="sound"[^>]*>[\s\S]*?</div>"#, with: " ", options: .regularExpression)
             .replacingOccurrences(of: "▶", with: "")
             .replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)
-            .replacingOccurrences(of: "&nbsp;", with: " ")
+        return (TemplateEngine.decodeHTMLEntities(stripped) ?? stripped)
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -291,6 +334,7 @@ enum CardHTMLRenderer {
         <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
         <base href="\(mediaBase.absoluteString)/">
+        \(Self.containsOcclusion(body) ? Self.imageOcclusionBridge : "")
         <style>
         code#typeans { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
         .typeGood { color: #0a0 !important; }
@@ -312,9 +356,10 @@ enum CardHTMLRenderer {
         .io-stage { position: relative !important; display: inline-block !important; max-width: 100% !important; }
         .io-mask { box-sizing: border-box !important; }
         .io-mask.io-hidden { display: none !important; }
-        .io-mask.io-covered { background-color: #f5d90a !important; border: 2px solid #111 !important; }
+        .io-mask.io-covered { background-color: var(--io-fill, #f5d90a) !important; border: 2px solid #111 !important; }
         .io-mask.io-revealed { background-color: transparent !important; border: 2px solid #5eead4 !important; }
         .io-mask[data-shape="ellipse"] { border-radius: 50% !important; }
+        .io-mask[data-shape="text"] { background-color: #fff !important; color: var(--io-fill, #222) !important; white-space: pre-wrap; }
         \(hideAudioPlayButtons ? ".sound { display: none !important; }" : "")
         </style>
         </head>
@@ -339,6 +384,14 @@ enum CardHTMLRenderer {
         html.contains("io-mask")
     }
 
+    private static let imageOcclusionBridge = """
+    <script>
+    window.anki = window.anki || {};
+    window.anki.imageOcclusion = window.anki.imageOcclusion || {};
+    window.anki.imageOcclusion.setup = window.anki.imageOcclusion.setup || function(){};
+    </script>
+    """
+
     private static let occlusionScript = """
     <script>
     (function(){
@@ -356,16 +409,23 @@ enum CardHTMLRenderer {
         }
         var w = img.clientWidth, h = img.clientHeight;
         masks.forEach(function(el){
+          var shape = el.getAttribute('data-shape') || 'rect';
           var left = parseFloat(el.getAttribute('data-left')) || 0;
           var top = parseFloat(el.getAttribute('data-top')) || 0;
           var width = parseFloat(el.getAttribute('data-width')) || 0;
           var height = parseFloat(el.getAttribute('data-height')) || 0;
+          if (shape === 'ellipse') {
+            var rx = parseFloat(el.getAttribute('data-rx'));
+            var ry = parseFloat(el.getAttribute('data-ry'));
+            if (!isNaN(rx)) width = rx * 2;
+            if (!isNaN(ry)) height = ry * 2;
+          }
           el.style.position = 'absolute';
           el.style.left = (left * w) + 'px';
           el.style.top = (top * h) + 'px';
           var pw = width, ph = height, pl = left, pt = top;
           var points = el.getAttribute('data-points') || '';
-          if (el.getAttribute('data-shape') === 'polygon' && points) {
+          if (shape === 'polygon' && points) {
             var xs = [], ys = [];
             points.trim().split(/\\s+/).forEach(function(pair){
               var xy = pair.split(',');
@@ -388,21 +448,60 @@ enum CardHTMLRenderer {
           el.style.top = (pt * h) + 'px';
           el.style.width = (pw * w) + 'px';
           el.style.height = (ph * h) + 'px';
+          var fill = el.getAttribute('data-fill');
+          if (fill) el.style.setProperty('--io-fill', fill);
+          if (shape === 'text') {
+            el.textContent = el.getAttribute('data-text') || '';
+            el.style.backgroundColor = '#fff';
+            el.style.color = fill || '#222';
+            el.style.display = 'flex';
+            el.style.alignItems = 'center';
+            el.style.justifyContent = 'center';
+            var fontSize = parseFloat(el.getAttribute('data-font-size'));
+            var scale = parseFloat(el.getAttribute('data-scale')) || 1;
+            el.style.fontSize = ((isNaN(fontSize) ? 20 : fontSize * h) * scale) + 'px';
+          }
+          var angle = parseFloat(el.getAttribute('data-angle'));
+          if (!isNaN(angle) && shape !== 'polygon') {
+            el.style.transform = 'rotate(' + ((angle % 10000) * 0.036) + 'deg)';
+            el.style.transformOrigin = 'center center';
+          }
         });
-        if (!document.getElementById('answer') || document.getElementById('io-toggle')) return;
-        var button = document.createElement('button');
-        button.id = 'io-toggle';
-        button.type = 'button';
-        button.textContent = 'Alternar máscaras';
-        button.style.marginTop = '12px';
-        stage.parentNode.insertBefore(button, stage.nextSibling);
+        var button = document.getElementById('toggle') || document.getElementById('io-toggle');
+        if (!button && document.getElementById('answer')) {
+          button = document.createElement('button');
+          button.id = 'io-toggle';
+          button.type = 'button';
+          button.textContent = 'Alternar máscaras';
+          button.style.marginTop = '12px';
+          stage.parentNode.insertBefore(button, stage.nextSibling);
+        }
+        if (!button) return;
+        var hasOccludedInactive = masks.some(function(el){
+          return el.getAttribute('data-occludeinactive') === '1';
+        });
+        if (!hasOccludedInactive) {
+          button.style.display = 'none';
+          return;
+        }
+        var originalStates = masks.map(function(el){
+          return {
+            hidden: el.classList.contains('io-hidden'),
+            covered: el.classList.contains('io-covered'),
+            revealed: el.classList.contains('io-revealed')
+          };
+        });
         button.addEventListener('click', function(){
           stage.classList.toggle('io-show-all');
           var show = stage.classList.contains('io-show-all');
-          masks.forEach(function(el){
+          masks.forEach(function(el, index){
             if (show) {
               el.classList.remove('io-hidden');
               if (!el.classList.contains('io-revealed')) el.classList.add('io-covered');
+            } else {
+              el.classList.toggle('io-hidden', originalStates[index].hidden);
+              el.classList.toggle('io-covered', originalStates[index].covered);
+              el.classList.toggle('io-revealed', originalStates[index].revealed);
             }
           });
         });

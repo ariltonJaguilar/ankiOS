@@ -92,8 +92,9 @@ final class Scheduler {
         let cfg = store.config(for: schedulingDeck(for: card, in: deck))
         let day = store.schedDay()
         let now = Int(Date().timeIntervalSince1970)
+        let loadBalancer = loadBalancerContext(for: store.studyQueuesForUpdate() != nil, day: day)
         var map: [Rating: String] = [:]
-        for (r, result) in scheduledResults(card: card, config: cfg, day: day, now: now, deck: deck) {
+        for (r, result) in scheduledResults(card: card, config: cfg, day: day, now: now, deck: deck, loadBalancer: loadBalancer) {
             map[r] = result.intervalLabel
         }
         return map
@@ -128,8 +129,9 @@ final class Scheduler {
         let cfg = store.config(for: schedulingDeck(for: before, in: deck))
         let day = schedulingDay ?? store.schedDay()
         let now = timestamp ?? Int(Date().timeIntervalSince1970)
-        let result = scheduledResults(card: card, config: cfg, day: day, now: now, deck: deck)[rating]
-            ?? preview(card: card, config: cfg, rating: rating, day: day, now: now, deck: deck)
+        let loadBalancer = loadBalancerContext(for: queues != nil, day: day)
+        let result = scheduledResults(card: card, config: cfg, day: day, now: now, deck: deck, loadBalancer: loadBalancer)[rating]
+            ?? preview(card: card, config: cfg, rating: rating, day: day, now: now, deck: deck, loadBalancer: loadBalancer)
         var scheduled = result.card
         if before.type == AnkiCard.CardType.new.rawValue,
            scheduled.type != AnkiCard.CardType.new.rawValue,
@@ -483,7 +485,7 @@ final class Scheduler {
         return (lapses - threshold) % half == 0
     }
 
-    private func preview(card: AnkiCard, config: AnkiDeckConfig, rating: Rating, day: Int, now: Int, deck: AnkiDeck) -> ScheduleResult {
+    private func preview(card: AnkiCard, config: AnkiDeckConfig, rating: Rating, day: Int, now: Int, deck: AnkiDeck, loadBalancer: ReviewLoadBalancerContext? = nil) -> ScheduleResult {
         let collapse = store.conf["collapseTime"] as? Int ?? 1200
         let dayStart = store.schedDayStartTimestamp()
         let untilRollover = max(1, Int(dayStart + 86_400 - Int64(now)))
@@ -492,7 +494,7 @@ final class Scheduler {
         let forecast = usesFSRS(for: deck)
             ? fsrsForecast(card: card, config: config, dayStart: dayStart, now: now, schedulingDue: realDue)
             : nil
-        let easy = EasyDayLoad.isActive(config.easyDayPercents)
+        let easy = loadBalancer == nil && EasyDayLoad.isActive(config.easyDayPercents)
         let dueCounts = easy ? store.dueCountsForPreset(config.id, today: day) : []
         return SM2Scheduler.preview(
             card: card,
@@ -506,13 +508,14 @@ final class Scheduler {
             clampReviewDue: !filtered,
             fsrs: forecast,
             dueCounts: dueCounts,
-            nextDayAt: Int(dayStart) + 86_400
+            nextDayAt: Int(dayStart) + 86_400,
+            loadBalancer: loadBalancer
         )
     }
 
-    private func scheduledResults(card: AnkiCard, config: AnkiDeckConfig, day: Int, now: Int, deck: AnkiDeck) -> [Rating: ScheduleResult] {
+    private func scheduledResults(card: AnkiCard, config: AnkiDeckConfig, day: Int, now: Int, deck: AnkiDeck, loadBalancer: ReviewLoadBalancerContext? = nil) -> [Rating: ScheduleResult] {
         var results = Dictionary(uniqueKeysWithValues: Rating.allCases.map { rating in
-            (rating, preview(card: card, config: config, rating: rating, day: day, now: now, deck: deck))
+            (rating, preview(card: card, config: config, rating: rating, day: day, now: now, deck: deck, loadBalancer: loadBalancer))
         })
         guard let script = store.conf["cardStateCustomizer"] as? String, !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return results
@@ -538,6 +541,14 @@ final class Scheduler {
             results[rating] = result
         }
         return results
+    }
+
+    private func loadBalancerContext(for queueIsActive: Bool, day: Int) -> ReviewLoadBalancerContext? {
+        guard queueIsActive, store.conf["loadBalancerEnabled"] as? Bool ?? true else { return nil }
+        return ReviewLoadBalancerContext(
+            cards: store.loadBalancerDueCards(today: day),
+            nextDayAt: Int(store.schedDayStartTimestamp()) + 86_400
+        )
     }
 
     private func filteredPreviewStates(card: AnkiCard, deck: AnkiDeck) -> [Rating: FilteredPreviewState] {
@@ -777,7 +788,8 @@ final class Scheduler {
             historicalRetention: config.historicalRetention,
             daysElapsed: days,
             reviewedAt: now,
-            shortTermWithSteps: store.conf["fsrsShortTermWithSteps"] as? Bool ?? false
+            shortTermWithSteps: store.conf["fsrsShortTermWithStepsEnabled"] as? Bool
+                ?? store.conf["fsrsShortTermWithSteps"] as? Bool ?? false
         )
     }
 
@@ -802,9 +814,11 @@ final class Scheduler {
 
 #if ANKIOS_PARITY_HARNESS
 extension Scheduler {
-    func harnessResults(card: AnkiCard, deck: AnkiDeck) -> [Rating: ScheduleResult] {
+    func harnessResults(card: AnkiCard, deck: AnkiDeck, loadBalancerActive: Bool = false) -> [Rating: ScheduleResult] {
         let cfg = store.config(for: schedulingDeck(for: card, in: deck))
-        return scheduledResults(card: card, config: cfg, day: store.schedDay(), now: Int(Date().timeIntervalSince1970), deck: deck)
+        let day = store.schedDay()
+        let loadBalancer = loadBalancerContext(for: loadBalancerActive || store.studyQueuesForUpdate() != nil, day: day)
+        return scheduledResults(card: card, config: cfg, day: day, now: Int(Date().timeIntervalSince1970), deck: deck, loadBalancer: loadBalancer)
     }
 }
 #endif

@@ -1,6 +1,14 @@
 import SwiftUI
 import WebKit
 import UniformTypeIdentifiers
+#if os(iOS)
+import PhotosUI
+import PencilKit
+import UIKit
+#endif
+#if os(macOS)
+import AppKit
+#endif
 
 struct NoteFieldEditor: View {
     @EnvironmentObject private var store: CollectionStore
@@ -14,9 +22,21 @@ struct NoteFieldEditor: View {
     @State private var showHTML: Bool
     @State private var command: FieldEditorCommand?
     @State private var showMediaPicker = false
+    @State private var showAttachmentOptions = false
     @State private var sourceSelection: TextSelection?
+    @State private var lastSourceSelection: TextSelection?
+    @State private var pendingFormatSelection: TextSelection?
+    @State private var pendingFormattedSourceHTML: String?
     @State private var isRecordingNoteAudio = false
     @State private var noteAudioStartTask: Task<Void, Never>?
+    #if os(iOS)
+    @State private var showPhotoPicker = false
+    @State private var photoPickerItem: PhotosPickerItem?
+    @State private var showCameraPicker = false
+    @State private var showDrawingEditor = false
+    @State private var drawingBackground: UIImage?
+    @State private var drawingFilename: String?
+    #endif
 
     init(html: Binding<String>, field: AnkiField, isClozeType: Bool, mediaBase: URL, sourceMode: Bool = false, nextClozeNumber: Int = 1) {
         _html = html
@@ -37,31 +57,50 @@ struct NoteFieldEditor: View {
                         .font(.caption)
                         .foregroundStyle(AppTheme.secondaryText)
                 }
-                FieldFormatBar(text: $html, isClozeType: isClozeType, onAction: { action, value in
-                    if showHTML { formatSource(action, value: value) }
-                    else {
-                        let commandValue = action == .cloze ? String(nextClozeNumber) : value
-                        command = FieldEditorCommand(action: action, value: commandValue)
-                    }
-                }, onMedia: { showMediaPicker = true }, isRecording: isRecordingNoteAudio, onRecord: toggleNoteAudioRecording)
                 if showHTML {
+                    #if os(macOS)
+                    formatBar
+                    MacSourceTextEditor(
+                        text: $html,
+                        selection: $sourceSelection,
+                        fieldName: field.name,
+                        fontName: field.font,
+                        fontSize: CGFloat(max(1, field.size)),
+                        isRightToLeft: field.rtl
+                    )
+                        .frame(minHeight: 120, maxHeight: 220)
+                        .accessibilityLabel(field.name)
+                        .accessibilityIdentifier("field.source.\(field.name)")
+                    #else
                     TextEditor(text: $html, selection: $sourceSelection)
                         .autocorrectionDisabled()
-                        #if os(iOS)
                         .textInputAutocapitalization(.never)
-                        #endif
                         .font(.custom(field.font, size: CGFloat(max(1, field.size))))
                         .frame(minHeight: 120, maxHeight: 220)
                         .scrollContentBackground(.hidden)
                         .accessibilityLabel(field.name)
                         .accessibilityIdentifier("field.source.\(field.name)")
                         .environment(\.layoutDirection, field.rtl ? .rightToLeft : .leftToRight)
+                    formatBar
+                    #endif
                 } else {
-                    RichFieldEditor(html: $html, baseURL: mediaBase, font: field.font, fontSize: field.size, rtl: field.rtl, command: command)
+                    formatBar
+                    RichFieldEditor(
+                        html: $html,
+                        baseURL: mediaBase,
+                        font: field.font,
+                        fontSize: field.size,
+                        rtl: field.rtl,
+                        command: command,
+                        onEditDrawing: drawingEditHandler
+                    )
                 }
                 HStack {
                     Button(showHTML ? "Editor visual" : "Editar HTML") { showHTML.toggle() }
-                    Button("Anexar mídia…") { showMediaPicker = true }
+                    #if os(macOS)
+                    Button("Add Media") { showAttachmentOptions = true }
+                        .accessibilityIdentifier("field.addMedia.\(field.name)")
+                    #endif
                 }
                 .buttonStyle(GlassChipButtonStyle())
             }
@@ -80,6 +119,17 @@ struct NoteFieldEditor: View {
             }
         }
         .onChange(of: sourceMode) { _, value in showHTML = value }
+        .onChange(of: sourceSelection) { _, selection in
+            guard let selection, case .selection(let range) = selection.indices, !range.isEmpty else { return }
+            lastSourceSelection = selection
+        }
+        .onChange(of: html) { _, value in
+            if pendingFormattedSourceHTML == value {
+                pendingFormattedSourceHTML = nil
+            } else {
+                lastSourceSelection = nil
+            }
+        }
         .onDisappear {
             noteAudioStartTask?.cancel()
             noteAudioStartTask = nil
@@ -117,7 +167,157 @@ struct NoteFieldEditor: View {
                 }
             } catch { store.lastError = error.localizedDescription }
         }
+        .confirmationDialog("Add Media", isPresented: $showAttachmentOptions, titleVisibility: .visible) {
+            #if os(iOS)
+            Button("From Photos", systemImage: "photo") { showPhotoPicker = true }
+            #if !targetEnvironment(simulator)
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button("From Camera", systemImage: "camera") { showCameraPicker = true }
+                    .accessibilityIdentifier("noteField.fromCamera")
+            }
+            #endif
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                Button("Draw", systemImage: "pencil.tip.crop.circle") {
+                    drawingFilename = nil
+                    drawingBackground = nil
+                    showDrawingEditor = true
+                }
+                .accessibilityIdentifier("noteField.draw")
+            }
+            if UIDevice.current.userInterfaceIdiom != .pad {
+                Button(isRecordingNoteAudio ? "Parar" : "Record Voice", systemImage: isRecordingNoteAudio ? "stop.fill" : "mic.fill") {
+                    toggleNoteAudioRecording()
+                }
+                .accessibilityIdentifier("noteField.recordVoice")
+            }
+            #endif
+            Button("From File", systemImage: "folder") { showMediaPicker = true }
+            Button("Cancelar", role: .cancel) {}
+        }
+        #if os(iOS)
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .images)
+        .onChange(of: photoPickerItem) { _, item in
+            guard let item else { return }
+            Task {
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self) else { throw CocoaError(.fileReadCorruptFile) }
+                    let maxDimension = store.conf["imageMaxDimension"] as? Int ?? 1024
+                    let filename = try store.mediaStore.importPhotoImage(data, maxDimension: maxDimension)
+                    insertMediaSnippet("<img src=\"\(filename)\">")
+                } catch {
+                    store.lastError = error.localizedDescription
+                }
+                photoPickerItem = nil
+            }
+        }
+        .fullScreenCover(isPresented: $showCameraPicker) {
+            CameraImagePicker { image in
+                showCameraPicker = false
+                guard let image, let data = image.jpegData(compressionQuality: 0.94) else { return }
+                do {
+                    let maxDimension = store.conf["imageMaxDimension"] as? Int ?? 1024
+                    let filename = try store.mediaStore.importPhotoImage(data, maxDimension: maxDimension)
+                    insertMediaSnippet("<img src=\"\(filename)\">")
+                } catch {
+                    store.lastError = error.localizedDescription
+                }
+            }
+        }
+        .sheet(isPresented: $showDrawingEditor) {
+            NoteDrawingEditor(backgroundImage: drawingBackground) { data in
+                do {
+                    let filename = try store.mediaStore.importDrawingImage(data)
+                    if let drawingFilename {
+                        replaceDrawing(named: drawingFilename, with: filename)
+                    } else {
+                        insertMediaSnippet("<img src=\"\(filename)\">")
+                    }
+                    self.drawingFilename = nil
+                    drawingBackground = nil
+                } catch {
+                    store.lastError = error.localizedDescription
+                }
+            }
+        }
+        #endif
     }
+
+    private var formatBar: some View {
+        FieldFormatBar(text: $html, fieldName: field.name, isClozeType: isClozeType, onAction: { action, value in
+            if showHTML { formatSource(action, value: value) }
+            else {
+                let commandValue = action == .cloze ? String(nextClozeNumber) : value
+                command = FieldEditorCommand(action: action, value: commandValue)
+            }
+        }, onMenuOpen: {
+            let selection = sourceSelection ?? lastSourceSelection
+            if let selection, case .selection(let range) = selection.indices, !range.isEmpty {
+                pendingFormatSelection = selection
+            } else {
+                pendingFormatSelection = nil
+            }
+        }, onMedia: { showAttachmentOptions = true }, isRecording: isRecordingNoteAudio, onRecord: toggleNoteAudioRecording, recordButtonTitle: recordVoiceTitle, showsRecordButton: showsRecordButtonInFormatBar)
+    }
+
+    private var recordVoiceTitle: LocalizedStringKey {
+        #if os(iOS)
+        "Record Voice"
+        #else
+        "Gravar"
+        #endif
+    }
+
+    private var showsRecordButtonInFormatBar: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .pad
+        #else
+        true
+        #endif
+    }
+
+    private func insertMediaSnippet(_ snippet: String) {
+        if showHTML {
+            html += snippet
+        } else {
+            command = FieldEditorCommand(action: .insertHTML, value: snippet)
+        }
+    }
+
+    private var drawingEditHandler: ((String) -> Void)? {
+        #if os(iOS)
+        { filename in editDrawing(named: filename) }
+        #else
+        nil
+        #endif
+    }
+
+    #if os(iOS)
+    private func editDrawing(named filename: String) {
+        let url = mediaBase.appendingPathComponent(filename)
+        guard let image = UIImage(contentsOfFile: url.path) else {
+            store.lastError = "Não foi possível abrir o desenho."
+            return
+        }
+        drawingFilename = filename
+        drawingBackground = image
+        showDrawingEditor = true
+    }
+
+    private func replaceDrawing(named oldName: String, with newName: String) {
+        let source = html as NSString
+        guard let expression = try? NSRegularExpression(pattern: #"(<img\b[^>]*\bsrc\s*=\s*[\"'])([^\"']+)([\"'][^>]*>)"#, options: [.caseInsensitive]) else { return }
+        let matches = expression.matches(in: html, range: NSRange(location: 0, length: source.length))
+        for match in matches.reversed() where match.numberOfRanges > 2 {
+            let valueRange = match.range(at: 2)
+            let reference = source.substring(with: valueRange)
+            let name = URL(string: reference)?.lastPathComponent ?? reference
+            guard name == oldName else { continue }
+            html = source.replacingCharacters(in: valueRange, with: newName)
+            return
+        }
+        insertMediaSnippet("<img src=\"\(newName)\">")
+    }
+    #endif
 
     private func toggleNoteAudioRecording() {
         if isRecordingNoteAudio {
@@ -149,8 +349,19 @@ struct NoteFieldEditor: View {
 
     private func formatSource(_ action: FieldFormattingAction, value: String) {
         let range: Range<String.Index>
-        if let sourceSelection, case .selection(let selected) = sourceSelection.indices { range = selected }
+        if let sourceSelection, case .selection(let selected) = sourceSelection.indices, !selected.isEmpty {
+            range = selected
+        } else if let pendingFormatSelection,
+                  case .selection(let selected) = pendingFormatSelection.indices,
+                  !selected.isEmpty {
+            range = selected
+        } else if let lastSourceSelection,
+                  case .selection(let selected) = lastSourceSelection.indices,
+                  !selected.isEmpty {
+            range = selected
+        }
         else { range = html.endIndex..<html.endIndex }
+        pendingFormatSelection = nil
         let selected = String(html[range])
         let start = html.distance(from: html.startIndex, to: range.lowerBound)
         let prefix: String
@@ -180,31 +391,249 @@ struct NoteFieldEditor: View {
                     + selected
                     + String(after[..<closing.lowerBound])
                     + String(after[closing.upperBound...])
-                html = String(unwrapped)
+                let updatedHTML = String(unwrapped)
+                pendingFormattedSourceHTML = updatedHTML
+                html = updatedHTML
                 let selectionStart = prefix.count + contentBeforeSelection.count
                 let lower = html.index(html.startIndex, offsetBy: selectionStart)
                 let upper = html.index(lower, offsetBy: selected.count)
-                sourceSelection = TextSelection(range: lower..<upper)
+                let selection = TextSelection(range: lower..<upper)
+                sourceSelection = selection
+                lastSourceSelection = selection
             }
             return
         case .alignLeft: (prefix, suffix) = ("<div style=\"text-align: left\">", "</div>")
         case .alignCenter: (prefix, suffix) = ("<div style=\"text-align: center\">", "</div>")
         case .alignRight: (prefix, suffix) = ("<div style=\"text-align: right\">", "</div>")
         case .removeFormatting:
-            let plain = selected.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
-            html.replaceSubrange(range, with: plain)
+            clearFormatting(in: range)
             return
         case .cloze: (prefix, suffix) = ("{{c\(nextClozeNumber)::", "}}")
         case .math: (prefix, suffix) = ("\\(", "\\)")
         case .lineBreak: (prefix, suffix) = ("<br>", "")
         case .sound, .image, .insertHTML: return
         }
-        html.replaceSubrange(range, with: prefix + selected + suffix)
+        let updatedHTML = html.replacingCharacters(in: range, with: prefix + selected + suffix)
+        pendingFormattedSourceHTML = updatedHTML
+        html = updatedHTML
         let lower = html.index(html.startIndex, offsetBy: start + prefix.count)
         let upper = html.index(lower, offsetBy: selected.count)
-        sourceSelection = TextSelection(range: lower..<upper)
+        let selection = TextSelection(range: lower..<upper)
+        sourceSelection = selection
+        lastSourceSelection = selection
+    }
+
+    private func clearFormatting(in range: Range<String.Index>) {
+        let formattingTags: Set<String> = [
+            "b", "strong", "i", "em", "u", "span", "code", "sup", "sub",
+            "blockquote", "ul", "ol", "li", "div", "font", "s", "strike", "del", "small", "big", "mark"
+        ]
+        let voidTags: Set<String> = ["br", "hr", "img", "input", "meta", "link", "source", "wbr"]
+        let tagExpression = try? NSRegularExpression(pattern: #"<(/?)([A-Za-z][A-Za-z0-9:-]*)\b[^>]*>"#)
+        var prefix = String(html[..<range.lowerBound])
+        let selected = String(html[range])
+        let suffix = String(html[range.upperBound...])
+        var stack: [(name: String, markup: String, range: Range<String.Index>)] = []
+
+        if let tagExpression {
+            let searchRange = NSRange(prefix.startIndex..., in: prefix)
+            for match in tagExpression.matches(in: prefix, range: searchRange) {
+                guard let nameRange = Range(match.range(at: 2), in: prefix),
+                      let tagRange = Range(match.range, in: prefix) else { continue }
+                let name = String(prefix[nameRange]).lowercased()
+                guard formattingTags.contains(name) else { continue }
+                if match.range(at: 1).length > 0 {
+                    if let index = stack.lastIndex(where: { $0.name == name }) {
+                        stack.removeSubrange(index...)
+                    }
+                } else {
+                    let markup = String(prefix[tagRange])
+                    if !voidTags.contains(name) && !markup.hasSuffix("/>") {
+                        stack.append((name, markup, tagRange))
+                    }
+                }
+            }
+        }
+
+        var closingTags: [(name: String, range: Range<String.Index>)] = []
+        var cursor = suffix.startIndex
+        while cursor < suffix.endIndex, suffix[cursor] == "<" {
+            let slash = suffix.index(after: cursor)
+            guard slash < suffix.endIndex, suffix[slash] == "/" else { break }
+            let nameStart = suffix.index(after: slash)
+            var nameEnd = nameStart
+            while nameEnd < suffix.endIndex {
+                let character = suffix[nameEnd]
+                guard character.isLetter || character.isNumber || character == ":" || character == "-" else { break }
+                nameEnd = suffix.index(after: nameEnd)
+            }
+            guard nameStart < nameEnd,
+                  let tagEnd = suffix[nameEnd...].firstIndex(of: ">") else { break }
+            let name = String(suffix[nameStart..<nameEnd]).lowercased()
+            guard formattingTags.contains(name) else { break }
+            let afterTag = suffix.index(after: tagEnd)
+            closingTags.append((name, cursor..<afterTag))
+            cursor = afterTag
+        }
+
+        var pairedTagCount = 0
+        for tag in stack.reversed() {
+            guard pairedTagCount < closingTags.count,
+                  closingTags[pairedTagCount].name == tag.name else { break }
+            pairedTagCount += 1
+        }
+
+        let pairedOpenTags = Array(stack.suffix(pairedTagCount))
+        for tag in pairedOpenTags.reversed() {
+            prefix.replaceSubrange(tag.range, with: "")
+        }
+        let remainingTags = Array(stack.dropLast(pairedTagCount))
+        let closeBeforeSelection = remainingTags.reversed().map { "</\($0.name)>" }.joined()
+        let reopenAfterSelection = remainingTags.map(\.markup).joined()
+        let suffixStart = pairedTagCount == 0 ? suffix.startIndex : closingTags[pairedTagCount - 1].range.upperBound
+        let remainingSuffix = String(suffix[suffixStart...])
+        let tagNames = formattingTags.sorted().joined(separator: "|")
+        let plain = selected.replacingOccurrences(
+            of: "(?i)</?(?:\(tagNames))\\b[^>]*>",
+            with: "",
+            options: .regularExpression
+        )
+        let beforeSelection = prefix + closeBeforeSelection
+        let updatedHTML = beforeSelection + plain + reopenAfterSelection + remainingSuffix
+        let lower = updatedHTML.index(updatedHTML.startIndex, offsetBy: beforeSelection.count)
+        let upper = updatedHTML.index(lower, offsetBy: plain.count)
+        pendingFormattedSourceHTML = updatedHTML
+        html = updatedHTML
+        let selection = TextSelection(range: lower..<upper)
+        sourceSelection = selection
+        lastSourceSelection = selection
     }
 }
+
+#if os(macOS)
+private struct MacSourceTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var selection: TextSelection?
+    let fieldName: String
+    let fontName: String
+    let fontSize: CGFloat
+    let isRightToLeft: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, selection: $selection)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+
+        let textView = NSTextView(frame: .zero)
+        textView.drawsBackground = false
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.autoresizingMask = [.width]
+        textView.textContainerInset = NSSize(width: 5, height: 5)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.string = text
+        textView.delegate = context.coordinator
+        textView.setAccessibilityLabel(fieldName)
+        textView.setAccessibilityIdentifier("field.source.\(fieldName)")
+        configure(textView)
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        context.coordinator.text = $text
+        context.coordinator.selection = $selection
+        configure(textView)
+
+        if let pendingUserText = context.coordinator.pendingUserText,
+           pendingUserText == textView.string {
+            guard text == pendingUserText else { return }
+            context.coordinator.pendingUserText = nil
+        }
+
+        let desiredSelection = context.coordinator.nsRange(for: selection, in: text)
+        if textView.string != text {
+            let previousSelection = textView.selectedRange()
+            context.coordinator.isApplyingUpdate = true
+            textView.string = text
+            let textLength = (text as NSString).length
+            let location = min(previousSelection.location, textLength)
+            let length = min(previousSelection.length, textLength - location)
+            textView.setSelectedRange(desiredSelection ?? NSRange(location: location, length: length))
+            context.coordinator.isApplyingUpdate = false
+        } else if let desiredSelection, textView.selectedRange() != desiredSelection {
+            context.coordinator.isApplyingUpdate = true
+            textView.setSelectedRange(desiredSelection)
+            context.coordinator.isApplyingUpdate = false
+        }
+    }
+
+    private func configure(_ textView: NSTextView) {
+        textView.font = NSFont(name: fontName, size: fontSize) ?? .systemFont(ofSize: fontSize)
+        textView.textColor = .labelColor
+        textView.baseWritingDirection = isRightToLeft ? .rightToLeft : .leftToRight
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+        var selection: Binding<TextSelection?>
+        var isApplyingUpdate = false
+        var pendingUserText: String?
+
+        init(text: Binding<String>, selection: Binding<TextSelection?>) {
+            self.text = text
+            self.selection = selection
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard !isApplyingUpdate, let textView = notification.object as? NSTextView else { return }
+            updateState(from: textView)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard !isApplyingUpdate, let textView = notification.object as? NSTextView else { return }
+            updateState(from: textView)
+        }
+
+        func nsRange(for selection: TextSelection?, in text: String) -> NSRange? {
+            guard let selection, case .selection(let range) = selection.indices,
+                  (range.lowerBound == text.endIndex || text.indices.contains(range.lowerBound)),
+                  (range.upperBound == text.endIndex || text.indices.contains(range.upperBound)) else { return nil }
+            return NSRange(range, in: text)
+        }
+
+        private func updateState(from textView: NSTextView) {
+            let value = textView.string
+            pendingUserText = value
+            if text.wrappedValue != value {
+                text.wrappedValue = value
+            }
+            guard let range = Range(textView.selectedRange(), in: value) else { return }
+            selection.wrappedValue = TextSelection(range: range)
+        }
+    }
+}
+#endif
 
 enum FieldFormattingAction: String {
     case bold, italic, underline, larger, sound, image, cloze, math, lineBreak, code, insertHTML
@@ -226,9 +655,10 @@ struct RichFieldEditor: View {
     var fontSize: Int = 20
     var rtl = false
     var command: FieldEditorCommand? = nil
+    var onEditDrawing: ((String) -> Void)? = nil
 
     var body: some View {
-        RichFieldWebView(html: $html, baseURL: baseURL, font: font, fontSize: fontSize, rtl: rtl, command: command)
+        RichFieldWebView(html: $html, baseURL: baseURL, font: font, fontSize: fontSize, rtl: rtl, command: command, onEditDrawing: onEditDrawing)
             .id(baseURL)
             .frame(minHeight: minHeight)
             .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -243,13 +673,15 @@ struct RichFieldEditor: View {
     let fontSize: Int
     let rtl: Bool
     let command: FieldEditorCommand?
+    let onEditDrawing: ((String) -> Void)?
 
-    func makeCoordinator() -> FieldEditorCoordinator { FieldEditorCoordinator(html: $html) }
+    func makeCoordinator() -> FieldEditorCoordinator { FieldEditorCoordinator(html: $html, onEditDrawing: onEditDrawing) }
 
     @MainActor func makeWebView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.userContentController.add(context.coordinator, name: "ankiField")
         config.userContentController.add(context.coordinator, name: "ankiPasteImage")
+        config.userContentController.add(context.coordinator, name: "ankiDrawing")
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
         context.coordinator.webView = web
@@ -279,6 +711,7 @@ struct RichFieldEditor: View {
     @MainActor func updateWebView(_ web: WKWebView, context: Context) {
         let coordinator = context.coordinator
         coordinator.html = $html
+        coordinator.onEditDrawing = onEditDrawing
         if coordinator.lastHTML != html {
             coordinator.lastHTML = html
             web.evaluateJavaScript("window.ankiSetHTML(\(editorJSON(html)))")
@@ -313,9 +746,13 @@ extension RichFieldWebView: NSViewRepresentable {
     var html: Binding<String>
     var lastHTML: String?
     var lastCommand: UUID?
+    var onEditDrawing: ((String) -> Void)?
     weak var webView: WKWebView?
 
-    init(html: Binding<String>) { self.html = html }
+    init(html: Binding<String>, onEditDrawing: ((String) -> Void)?) {
+        self.html = html
+        self.onEditDrawing = onEditDrawing
+    }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "ankiPasteImage", let dataURL = message.body as? String,
@@ -329,6 +766,10 @@ extension RichFieldWebView: NSViewRepresentable {
             } catch {
                 CollectionStore.shared.lastError = error.localizedDescription
             }
+            return
+        }
+        if message.name == "ankiDrawing", let filename = message.body as? String {
+            onEditDrawing?(filename)
             return
         }
         guard message.name == "ankiField", let body = message.body as? String else { return }
@@ -474,7 +915,181 @@ private func editorDocument(
       };
       ed.addEventListener('input', push);
       ed.addEventListener('blur', push);
+      let drawingHold = null;
+      let drawingTarget = null;
+      const clearDrawingHold = () => {
+        if (drawingHold) clearTimeout(drawingHold);
+        drawingHold = null;
+        drawingTarget = null;
+      };
+      ed.addEventListener('touchstart', event => {
+        clearDrawingHold();
+        if (event.touches.length !== 2) return;
+        const point = event.touches[0];
+        const target = document.elementFromPoint(point.clientX, point.clientY);
+        const image = target && target.closest ? target.closest('img') : null;
+        const source = image && image.getAttribute('src');
+        if (!source) return;
+        const filename = source.split('/').pop().split(/[?#]/)[0];
+        if (!filename.startsWith('drawing-')) return;
+        drawingTarget = filename;
+        drawingHold = setTimeout(() => {
+          if (drawingTarget) window.webkit.messageHandlers.ankiDrawing.postMessage(drawingTarget);
+          clearDrawingHold();
+        }, 700);
+      }, {passive:true});
+      ed.addEventListener('touchend', clearDrawingHold, {passive:true});
+      ed.addEventListener('touchcancel', clearDrawingHold, {passive:true});
     </script>
     </body></html>
     """
 }
+
+#if os(iOS)
+private struct CameraImagePicker: UIViewControllerRepresentable {
+    let onImage: (UIImage?) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onImage: onImage) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.mediaTypes = ["public.image"]
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let onImage: (UIImage?) -> Void
+
+        init(onImage: @escaping (UIImage?) -> Void) { self.onImage = onImage }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            onImage(info[.originalImage] as? UIImage)
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            onImage(nil)
+        }
+    }
+}
+
+private struct NoteDrawingEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var drawing = PKDrawing()
+    @State private var canvasView: PKCanvasView?
+
+    let backgroundImage: UIImage?
+    let onSave: (Data) -> Void
+
+    private var outputSize: CGSize {
+        guard let backgroundImage else { return CGSize(width: 1024, height: 768) }
+        let sourceSize = backgroundImage.size
+        let scale = min(1, 1024 / max(sourceSize.width, sourceSize.height))
+        return CGSize(width: max(1, (sourceSize.width * scale).rounded()), height: max(1, (sourceSize.height * scale).rounded()))
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AppBackground()
+                ZStack {
+                    Color.white
+                    if let backgroundImage {
+                        Image(uiImage: backgroundImage)
+                            .resizable()
+                            .scaledToFit()
+                    }
+                    PencilDrawingCanvas(drawing: $drawing) { canvasView = $0 }
+                        .accessibilityIdentifier("noteDrawing.canvas")
+                }
+                .aspectRatio(outputSize.width / outputSize.height, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(AppTheme.primaryText.opacity(0.18), lineWidth: 1)
+                }
+                .padding()
+            }
+            .navigationTitle(backgroundImage == nil ? "Draw" : "Edit Drawing")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancelar") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Salvar") { saveDrawing() }
+                        .fontWeight(.semibold)
+                        .accessibilityIdentifier("noteDrawing.save")
+                }
+            }
+        }
+    }
+
+    private func saveDrawing() {
+        guard let canvasView else { return }
+        let bounds = canvasView.bounds
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let target = CGRect(origin: .zero, size: outputSize)
+        let drawingScale = max(outputSize.width / bounds.width, outputSize.height / bounds.height)
+        let ink = drawing.image(from: CGRect(origin: .zero, size: bounds.size), scale: drawingScale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: outputSize, format: format)
+        let image = renderer.image { context in
+            UIColor.white.setFill()
+            context.fill(target)
+            backgroundImage?.draw(in: target)
+            ink.draw(in: target)
+        }
+        guard let data = image.pngData() else { return }
+        onSave(data)
+        dismiss()
+    }
+}
+
+private struct PencilDrawingCanvas: UIViewRepresentable {
+    @Binding var drawing: PKDrawing
+    let onReady: (PKCanvasView) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(drawing: $drawing) }
+
+    func makeUIView(context: Context) -> PKCanvasView {
+        let canvas = PKCanvasView()
+        canvas.backgroundColor = .clear
+        canvas.isOpaque = false
+        canvas.drawingPolicy = .anyInput
+        canvas.tool = PKInkingTool(.pen, color: .black, width: 5)
+        canvas.delegate = context.coordinator
+        context.coordinator.canvas = canvas
+        DispatchQueue.main.async {
+            let picker = PKToolPicker()
+            picker.addObserver(canvas)
+            picker.setVisible(true, forFirstResponder: canvas)
+            context.coordinator.toolPicker = picker
+            canvas.becomeFirstResponder()
+            onReady(canvas)
+        }
+        return canvas
+    }
+
+    func updateUIView(_ canvas: PKCanvasView, context: Context) {
+        if canvas.drawing != drawing { canvas.drawing = drawing }
+    }
+
+    final class Coordinator: NSObject, PKCanvasViewDelegate {
+        var drawing: Binding<PKDrawing>
+        weak var canvas: PKCanvasView?
+        var toolPicker: PKToolPicker?
+
+        init(drawing: Binding<PKDrawing>) { self.drawing = drawing }
+
+        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            drawing.wrappedValue = canvasView.drawing
+        }
+    }
+}
+#endif

@@ -21,7 +21,7 @@ struct CSVImporter {
             switch self {
             case .field(let index): "Campo \(index + 1)"
             case .tags: "Etiquetas"
-            case .deck: "Baralho"
+            case .deck: String(localized: "decks.deck.label")
             case .notetype: "Tipo de nota"
             case .guid: "GUID"
             case .ignore: "Ignorar"
@@ -196,7 +196,8 @@ struct CSVImporter {
         tagsForAllNotes: String = "",
         tagsForUpdatedNotes: String = "",
         columnMappings: [ColumnMapping]? = nil,
-        skipFirstRow: Bool? = nil
+        skipFirstRow: Bool? = nil,
+        offerTutorial: Bool = true
     ) throws -> ImportResult {
         let text = try String(contentsOf: url, encoding: .utf8)
         return try importText(
@@ -210,7 +211,8 @@ struct CSVImporter {
             tagsForAllNotes: tagsForAllNotes,
             tagsForUpdatedNotes: tagsForUpdatedNotes,
             columnMappings: columnMappings,
-            skipFirstRow: skipFirstRow
+            skipFirstRow: skipFirstRow,
+            offerTutorial: offerTutorial
         )
     }
 
@@ -226,7 +228,8 @@ struct CSVImporter {
         tagsForAllNotes: String = "",
         tagsForUpdatedNotes: String = "",
         columnMappings: [ColumnMapping]? = nil,
-        skipFirstRow: Bool? = nil
+        skipFirstRow: Bool? = nil,
+        offerTutorial: Bool = true
     ) throws -> ImportResult {
         let normalizedText = text
             .replacingOccurrences(of: "\u{feff}", with: "")
@@ -467,7 +470,7 @@ struct CSVImporter {
             try? store.refreshCounts()
             throw error
         }
-        store.notifyDeckContentAdded()
+        if offerTutorial { store.notifyDeckContentAdded() }
         return result
     }
 

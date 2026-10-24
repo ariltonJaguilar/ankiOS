@@ -34,7 +34,7 @@ struct NoteTypesView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        Button("Duplicar") { duplicateNoteType(nt) }
+                        Button("Duplicar: \(nt.name)") { duplicateNoteType(nt) }
                         Button("Apagar", role: .destructive) { requestDeleteNoteType(nt) }
                     }
                 }
@@ -82,6 +82,7 @@ struct NoteTypesView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.16, expands: true))
+        .accessibilityIdentifier("notetypes.action.\(title)")
     }
 
     private func createBasic() {
@@ -266,7 +267,7 @@ struct TemplateEditorView: View {
                                     .textFieldStyle(.plain)
                             }
                         }
-                        GlassFormSection(title: "Campos") {
+                        GlassFormSection(title: "editor.fields.section") {
                             ForEach(Array(notetype.flds.enumerated()), id: \.offset) { idx, _ in
                                 GlassOptionRow(title: "Campo \(idx + 1)") {
                                     VStack(alignment: .trailing, spacing: 10) {
@@ -275,9 +276,11 @@ struct TemplateEditorView: View {
                                                 .textFieldStyle(.plain)
                                                 .multilineTextAlignment(.trailing)
                                                 .frame(minWidth: 120)
+                                                .accessibilityIdentifier("notetype.field.name.\(idx)")
                                             Toggle("Fixo", isOn: $notetype.flds[idx].sticky)
                                                 .labelsHidden()
                                                 .tint(AppTheme.accent)
+                                                .accessibilityIdentifier("notetype.field.sticky.\(idx)")
                                             Button {
                                                 moveField(at: idx, by: -1)
                                             } label: {
@@ -285,6 +288,7 @@ struct TemplateEditorView: View {
                                             }
                                             .buttonStyle(GlassIconButtonStyle())
                                             .accessibilityLabel("Mover campo para cima")
+                                            .accessibilityIdentifier("notetype.field.moveUp.\(idx)")
                                             .disabled(idx == 0)
                                             Button {
                                                 moveField(at: idx, by: 1)
@@ -414,6 +418,7 @@ struct TemplateEditorView: View {
                                 TextField("CSS", text: $notetype.css, axis: .vertical)
                                     .lineLimit(6...20)
                                     .font(.system(.footnote, design: .monospaced))
+                                    .accessibilityIdentifier("notetype.editor.css")
                             }
                         }
                         GlassFormSection(title: "LaTeX") {
@@ -422,12 +427,13 @@ struct TemplateEditorView: View {
                             templateField("Cabeçalho", text: $notetype.latexPre)
                             templateField("Rodapé", text: $notetype.latexPost)
                         }
-                        GlassFormSection(title: "Pré-visualização") {
+                        GlassFormSection(title: "note-types.preview.section") {
                             Picker("Lado", selection: $previewSide) {
                                 Text("Frente").tag(0)
                                 Text("Verso").tag(1)
                             }
                             .pickerStyle(.segmented)
+                            .accessibilityIdentifier("notetype.editor.previewSide")
                             CardWebView(
                                 html: previewHTML,
                                 baseURL: store.mediaRoot,
@@ -443,6 +449,7 @@ struct TemplateEditorView: View {
                 }
                 HStack(spacing: 12) {
                     Button("Cancelar") { dismiss() }
+                        .accessibilityIdentifier("notetype.editor.cancel")
                         .buttonStyle(GlassButtonStyle(tint: .white, tintStrength: 0.18, expands: true))
                     Button("Salvar") {
                         let normalizedFields = notetype.flds.map { AnkiField.normalizedName($0.name) }
@@ -485,6 +492,7 @@ struct TemplateEditorView: View {
                             store.lastError = error.localizedDescription
                         }
                     }
+                    .accessibilityIdentifier("notetype.editor.save")
                     .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
                 }
                 .padding(.horizontal, 20)
@@ -492,6 +500,7 @@ struct TemplateEditorView: View {
             }
             .background(AppBackground())
             .navigationTitle("Editar tipo de nota")
+            .ankiKeyboardDismissToolbar()
         }
     }
 
@@ -504,6 +513,7 @@ struct TemplateEditorView: View {
                 TextField(title, text: text, axis: .vertical)
                     .lineLimit(3...10)
                     .font(.system(.footnote, design: .monospaced))
+                    .accessibilityIdentifier("notetype.template.\(title)")
             }
         }
     }

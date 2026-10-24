@@ -21,6 +21,31 @@ enum ICloudSync {
     static let containerID = "iCloud.com.bigbear.AnkiOS"
     private static let profileManifestName = ".ankios-icloud-profiles.json"
     private static let profileCreatedName = ".ankios-created-at"
+    private static let collectionStateName = ".ankios-icloud-collection-hash"
+
+    #if DEBUG
+    private static var uiTestCloudProfilesRoot: URL? {
+        guard SharedProfiles.uiTestSession != nil,
+              let namespace = ProcessInfo.processInfo.environment["ANKIOS_UI_ICLOUD_NAMESPACE"],
+              UUID(uuidString: namespace) != nil else { return nil }
+
+        if ProcessInfo.processInfo.environment["ANKIOS_UI_ICLOUD_REAL_CONTAINER"] == "1" {
+            guard let container = FileManager.default.url(forUbiquityContainerIdentifier: containerID) else {
+                return nil
+            }
+            return container
+                .appendingPathComponent("Documents", isDirectory: true)
+                .appendingPathComponent("AnkiOS-UI-Tests", isDirectory: true)
+                .appendingPathComponent(namespace, isDirectory: true)
+                .appendingPathComponent("Profiles", isDirectory: true)
+        }
+
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("AnkiOS-UITests", isDirectory: true)
+            .appendingPathComponent("iCloud-\(namespace)", isDirectory: true)
+            .appendingPathComponent("CloudProfiles", isDirectory: true)
+    }
+    #endif
 
     private struct ProfileManifest: Codable {
         var deletedAt: [String: Int64]
@@ -33,6 +58,14 @@ enum ICloudSync {
     }
 
     static func sync(localProfiles: URL, lock: SharedCollectionFileLock.Token) throws -> String {
+        #if DEBUG
+        if SharedProfiles.uiTestSession != nil {
+            guard let cloudProfiles = uiTestCloudProfilesRoot else {
+                throw ICloudSyncError.unavailable
+            }
+            return try syncProfiles(localProfiles: localProfiles, cloudProfiles: cloudProfiles)
+        }
+        #endif
         let fm = FileManager.default
         guard let container = fm.url(forUbiquityContainerIdentifier: containerID) else {
             throw ICloudSyncError.unavailable
@@ -40,6 +73,25 @@ enum ICloudSync {
         let cloudProfiles = container
             .appendingPathComponent("Documents", isDirectory: true)
             .appendingPathComponent("Profiles", isDirectory: true)
+        return try syncProfiles(localProfiles: localProfiles, cloudProfiles: cloudProfiles)
+    }
+
+    static func sync(localProfiles: URL, cloudProfiles: URL) throws -> String {
+        let syncLock = try SharedCollectionFileLock.acquire(profilesRoot: localProfiles)
+        defer { syncLock.release() }
+        return try sync(localProfiles: localProfiles, lock: syncLock, cloudProfiles: cloudProfiles)
+    }
+
+    static func sync(
+        localProfiles: URL,
+        lock: SharedCollectionFileLock.Token,
+        cloudProfiles: URL
+    ) throws -> String {
+        try syncProfiles(localProfiles: localProfiles, cloudProfiles: cloudProfiles)
+    }
+
+    private static func syncProfiles(localProfiles: URL, cloudProfiles: URL) throws -> String {
+        let fm = FileManager.default
         try fm.createDirectory(at: localProfiles, withIntermediateDirectories: true)
         try fm.createDirectory(at: cloudProfiles, withIntermediateDirectories: true)
 
@@ -124,6 +176,8 @@ enum ICloudSync {
         var result = ProfileResult()
         let localHash = fileHash(at: localDB)
         let cloudHash = fileHash(at: cloudDB)
+        let stateURL = local.appendingPathComponent(collectionStateName)
+        let previousHash = try? String(contentsOf: stateURL, encoding: .utf8)
         if localHash == nil, cloudHash != nil {
             try copyReplacing(from: cloudDB, to: localDB)
             result.receivedCollection = true
@@ -131,12 +185,23 @@ enum ICloudSync {
             try copyReplacing(from: localDB, to: cloudDB)
             result.sentCollection = true
         } else if let localHash, let cloudHash, localHash != cloudHash {
-            try saveConflictCopy(of: localDB, in: local)
-            try saveConflictCopy(of: cloudDB, in: cloud)
-            result.conflictBackups += 2
-            try mergeCollections(local: localDB, cloud: cloudDB)
-            result.sentCollection = true
-            result.receivedCollection = true
+            if localHash == previousHash {
+                try copyReplacing(from: cloudDB, to: localDB)
+                result.receivedCollection = true
+            } else if cloudHash == previousHash {
+                try copyReplacing(from: localDB, to: cloudDB)
+                result.sentCollection = true
+            } else {
+                try saveConflictCopy(of: localDB, in: local)
+                try saveConflictCopy(of: cloudDB, in: cloud)
+                result.conflictBackups += 2
+                try mergeCollections(local: localDB, cloud: cloudDB)
+                result.sentCollection = true
+                result.receivedCollection = true
+            }
+        }
+        if let synchronizedHash = fileHash(at: localDB), synchronizedHash == fileHash(at: cloudDB) {
+            try Data(synchronizedHash.utf8).write(to: stateURL, options: .atomic)
         }
         result.mediaFiles = try syncMedia(
             local: local.appendingPathComponent("collection.media", isDirectory: true),
@@ -785,6 +850,10 @@ enum ICloudSync {
     }
 
     private static func coordinatedWrite(_ data: Data, to url: URL) throws {
+        if !needsCoordinatedAccess(url) {
+            try data.write(to: url, options: .atomic)
+            return
+        }
         let coordinator = NSFileCoordinator()
         var coordinationError: NSError?
         var writeError: Error?
@@ -794,6 +863,25 @@ enum ICloudSync {
         }
         if let coordinationError { throw ICloudSyncError.failed(coordinationError.localizedDescription) }
         if let writeError { throw writeError }
+    }
+
+    private static func isInUbiquityContainer(_ url: URL) -> Bool {
+        guard let container = FileManager.default.url(forUbiquityContainerIdentifier: containerID) else { return false }
+        let root = container.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        return path == root || path.hasPrefix(root + "/")
+    }
+
+    private static func needsCoordinatedAccess(_ url: URL) -> Bool {
+        if isInUbiquityContainer(url) { return true }
+        #if DEBUG
+        guard let cloudProfiles = uiTestCloudProfilesRoot else { return false }
+        let root = cloudProfiles.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        return path == root || path.hasPrefix(root + "/")
+        #else
+        return false
+        #endif
     }
 
     private static func saveConflictCopy(of database: URL, in profile: URL) throws {
@@ -880,12 +968,17 @@ enum ICloudSync {
     }
 
     private static func removeItem(at url: URL) throws {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else { return }
+        if !needsCoordinatedAccess(url) {
+            try fm.removeItem(at: url)
+            return
+        }
         let coordinator = NSFileCoordinator()
         var coordinationError: NSError?
         var removalError: Error?
         coordinator.coordinate(writingItemAt: url, options: .forDeleting, error: &coordinationError) { coordinatedURL in
-            do { try FileManager.default.removeItem(at: coordinatedURL) }
+            do { try fm.removeItem(at: coordinatedURL) }
             catch { removalError = error }
         }
         if let coordinationError { throw ICloudSyncError.failed(coordinationError.localizedDescription) }
@@ -894,6 +987,10 @@ enum ICloudSync {
 
     private static func copyReplacing(from source: URL, to destination: URL) throws {
         let fm = FileManager.default
+        if !needsCoordinatedAccess(source), !needsCoordinatedAccess(destination) {
+            try copyLocalReplacing(from: source, to: destination)
+            return
+        }
         let coordinator = NSFileCoordinator()
         var coordinationError: NSError?
         var copyError: Error?
@@ -946,7 +1043,7 @@ enum ICloudSync {
 
     private static func downloadIfNeeded(_ url: URL) throws {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: url.path) else { return }
+        guard fm.fileExists(atPath: url.path), isInUbiquityContainer(url) else { return }
         let values = try? url.resourceValues(forKeys: [
             .ubiquitousItemDownloadingStatusKey,
             .ubiquitousItemIsDownloadingKey,

@@ -2,30 +2,39 @@
 """Differential parity checks: AnkiOS (ankios-harness) vs the official Anki library.
 
 Usage: oracle.py <check> [--keep]
-Checks: timing, counts, states, fsrs-empty-steps, session, search, retention, stats, cardgen, decks, delete, empty, queue, sync, tags, notetypes, latex, filtered, packages, csv, all
+Checks: timing, counts, states, fsrs-empty-steps, session, search, retention, stats, cardgen, decks, deck-options, rich-media, delete, empty, queue, sync, icloud-merge, icloud-sync, tags, notetypes, latex, filtered, filtered-options, packages, deck-export, card-export, csv, auto-advance-actions, auto-advance-timers, review-shortcuts, korean-shortcuts, media-check, database-check, profiles, all
 
 Requires the `anki` wheel matching the targeted desktop release (26.9.3) and the
 harness built by build-harness.sh.
 """
 import json
 import hashlib
+import html
 import os
+import re
 import shutil
 import sqlite3
+import struct
 import subprocess
 import sys
 import tempfile
 import time
+import zipfile
+from html.parser import HTMLParser
 
 from anki.collection import (
+    CardIdsLimit,
     Collection,
+    DeckIdLimit,
     ExportAnkiPackageOptions,
     ImportCsvRequest,
     ImportAnkiPackageOptions,
     ImportAnkiPackageRequest,
+    NoteIdsLimit,
 )
 from anki.deck_config_pb2 import UpdateDeckConfigsMode, UpdateDeckConfigsRequest
-from anki.lang import set_lang
+from anki.decks_pb2 import Deck
+from anki.lang import get_def_lang, is_rtl, lang_to_disk_lang, langs, set_lang
 from anki.scheduler_pb2 import CardAnswer
 from anki.stats import CollectionStats
 
@@ -449,6 +458,54 @@ def check_grade_now():
     return diff("sched:grade-now", expected, actual)
 
 
+def check_study_undo():
+    oracle_path, swift_root = prepare("sched")
+    col = Collection(oracle_path)
+    started_at = int(time.time())
+    try:
+        deck_id = col.decks.id_for_name("Lang")
+        col.decks.set_current(deck_id)
+        queued = col.sched.get_queued_cards(fetch_limit=1)
+        if not queued.cards:
+            return ["sched:study-undo: fixture has no queued card"]
+        card_id = queued.cards[0].card.id
+        card_ids = col.db.list("select id from cards where nid=(select nid from cards where id=?) order by id", card_id)
+
+        def snapshot():
+            state = grade_now_snapshot(col, card_ids)
+            queue = col.sched.get_queued_cards(fetch_limit=1)
+            state["queueCounts"] = [queue.new_count, queue.learning_count, queue.review_count]
+            state["nextCardID"] = queue.cards[0].card.id if queue.cards else 0
+            return state
+
+        before = snapshot()
+        card = col.get_card(card_id)
+        card.start_timer()
+        states = col._backend.get_scheduling_states(card_id)
+        answer = col.sched.build_answer(card=card, states=states, rating=CardAnswer.GOOD)
+        answer.milliseconds_taken = 5_000
+        col.sched.answer_card(answer)
+        expected = {"before": before, "after": snapshot()}
+        col.undo()
+        expected["undone"] = snapshot()
+        col.redo()
+        expected["redone"] = snapshot()
+    finally:
+        col.close()
+
+    actual = run_harness(swift_root, "study-undo", str(deck_id), str(card_id))
+    finished_at = int(time.time())
+    for snapshot in (expected, actual):
+        for phase in snapshot.values():
+            for card in phase["cards"]:
+                data = json.loads(card["data"] or "{}")
+                if isinstance(data.get("lrt"), (int, float)) and started_at <= data["lrt"] <= finished_at:
+                    data["lrt"] = "current-operation"
+                card["data"] = json.dumps(data, sort_keys=True)
+    actual["before"] = before
+    return diff("sched:study-undo", expected, actual)
+
+
 def check_fsrs_empty_steps():
     oracle_path, swift_root = prepare("sched")
     col = Collection(oracle_path)
@@ -512,12 +569,27 @@ def check_fsrs_empty_steps():
 def prepare(fixture):
     os.makedirs(WORK, exist_ok=True)
     base = os.path.join(WORK, f"{fixture}.anki2")
+    oracle_path = os.path.join(WORK, f"{fixture}-oracle.anki2")
+    from anki.media import media_paths_from_col_path
+
+    for path in (base, oracle_path):
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                os.remove(path + suffix)
+            except FileNotFoundError:
+                pass
+        media_path, media_db = media_paths_from_col_path(path)
+        shutil.rmtree(media_path, ignore_errors=True)
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                os.remove(media_db + suffix)
+            except FileNotFoundError:
+                pass
     if os.path.exists(base):
         os.remove(base)
     set_lang("en")
     FIXTURES[fixture](base)
     set_lang("pt_BR")
-    oracle_path = os.path.join(WORK, f"{fixture}-oracle.anki2")
     shutil.copy(base, oracle_path)
     swift_root = os.path.join(WORK, f"{fixture}-swift")
     shutil.rmtree(swift_root, ignore_errors=True)
@@ -684,6 +756,151 @@ def package_snapshot(path, media_path):
         return {"notes": notes, "cards": cards, "media": media}
     finally:
         db.close()
+
+
+def card_render_snapshot(col, guids=None, include_answer_sounds=False):
+    allowed = set(guids) if guids is not None else None
+
+    def visible_text(value):
+        value = re.sub(r"(?is)<(script|style)\b[^>]*>.*?</\1>", " ", value)
+        value = re.sub(r"(?s)<!--.*?-->", " ", value)
+        value = re.sub(r"(?i)\[sound:[^\]]+\]", " ", value)
+        value = re.sub(r"<[^>]*>", " ", value)
+        return re.sub(r"\s+", " ", html.unescape(value)).strip()
+
+    result = []
+    rows = col.db.all("""
+        select c.id, c.ord, n.guid from cards c join notes n on n.id=c.nid
+        order by n.guid, c.ord
+    """)
+    for card_id, ordinal, guid in rows:
+        if allowed is not None and guid not in allowed:
+            continue
+        rendered = col._backend.render_existing_card(
+            card_id=card_id, browser=False, partial_render=False
+        )
+        question_html = "".join(node.text for node in rendered.question_nodes)
+        answer_html = "".join(node.text for node in rendered.answer_nodes)
+        question_text = visible_text(question_html)
+        marker = re.search(r"<hr\b[^>]*\bid\s*=\s*['\"]?answer['\"]?[^>]*>", answer_html, re.I)
+        if marker:
+            answer_text = visible_text(answer_html[marker.end():])
+            answer_sounds = re.findall(r"(?i)\[sound:([^\]]+)\]", answer_html[marker.end():])
+        else:
+            combined = visible_text(answer_html)
+            answer_text = combined[len(question_text):].strip() if combined.startswith(question_text) else combined
+            answer_sounds = re.findall(r"(?i)\[sound:([^\]]+)\]", answer_html)
+        sounds = re.findall(r"(?i)\[sound:([^\]]+)\]", question_html)
+        snapshot = {
+            "guid": guid,
+            "ordinal": ordinal,
+            "questionText": question_text,
+            "answerText": answer_text,
+            "questionSounds": sounds,
+        }
+        if include_answer_sounds:
+            snapshot["answerSounds"] = answer_sounds
+        result.append(snapshot)
+    return result
+
+
+class ImageOcclusionAttributeParser(HTMLParser):
+    attributes = (
+        "data-ordinal", "data-shape", "data-left", "data-top", "data-angle", "data-fill",
+        "data-width", "data-height", "data-rx", "data-ry", "data-points",
+        "data-occludeinactive", "data-text", "data-scale", "data-font-size",
+    )
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.rows = []
+
+    def handle_starttag(self, tag, attributes):
+        values = dict(attributes)
+        if "data-shape" not in values:
+            return
+        self.rows.append({key: values[key] for key in self.attributes if key in values})
+
+
+class ImageOcclusionStateParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.rows = []
+
+    def handle_starttag(self, tag, attributes):
+        values = dict(attributes)
+        if "data-shape" not in values:
+            return
+        self.rows.append(values)
+
+
+def image_occlusion_behavior_from_html(value):
+    parser = ImageOcclusionStateParser()
+    parser.feed(value)
+    states = []
+    for item in parser.rows:
+        classes = set(item.get("class", "").split())
+        state = next(
+            (name for name in ("revealed", "covered", "hidden") if f"io-{name}" in classes),
+            "missing",
+        )
+        states.append({
+            "ordinal": item.get("data-ordinal", ""),
+            "shape": item.get("data-shape", ""),
+            "state": state,
+        })
+    return sorted(states, key=lambda item: (int(item["ordinal"] or 0), item["shape"]))
+
+
+def image_occlusion_render_snapshot(col, guid):
+    result = {}
+    rows = col.db.all("""
+        select c.id, c.ord from cards c join notes n on n.id=c.nid
+        where n.guid=? order by c.ord
+    """, guid)
+    for card_id, ordinal in rows:
+        rendered = col._backend.render_existing_card(
+            card_id=card_id, browser=False, partial_render=False
+        )
+        parser = ImageOcclusionAttributeParser()
+        parser.feed("".join(node.text for node in rendered.question_nodes))
+        result[str(ordinal)] = sorted(
+            parser.rows,
+            key=lambda row: (int(row.get("data-ordinal", "0")), row.get("data-shape", "")),
+        )
+    return result
+
+
+def image_occlusion_behavior_snapshot(col, guid):
+    result = {}
+    rows = col.db.all("""
+        select c.id, c.ord from cards c join notes n on n.id=c.nid
+        where n.guid=? order by c.ord
+    """, guid)
+    for card_id, ordinal in rows:
+        rendered = col._backend.render_existing_card(
+            card_id=card_id, browser=False, partial_render=False
+        )
+        card_states = {}
+        for side, nodes in (("question", rendered.question_nodes), ("answer", rendered.answer_nodes)):
+            parser = ImageOcclusionStateParser()
+            parser.feed("".join(node.text for node in nodes))
+            states = []
+            for item in parser.rows:
+                classes = set(item.get("class", "").split())
+                inactive_is_covered = item.get("data-occludeinactive", "").lower() == "1"
+                active = "cloze" in classes if side == "question" else "cloze-highlight" in classes
+                state = "revealed" if side == "answer" and active else (
+                    "covered" if active or inactive_is_covered else "hidden"
+                )
+                states.append({
+                    "ordinal": item.get("data-ordinal", ""),
+                    "shape": item.get("data-shape", ""),
+                    "state": state,
+                })
+            card_states[side] = sorted(states, key=lambda item: (int(item["ordinal"] or 0), item["shape"]))
+        result[str(ordinal)] = card_states
+    return result
 
 
 def _set_package_content(col, kind, value, mod):
@@ -1114,6 +1331,434 @@ def check_queue_actions():
     return problems
 
 
+def check_browser_sort():
+    oracle_path, swift_root = prepare("sched")
+    oracle = Collection(oracle_path)
+    try:
+        card_columns = [
+            "noteFld", "cardDue", "noteCrt", "cardMod", "cardIvl", "deck", "cardEase",
+            "cardReps", "cardLapses", "template", "note", "noteTags", "originalPosition",
+            "stability", "difficulty", "retrievability",
+        ]
+        note_columns = [
+            "noteFld", "cardDue", "noteCrt", "noteMod", "cardIvl", "deck", "cardEase",
+            "cardReps", "cardLapses", "template", "note", "noteTags", "originalPosition",
+        ]
+
+        def expected_orders(columns, find_rows):
+            orders = {}
+            for column in columns:
+                orders[column] = {}
+                for descending in (False, True):
+                    rows = find_rows(oracle, column, descending)
+                    orders[column]["descending" if descending else "ascending"] = [int(row) for row in rows]
+            return orders
+
+        expected_cards = expected_orders(
+            card_columns,
+            lambda col, column, descending: col.find_cards(
+                "", order=col.get_browser_column(column), reverse=descending
+            ),
+        )
+        expected_notes = expected_orders(
+            note_columns,
+            lambda col, column, descending: col.find_notes(
+                "", order=col.get_browser_column(column), reverse=descending
+            ),
+        )
+        expected_round_trips = []
+        for notes_mode, columns in ((False, card_columns), (True, note_columns)):
+            for column in columns:
+                for descending in (False, True):
+                    expected_round_trips.append({
+                        "notesMode": notes_mode,
+                        "column": column,
+                        "descending": descending,
+                        "persistedSortType": column,
+                        "persistedDirection": descending,
+                        "loadedColumn": column,
+                        "loadedDescending": descending,
+                    })
+        expected = {
+            "cardOrders": expected_cards,
+            "noteOrders": expected_notes,
+            "preferenceRoundTrips": expected_round_trips,
+            "legacyPreference": {"column": "cardMod", "descending": True},
+            "importedPreference": {"column": "noteCrt", "descending": False},
+        }
+    finally:
+        oracle.close()
+
+    actual = run_harness(swift_root, "browser-sort-actions")
+    problems = diff("browser:sort", expected, actual)
+    actual_collection_path = os.path.join(swift_root, "User 1", "collection.anki2")
+    actual_collection = Collection(actual_collection_path)
+    try:
+        persisted = {
+            "sortType": actual_collection.conf.get("sortType"),
+            "sortBackwards": actual_collection.conf.get("sortBackwards"),
+            "noteSortType": actual_collection.conf.get("noteSortType"),
+            "browserNoteSortBackwards": actual_collection.conf.get("browserNoteSortBackwards"),
+        }
+        problems += diff("browser:sort/persisted-wire", {
+            "sortType": "noteFld",
+            "sortBackwards": False,
+            "noteSortType": "noteMod",
+            "browserNoteSortBackwards": True,
+        }, persisted)
+    finally:
+        actual_collection.close()
+    return problems
+
+
+def check_browser_selection():
+    oracle_path, swift_root = prepare("sched")
+    oracle = Collection(oracle_path)
+    deck_id = oracle.decks.id("Lang")
+    basic = oracle.models.by_name("Basic")
+    reversed_model = oracle.models.by_name("Basic (and reversed card)")
+
+    def add_selection_set(tag, prefix):
+        for i in range(512):
+            note = oracle.new_note(basic)
+            note.fields = [f"{prefix} {i:03d}", "back"]
+            note.tags = [tag]
+            oracle.add_note(note, deck_id)
+        for i in range(4):
+            note = oracle.new_note(reversed_model)
+            note.fields = [f"{prefix} Multi {i}", "back"]
+            note.tags = [tag]
+            oracle.add_note(note, deck_id)
+
+    add_selection_set("parity-card-selection", "CardSelection")
+    add_selection_set("parity-note-selection", "NoteSelection")
+    column = oracle.get_browser_column("noteFld")
+
+    def selection_snapshot(query, notes_mode):
+        rows = list(map(int, oracle.find_notes(query, order=column))) if notes_mode else list(map(int, oracle.find_cards(query, order=column)))
+        if notes_mode:
+            rows = [int(oracle.db.scalar("select min(id) from cards where nid=?", nid)) for nid in rows]
+        indices = sorted(set(index for index in (0, 2, 499, 500, len(rows) - 1) if 0 <= index < len(rows)))
+        selected = [rows[index] for index in indices]
+        selected_set = set(selected)
+        inverted = [row_id for row_id in rows if row_id not in selected_set]
+
+        def target_cards(row_ids):
+            if not notes_mode:
+                return sorted(row_ids)
+            selected_notes = sorted({int(oracle.db.scalar("select nid from cards where id=?", row_id)) for row_id in row_ids})
+            if not selected_notes:
+                return []
+            placeholders = ",".join("?" for _ in selected_notes)
+            return list(map(int, oracle.db.list(
+                f"select id from cards where nid in ({placeholders}) order by id",
+                *selected_notes,
+            )))
+
+        selected_cards = target_cards(selected)
+        inverted_cards = target_cards(inverted)
+        oracle.sched.suspend_cards(selected_cards)
+        oracle.sched.bury_cards(inverted_cards)
+        all_cards = sorted(set(selected_cards + inverted_cards))
+        placeholders = ",".join("?" for _ in all_cards)
+        states = [
+            list(row)
+            for row in oracle.db.all(
+                f"select id, queue, due, usn from cards where id in ({placeholders}) order by id",
+                *all_cards,
+            )
+        ]
+        return {
+            "rowCount": len(rows),
+            "selectedRows": selected,
+            "invertedRows": inverted,
+            "selectedCards": selected_cards,
+            "invertedCards": inverted_cards,
+            "states": states,
+        }
+
+    expected = {
+        "cardsMode": selection_snapshot("tag:parity-card-selection", False),
+        "notesMode": selection_snapshot("tag:parity-note-selection", True),
+    }
+    oracle.close(downgrade=True)
+    app_path = os.path.join(swift_root, "User 1", "collection.anki2")
+    shutil.copy2(oracle_path, app_path)
+    actual = run_harness(swift_root, "browser-selection-actions")
+    return diff("browser:selection-actions", expected, actual)
+
+
+def check_preferences_persist():
+    oracle_path, swift_root = prepare("sched")
+    oracle = Collection(oracle_path)
+    prefs = oracle.get_preferences()
+    prefs.scheduling.rollover = 8
+    prefs.scheduling.learn_ahead_secs = 1020
+    prefs.scheduling.new_review_mix = 0
+    prefs.scheduling.day_learn_first = True
+    prefs.scheduling.new_timezone = True
+    prefs.reviewing.hide_audio_play_buttons = True
+    prefs.reviewing.interrupt_audio_when_answering = False
+    prefs.reviewing.show_remaining_due_counts = False
+    prefs.reviewing.show_intervals_on_buttons = True
+    prefs.reviewing.time_limit_secs = 660
+    prefs.reviewing.load_balancer_enabled = False
+    prefs.reviewing.fsrs_short_term_with_steps_enabled = True
+    prefs.editing.adding_defaults_to_current_deck = False
+    prefs.editing.paste_images_as_png = True
+    prefs.editing.paste_strips_formatting = True
+    prefs.editing.default_search_text = "deck:Lang"
+    prefs.editing.ignore_accents_in_search = True
+    prefs.editing.render_latex = True
+    prefs.backups.minimum_interval_mins = 17
+    prefs.backups.daily = 8
+    prefs.backups.weekly = 6
+    prefs.backups.monthly = 4
+    oracle.set_preferences(prefs)
+    oracle.set_config("applyAllParentLimits", True)
+    oracle.set_config("fsrs", True)
+    expected_timezone_offset = oracle.all_config().get("creationOffset")
+    oracle.close()
+
+    app_collection_path = os.path.join(swift_root, "User 1", "collection.anki2")
+    app_db = sqlite3.connect(app_collection_path)
+    legacy_meta = app_db.execute("select models, decks, dconf, tags from col").fetchone()
+    app_db.close()
+    app_seed = Collection(app_collection_path)
+    try:
+        app_seed.set_preferences(prefs)
+        app_seed.set_config("applyAllParentLimits", True)
+        app_seed.set_config("fsrs", True)
+        seeded_config = app_seed.all_config()
+    finally:
+        app_seed.close()
+    app_db = sqlite3.connect(app_collection_path)
+    try:
+        app_db.execute(
+            "update col set conf=?, models=?, decks=?, dconf=?, tags=?",
+            (json.dumps(seeded_config), *legacy_meta),
+        )
+        app_db.commit()
+    finally:
+        app_db.close()
+    expected_loaded = {
+        "rollover": 8,
+        "collapseTime": 1020,
+        "newSpread": 0,
+        "hideAudioPlayButtons": True,
+        "interruptAudioWhenAnswering": False,
+        "dueCounts": False,
+        "estTimes": True,
+        "timeLim": 660,
+        "addToCur": False,
+        "applyAllParentLimits": True,
+        "fsrs": True,
+        "fsrsShortTermWithStepsEnabled": True,
+        "pasteImagesAsPng": True,
+        "pasteStripsFormatting": True,
+        "defaultSearchText": "deck:Lang",
+        "ignoreAccentsInSearch": True,
+        "renderLatex": True,
+        "dayLearnFirst": True,
+        "newTimezone": True,
+        "creationOffset": expected_timezone_offset,
+        "loadBalancerEnabled": False,
+        "backups": {
+            "minimum_interval_mins": 17,
+            "daily": 8,
+            "weekly": 6,
+            "monthly": 4,
+        },
+    }
+    language_actual = run_harness(swift_root, "language-catalog")
+    language_expected = {
+        "languages": [
+            {"name": name, "code": code, "rtl": is_rtl(lang_to_disk_lang(code))}
+            for name, code in langs
+        ],
+        "defaultLanguageCode": get_def_lang()[1],
+        "preferredLanguageMappings": {
+            "pt-BR": "pt_BR",
+            "fr-CA": "fr_FR",
+            "zh-Hans-SG": "zh_CN",
+            "zh-Hant-HK": "zh_TW",
+            "nb-NO": "nb_NO",
+            "nb": "",
+            "unknown": "",
+        },
+        "defaultFromPreferredLanguage": "fr_FR",
+        "defaultFromNorwegianSystemLanguage": "nb_NO",
+        "environmentOverridesPreferredLanguage": "pt_BR",
+    }
+    problems = diff("preferences:language-catalog", language_expected, language_actual)
+
+    actual = run_harness(swift_root, "preferences-actions")
+    problems += diff("preferences:load-from-anki-config", expected_loaded, actual.get("loaded", {}))
+
+    expected_saved = {
+        "rollover": 9,
+        "collapseTime": 900,
+        "newSpread": 2,
+        "hideAudioPlayButtons": False,
+        "interruptAudioWhenAnswering": True,
+        "dueCounts": True,
+        "estTimes": False,
+        "timeLim": 900,
+        "addToCur": False,
+        "applyAllParentLimits": False,
+        "fsrs": False,
+        "fsrsShortTermWithStepsEnabled": False,
+        "pasteImagesAsPng": False,
+        "pasteStripsFormatting": False,
+        "defaultSearchText": "deck:Math",
+        "ignoreAccentsInSearch": False,
+        "renderLatex": False,
+        "dayLearnFirst": True,
+        "newTimezone": False,
+        "creationOffset": None,
+        "loadBalancerEnabled": False,
+        "backups": {
+            "minimum_interval_mins": 23,
+            "daily": 7,
+            "weekly": 5,
+            "monthly": 3,
+        },
+    }
+    problems += diff("preferences:save-and-reload", expected_saved, actual.get("saved", {}))
+    expected_reopened = dict(expected_saved)
+    expected_reopened["newTimezone"] = True
+    expected_reopened["creationOffset"] = expected_timezone_offset
+    actual_reopened = run_harness(swift_root, "preferences-snapshot")
+    problems += diff("preferences:reopen-v3-timezone", expected_reopened, actual_reopened)
+
+    actual_path = os.path.join(swift_root, "User 1", "collection.anki2")
+    saved = Collection(actual_path)
+    try:
+        saved_prefs = saved.get_preferences()
+        saved_values = {
+            "rollover": saved_prefs.scheduling.rollover,
+            "collapseTime": saved_prefs.scheduling.learn_ahead_secs,
+            "newSpread": saved_prefs.scheduling.new_review_mix,
+            "hideAudioPlayButtons": saved_prefs.reviewing.hide_audio_play_buttons,
+            "interruptAudioWhenAnswering": saved_prefs.reviewing.interrupt_audio_when_answering,
+            "dueCounts": saved_prefs.reviewing.show_remaining_due_counts,
+            "estTimes": saved_prefs.reviewing.show_intervals_on_buttons,
+            "timeLim": saved_prefs.reviewing.time_limit_secs,
+            "addToCur": saved_prefs.editing.adding_defaults_to_current_deck,
+            "pasteImagesAsPng": saved_prefs.editing.paste_images_as_png,
+            "pasteStripsFormatting": saved_prefs.editing.paste_strips_formatting,
+            "defaultSearchText": saved_prefs.editing.default_search_text,
+            "ignoreAccentsInSearch": saved_prefs.editing.ignore_accents_in_search,
+            "renderLatex": saved_prefs.editing.render_latex,
+            "dayLearnFirst": saved_prefs.scheduling.day_learn_first,
+            "newTimezone": saved_prefs.scheduling.new_timezone,
+            "loadBalancerEnabled": saved_prefs.reviewing.load_balancer_enabled,
+            "backups": {
+                "minimum_interval_mins": saved_prefs.backups.minimum_interval_mins,
+                "daily": saved_prefs.backups.daily,
+                "weekly": saved_prefs.backups.weekly,
+                "monthly": saved_prefs.backups.monthly,
+            },
+        }
+        problems += diff("preferences:anki-backend-readback", {
+            key: expected_reopened[key] for key in saved_values
+        }, saved_values)
+        config = saved.all_config()
+        problems += diff("preferences:legacy-key-migration", {
+            "defaultSearchText": "deck:Math",
+            "browserDefaultSearch": None,
+            "fsrsShortTermWithStepsEnabled": False,
+            "fsrsShortTermWithSteps": None,
+            "creationOffset": expected_timezone_offset,
+        }, {
+            "defaultSearchText": config.get("defaultSearchText"),
+            "browserDefaultSearch": config.get("browserDefaultSearch"),
+            "fsrsShortTermWithStepsEnabled": config.get("fsrsShortTermWithStepsEnabled"),
+            "fsrsShortTermWithSteps": config.get("fsrsShortTermWithSteps"),
+            "creationOffset": config.get("creationOffset"),
+        })
+    finally:
+        saved.close()
+    return problems
+
+
+def check_load_balancer():
+    oracle_path, swift_root = prepare("sched")
+    oracle = Collection(oracle_path)
+    fixed_card_id = 123456789
+    try:
+        oracle.set_config("loadBalancerEnabled", True)
+        oracle.decks.set_current(oracle.decks.id_for_name("Lang"))
+        today = oracle.sched.today
+        target = oracle.db.first("""
+            select c.id, c.nid, c.did from cards c
+            where c.type=2 and c.queue=2 and c.ivl>=21
+              and exists(select 1 from cards sibling where sibling.nid=c.nid and sibling.id!=c.id)
+            order by c.id limit 1
+        """)
+        if target is None:
+            return ["load-balancer: fixture has no mature review card with a sibling"]
+        original_card_id, target_note_id, target_deck_id = target
+        sibling_card_id = oracle.db.scalar(
+            "select id from cards where nid=? and id!=? and queue=2 order by ord limit 1",
+            target_note_id, original_card_id,
+        )
+        if sibling_card_id is None:
+            return ["load-balancer: fixture has no review sibling"]
+        config_id = oracle.decks.get(target_deck_id)["conf"]
+        config = oracle.decks.get_config(config_id)
+        easy_days = [1, 0.5, 1, 1, 1, 0, 1]
+        config["rev"]["bury"] = True
+        config["easyDaysPercentages"] = easy_days
+        oracle.decks.update_config(config)
+        oracle.db.execute("update cards set id=? where id=?", fixed_card_id, original_card_id)
+        oracle.db.execute("update revlog set cid=? where cid=?", fixed_card_id, original_card_id)
+        oracle.db.execute("update cards set queue=-1 where queue in (0,1,3,4)")
+        oracle.db.execute(
+            "update cards set due=? where queue=2 and id not in (?, ?)",
+            today + 70, fixed_card_id, sibling_card_id,
+        )
+        oracle.db.execute("update cards set due=? where id=?", today, fixed_card_id)
+        oracle.db.execute("update cards set due=? where id=?", today + 55, sibling_card_id)
+        queued = oracle.sched.get_queued_cards(fetch_limit=100)
+        if not queued.cards or queued.cards[0].card.id != fixed_card_id:
+            return ["load-balancer: deterministic review card is not at queue head"]
+        expected = oracle_states(oracle, [fixed_card_id])[str(fixed_card_id)]
+    finally:
+        oracle.close()
+
+    app_path = os.path.join(swift_root, "User 1", "collection.anki2")
+    app_db = sqlite3.connect(app_path)
+    try:
+        conf = json.loads(app_db.execute("select conf from col").fetchone()[0])
+        dconf = json.loads(app_db.execute("select dconf from col").fetchone()[0])
+        conf["loadBalancerEnabled"] = True
+        app_config = dconf[str(config_id)]
+        app_config["rev"]["bury"] = True
+        app_config["easyDaysPercentages"] = easy_days
+        app_db.execute("update col set conf=?, dconf=?", (json.dumps(conf), json.dumps(dconf)))
+        app_db.execute("update cards set id=? where id=?", (fixed_card_id, original_card_id))
+        app_db.execute("update revlog set cid=? where cid=?", (fixed_card_id, original_card_id))
+        app_db.execute("update cards set queue=-1 where queue in (0,1,3,4)")
+        app_db.execute(
+            "update cards set due=? where queue=2 and id not in (?, ?)",
+            (today + 70, fixed_card_id, sibling_card_id),
+        )
+        app_db.execute("update cards set due=? where id=?", (today, fixed_card_id))
+        app_db.execute("update cards set due=? where id=?", (today + 55, sibling_card_id))
+        app_db.commit()
+    finally:
+        app_db.close()
+
+    actual = run_harness(swift_root, "states-load-balanced", str(fixed_card_id))[str(fixed_card_id)]
+    differences = {
+        rating: {"anki": expected[rating]["ivl"], "ankios": actual[rating]["ivl"]}
+        for rating in ("2", "3", "4")
+        if expected[rating]["ivl"] != actual[rating]["ivl"]
+    }
+    return [f"load-balancer: intervalos diferentes após carregar a fila: {differences}"] if differences else []
+
+
 def check_delete_actions():
     oracle_path, swift_root = prepare("sched")
     oracle = Collection(oracle_path)
@@ -1520,6 +2165,188 @@ def check_deck_actions():
     return problems
 
 
+def check_deck_options():
+    problems = []
+    oracle_path, swift_root = prepare("sched")
+    oracle = Collection(oracle_path)
+    try:
+        deck_id = oracle.decks.id("Lang::ES", create=False)
+        info = oracle.decks.get_deck_configs_for_update(deck_id)
+        current = next(
+            item.config for item in info.all_config
+            if item.config.id == info.current_deck.config_id
+        )
+        config = type(current)()
+        config.CopyFrom(current)
+        config.id = 0
+        config.name = "Parity preset"
+        config.usn = -1
+        config.config.learn_steps[:] = [1, 3, 7]
+        config.config.new_per_day = 37
+        config.config.new_per_day_minimum = 4
+        config.config.bury_new = True
+        config.config.reviews_per_day = 123
+        config.config.easy_multiplier = 1.45
+        config.config.bury_reviews = True
+        config.config.relearn_steps[:] = [5, 60]
+        config.config.leech_threshold = 6
+        config.config.leech_action = 1
+        config.config.disable_autoplay = True
+        config.config.show_timer = True
+        config.config.stop_timer_on_answer = True
+        config.config.wait_for_audio = False
+        config.config.bury_interday_learning = True
+        config.config.desired_retention = 0.91
+        config.config.easy_days_percentages[:] = [1, 0.5, 1, 1, 1, 0, 1]
+
+        limits = info.current_deck.limits
+        limits.new = 37
+        limits.new_today = 11
+        limits.new_today_active = True
+        limits.review_today = 12
+        limits.review_today_active = True
+        oracle.decks.update_deck_configs(UpdateDeckConfigsRequest(
+            target_deck_id=deck_id,
+            configs=[config],
+            mode=UpdateDeckConfigsMode.UPDATE_DECK_CONFIGS_MODE_NORMAL,
+            limits=limits,
+            new_cards_ignore_review_limit=True,
+            fsrs=info.fsrs,
+            apply_all_parent_limits=info.apply_all_parent_limits,
+            fsrs_health_check=info.fsrs_health_check,
+        ))
+
+        assigned_deck = oracle.decks.get(deck_id)
+        stored_config = oracle.decks.get_config(assigned_deck["conf"])
+        stored_config["id"] = "new"
+        stored_config["mod"] = "updated"
+        assigned_deck["conf"] = "new"
+        assigned_deck["mod"] = "updated"
+        updated_info = oracle.decks.get_deck_configs_for_update(deck_id)
+        expected = {
+            "preset": stored_config,
+            "deck": assigned_deck,
+            "cards": [
+                {
+                    "id": cid,
+                    "type": card_type,
+                    "queue": queue,
+                    "left": left,
+                    "usn": usn,
+                }
+                for cid, card_type, queue, left, usn in oracle.db.all(
+                    "select id, type, queue, left, usn from cards "
+                    "where (did=? or (odid!=0 and odid=?)) and type in (1,3) order by id",
+                    deck_id, deck_id,
+                )
+            ],
+            "newCardsIgnoreReviewLimit": updated_info.new_cards_ignore_review_limit,
+        }
+    finally:
+        oracle.close()
+
+    actual = run_harness(swift_root, "deck-options")
+    actual["preset"]["id"] = "new"
+    actual["preset"]["mod"] = "updated"
+    actual["deck"]["conf"] = "new"
+    actual["deck"]["mod"] = "updated"
+    actual["preset"].pop("historicalRetention", None)
+    actual["preset"].get("rev", {}).pop("fuzz", None)
+    actual["preset"].get("rev", {}).pop("minSpace", None)
+    for deck in (expected["deck"], actual["deck"]):
+        for key in [key for key, value in deck.items() if value is None]:
+            deck.pop(key)
+        if deck.get("md") is False:
+            deck.pop("md")
+    problems += diff("decks:options", expected, actual)
+    return problems
+
+
+def check_rich_media():
+    from anki.media import media_paths_from_col_path
+
+    oracle_path, swift_root = prepare("sched")
+    source_dir = os.path.join(WORK, "rich-media-source")
+    shutil.rmtree(source_dir, ignore_errors=True)
+    os.makedirs(source_dir)
+    image_path = os.path.join(source_dir, "parity-rich.png")
+    audio_path = os.path.join(source_dir, "Parity-Voice.MP3")
+    with open(image_path, "wb") as file:
+        file.write(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0bIDATx\x9cc`\x00\x02\x00\x00\x05\x00\x01\xa5\xf6E@\x00\x00\x00\x00IEND\xaeB`\x82")
+    with open(audio_path, "wb") as file:
+        file.write(b"parity audio bytes")
+
+    oracle_media, _ = media_paths_from_col_path(oracle_path)
+    swift_media = os.path.join(swift_root, "User 1", "collection.media")
+    os.makedirs(oracle_media, exist_ok=True)
+    os.makedirs(swift_media, exist_ok=True)
+    existing_media = {
+        "parity-rich.png": b"existing-image-bytes",
+        "Parity-Voice.MP3": b"existing-audio-bytes",
+    }
+    for filename, data in existing_media.items():
+        for directory in (oracle_media, swift_media):
+            with open(os.path.join(directory, filename), "wb") as file:
+                file.write(data)
+
+    oracle = Collection(oracle_path)
+    try:
+        image_name = oracle.media.add_file(image_path)
+        audio_name = oracle.media.add_file(audio_path)
+        note_id = oracle.db.scalar(
+            "select id from notes where mid=? order by id limit 1",
+            oracle.models.by_name("Basic")["id"],
+        )
+        note = oracle.get_note(note_id)
+        guid = note.guid
+        note.fields[0] = f'<p class="clip">A&nbsp; &amp; <strong>árvore</strong></p><img src="{image_name}" alt="diagrama">[sound:{audio_name}]'
+        note.fields[1] = f'<div data-kind="note">Resposta<br>rica &lt;ok&gt;</div><img src="{image_name}" alt="diagrama">[sound:{audio_name}]'
+        oracle.update_note(note)
+        stored = oracle.db.first("select flds, sfld, csum, tags, usn from notes where id=?", note_id)
+        expected = {
+            "fields": stored[0].split("\x1f"),
+            "sfld": stored[1],
+            "csum": stored[2],
+            "tags": stored[3],
+            "usn": stored[4],
+            "mediaNames": [image_name, audio_name],
+            "cards": [
+                {"id": cid, "ord": ord, "queue": queue, "due": due, "usn": usn}
+                for cid, ord, queue, due, usn in oracle.db.all(
+                    "select id, ord, queue, due, usn from cards where nid=? order by ord",
+                    note_id,
+                )
+            ],
+        }
+        expected_render = card_render_snapshot(oracle, [guid], include_answer_sounds=True)
+    finally:
+        oracle.close()
+
+    actual = run_harness(swift_root, "rich-media-edit", guid, image_path, audio_path)
+    problems = diff("notes:rich-media", expected, actual)
+    expected_media = []
+    for directory in (oracle_media,):
+        for filename in sorted(os.listdir(directory)):
+            path = os.path.join(directory, filename)
+            if os.path.isfile(path):
+                with open(path, "rb") as file:
+                    expected_media.append({"name": filename, "sha1": hashlib.sha1(file.read()).hexdigest()})
+    actual_media = []
+    for filename in sorted(os.listdir(swift_media)):
+        path = os.path.join(swift_media, filename)
+        if os.path.isfile(path):
+            with open(path, "rb") as file:
+                actual_media.append({"name": filename, "sha1": hashlib.sha1(file.read()).hexdigest()})
+    problems += diff("notes:rich-media/files", expected_media, actual_media)
+
+    actual_render = [row for row in run_harness(swift_root, "render-cards") if row["guid"] == guid]
+    render_keys = ("guid", "ordinal", "questionText", "answerText", "questionSounds", "answerSounds")
+    expected_render = [{key: row[key] for key in render_keys} for row in expected_render]
+    actual_render = [{key: row[key] for key in render_keys} for row in actual_render]
+    problems += diff("notes:rich-media:render", expected_render, actual_render)
+    return problems
+
+
 def check_empty_actions():
     oracle_path, swift_root = prepare("sched")
     oracle = Collection(oracle_path)
@@ -1684,7 +2511,509 @@ def check_templates():
     actual_cloze = run_harness(swift_root, "cloze-render-batch", json.dumps(["{{cloze:Text}}"] ))
     return (diff("templates", expected, actual)
             + diff("templates:card-faces", expected_faces, actual_faces)
-            + diff("templates:missing-cloze", expected_cloze, actual_cloze))
+            + diff("templates:missing-cloze", expected_cloze, actual_cloze)
+            + check_tts_render(oracle_path, swift_root))
+
+
+def check_tts_render(oracle_path, swift_root):
+    from anki.sound import SoundOrVideoTag, TTSTag
+
+    cases = [
+        [
+            "[sound:q-before.mp3]{{tts en_US:Front}}[sound:q-after.mp3]",
+            "{{FrontSide}}<hr id=answer>[sound:a-before.ogg]{{tts pt_BR voices=Luciana speed=0.8:Back}}[sound:a-after.ogg]",
+            "<b>Spoken question – café &amp; tea</b>",
+            "<p>Resposta falada</p>",
+        ],
+        [
+            "[sound:q-block-before.mp3][anki:tts lang=fr_FR speed=1.1]{{Front}}[/anki:tts][sound:q-block-after.mp3]",
+            "[sound:a-block-before.mp3][anki:tts lang=de_DE voices=Anna speed=0.9]{{Back}}[/anki:tts][sound:a-block-after.mp3]",
+            "A second spoken question",
+            "Deuxième réponse",
+        ],
+    ]
+    oracle = Collection(oracle_path)
+    try:
+        model = oracle.models.by_name("Basic")
+        expected = []
+        for question, answer, front, back in cases:
+            model["tmpls"][0]["qfmt"] = question
+            model["tmpls"][0]["afmt"] = answer
+            oracle.models.update(model)
+            note = oracle.new_note(model)
+            note.fields = [front, back]
+            oracle.add_note(note, 1)
+            card = oracle.get_card(oracle.db.scalar("select id from cards where nid=? order by ord limit 1", note.id))
+
+            def playback_rows(tags):
+                rows = []
+                for tag in tags:
+                    if isinstance(tag, SoundOrVideoTag):
+                        rows.append({"kind": "file", "filename": tag.filename})
+                    elif isinstance(tag, TTSTag):
+                        text = re.sub(r"(?is)<(script|style)\b[^>]*>.*?</\1>", " ", tag.field_text)
+                        text = re.sub(r"(?s)<[^>]*>", " ", text)
+                        text = re.sub(r"\s+", " ", html.unescape(text)).strip()
+                        rows.append({
+                            "kind": "speech",
+                            "language": tag.lang,
+                            "speed": float(tag.speed),
+                            "voices": tag.voices,
+                            "text": text,
+                        })
+                return rows
+
+            question_playback = playback_rows(card.question_av_tags())
+            answer_playback = playback_rows(card.answer_av_tags())
+            expected.append({
+                "question": [{key: row[key] for key in ("language", "speed", "voices", "text")} for row in question_playback if row["kind"] == "speech"],
+                "answer": [{key: row[key] for key in ("language", "speed", "voices", "text")} for row in answer_playback if row["kind"] == "speech"],
+                "questionPlayback": question_playback,
+                "answerPlayback": answer_playback,
+            })
+    finally:
+        oracle.close()
+    actual = run_harness(swift_root, "speech-render-batch", json.dumps(cases))
+    return diff("study:tts", expected, actual)
+
+
+def check_type_answer():
+    oracle_path, swift_root = prepare("sched")
+    cases = [
+        ["type:Back", "Paris", "Paris"],
+        ["type:Back", "Paris", "paris"],
+        ["type:ci:Back", "Paris", "paris"],
+        ["type:ci:Back", "Straße", "STRASSE"],
+        ["type-nc:Back", "Ábaco", "abaco"],
+        ["type:Back", "<b>A &amp; B</b>", "A & B"],
+        ["type:Back", "one<br>two", "one two"],
+        ["type:Back", "[sound:word.mp3]word", "word"],
+        ["type:Back", "a🙂b", "a🙂"],
+        ["type:Back", "ab", "ba"],
+        ["type:cloze:Back", "{{c1::alpha}} {{c2::beta}}", "alpha"],
+        ["type:cloze:Back", "{{c1::first::hint}} {{c2::second}}", "first"],
+        ["type:Back", "&nbsp;A", "A"],
+        ["type:Back", "A\u0301", "Á"],
+        ["type:Back", "x<BR>y", "x y"],
+        ["type:Back", "a<!--hidden-->b", "ab"],
+        ["type:Back", "", ""],
+    ]
+    oracle = Collection(oracle_path)
+    try:
+        from anki.card_rendering_pb2 import CompareAnswerRequest
+        from anki.generic_pb2 import String as GenericString
+
+        expected = []
+        for expression, source_expected, typed in cases:
+            answer = source_expected
+            if "cloze:" in expression:
+                answer = oracle._backend.extract_cloze_for_typing(text=answer, ordinal=1)
+            if ":ci:" in expression and (answer, typed) == ("Paris", "paris"):
+                rendered = "<code id=typeans><span class=typeGood>Paris</span></code>"
+            elif ":ci:" in expression and (answer, typed) == ("Straße", "STRASSE"):
+                rendered = (
+                    "<code id=typeans><span class=typeGood>STRA</span><span class=typeBad>SS</span>"
+                    "<span class=typeGood>E</span><br><span id=typearrow>&darr;</span><br>"
+                    "<span class=typeGood>Stra</span><span class=typeMissed>ß</span><span class=typeGood>e</span></code>"
+                )
+            else:
+                request = CompareAnswerRequest(
+                    expected=answer,
+                    provided=typed,
+                    combining="-nc" not in expression and ":nc:" not in expression,
+                )
+                response = GenericString()
+                response.ParseFromString(oracle._backend.compare_answer_raw(request.SerializeToString()))
+                rendered = response.val
+            expected.append({
+                "html": rendered,
+                "matches": bool(typed)
+                    and "class=typeBad" not in rendered
+                    and "class=typeMissed" not in rendered,
+            })
+    finally:
+        oracle.close()
+    actual = run_harness(swift_root, "type-answer-render-batch", json.dumps(cases, ensure_ascii=False))
+    return diff("study:typed-answer", expected, actual)
+
+
+def check_auto_advance_actions():
+    _, swift_root = prepare("sched")
+    values = list(range(-7, 8))
+    question_actions = ["showAnswer", "showReminder"]
+    answer_actions = ["buryCard", "answerAgain", "answerGood", "answerHard", "showReminder"]
+
+    def action(value, actions, fallback):
+        index = value if value >= 0 else len(actions) + value
+        return actions[index] if 0 <= index < len(actions) else fallback
+
+    expected = [
+        {
+            "raw": value,
+            "question": action(value, question_actions, "showAnswer"),
+            "answer": action(value, answer_actions, "buryCard"),
+        }
+        for value in values
+    ]
+    actual = run_harness(swift_root, "auto-advance-actions", json.dumps(values))
+    return diff("study:auto-advance-actions", expected, actual)
+
+
+def check_auto_advance_timers():
+    _, swift_root = prepare("sched")
+    seconds = [0, -1, 0.0009, 0.0019, 0.9999, 1, 1.2349, 60.9999]
+    expected = {
+        "delays": [
+            {
+                "seconds": value,
+                "milliseconds": int(value * 1000) if value > 0 else None,
+            }
+            for value in seconds
+        ],
+        "focus": [
+            {"enabled": enabled, "focused": focused, "advance": enabled and focused}
+            for enabled in [False, True]
+            for focused in [False, True]
+        ],
+        "audioWait": [
+            {
+                "waitForAudio": wait_for_audio,
+                "unfinished": unfinished,
+                "skip": wait_for_audio and unfinished,
+            }
+            for wait_for_audio in [False, True]
+            for unfinished in [False, True]
+        ],
+    }
+    actual = run_harness(swift_root, "auto-advance-timers", json.dumps(seconds))
+    return diff("study:auto-advance-timers", expected, actual)
+
+
+def check_korean_shortcuts():
+    _, swift_root = prepare("sched")
+    expected = [
+        {"key": "ㄷ", "modifiers": "none", "action": "edit"},
+        {"key": "ㅡ", "modifiers": "none", "action": "contextMenu"},
+        {"key": "ㄱ", "modifiers": "none", "action": "replayAudio"},
+        {"key": "ㅜ", "modifiers": "controlOption", "action": "forgetCard"},
+        {"key": "ㅍ", "modifiers": "none", "action": "replayOwnVoice"},
+        {"key": "ㅍ", "modifiers": "shift", "action": "recordOwnVoice"},
+        {"key": "ㅐ", "modifiers": "none", "action": "deckOptions"},
+        {"key": "ㅑ", "modifiers": "none", "action": "cardInfo"},
+        {"key": "ㅑ", "modifiers": "controlOption", "action": "previousCardInfo"},
+        {"key": "ㅕ", "modifiers": "none", "action": "undo"},
+    ]
+    actual = run_harness(swift_root, "study-korean-shortcuts")
+    return diff("study:korean-shortcuts", expected, actual)
+
+
+def check_review_shortcuts():
+    _, swift_root = prepare("sched")
+    expected = [
+        {"key": "e", "modifiers": "none", "action": "edit"},
+        {"key": "space", "modifiers": "none", "action": "showAnswer"},
+        {"key": "return", "modifiers": "none", "action": "showAnswer"},
+        {"key": "enter", "modifiers": "none", "action": "showAnswer"},
+        {"key": "m", "modifiers": "none", "action": "contextMenu"},
+        {"key": "r", "modifiers": "none", "action": "replayAudio"},
+        {"key": "F5", "modifiers": "none", "action": "replayAudio"},
+    ]
+    expected.extend(
+        {"key": str(flag), "modifiers": "control", "action": f"setFlag{flag}"}
+        for flag in range(1, 8)
+    )
+    expected += [
+        {"key": "*", "modifiers": "none", "action": "mark"},
+        {"key": "=", "modifiers": "none", "action": "buryNote"},
+        {"key": "-", "modifiers": "none", "action": "buryCard"},
+        {"key": "!", "modifiers": "none", "action": "suspendNote"},
+        {"key": "@", "modifiers": "none", "action": "suspendCard"},
+        {"key": "n", "modifiers": "controlOption", "action": "forgetCard"},
+        {"key": "e", "modifiers": "controlOption", "action": "createCopy"},
+        {"key": "backspace", "modifiers": "control", "action": "deleteNote"},
+        {"key": "d", "modifiers": "controlShift", "action": "setDueDate"},
+        {"key": "v", "modifiers": "none", "action": "replayOwnVoice"},
+        {"key": "v", "modifiers": "shift", "action": "recordOwnVoice"},
+        {"key": "o", "modifiers": "none", "action": "deckOptions"},
+        {"key": "i", "modifiers": "none", "action": "cardInfo"},
+        {"key": "i", "modifiers": "controlOption", "action": "previousCardInfo"},
+        {"key": "u", "modifiers": "none", "action": "undo"},
+        {"key": "5", "modifiers": "none", "action": "pauseAudio"},
+        {"key": "6", "modifiers": "none", "action": "seekBackward"},
+        {"key": "7", "modifiers": "none", "action": "seekForward"},
+        {"key": "a", "modifiers": "shift", "action": "toggleAutoAdvance"},
+    ]
+    actual = run_harness(swift_root, "study-shortcuts")
+    return diff("study:review-shortcuts", expected, actual)
+
+
+def check_widget_grade():
+    oracle_path, swift_root = prepare("sched")
+    oracle = Collection(oracle_path)
+    try:
+        study_deck_id = oracle.decks.id_for_name("Lang")
+        oracle.decks.set_current(study_deck_id)
+        queued = oracle.sched.get_queued_cards(fetch_limit=1)
+        if not queued.cards:
+            return ["widget: fixture has no card in the selected study queue"]
+        card_id = queued.cards[0].card.id
+        card = oracle.get_card(card_id)
+        card.start_timer()
+        states = oracle._backend.get_scheduling_states(card_id)
+        answer = oracle.sched.build_answer(card=card, states=states, rating=CardAnswer.GOOD)
+        oracle.sched.answer_card(answer)
+        after_queue = oracle.sched.get_queued_cards(fetch_limit=1)
+        expected = {
+            "beforeCardID": card_id,
+            "revealedBeforeGrade": True,
+            "revealedAfterGrade": False,
+            "afterCardID": after_queue.cards[0].card.id if after_queue.cards else 0,
+            "hasCard": bool(after_queue.cards),
+            "queueHeadID": after_queue.cards[0].card.id if after_queue.cards else 0,
+            "counts": [after_queue.new_count, after_queue.learning_count, after_queue.review_count],
+        }
+    finally:
+        oracle.close()
+    actual = run_harness(swift_root, "widget-grade", str(card_id), str(int(CardAnswer.GOOD) + 1), str(study_deck_id))
+    return diff("widget:grade-and-refresh", expected, actual)
+
+
+def check_media_check():
+    oracle_path, swift_root = prepare("sched")
+    with sqlite3.connect(oracle_path) as db:
+        note_id = db.execute("select id from notes order by id limit 1").fetchone()[0]
+        db.execute(
+            "update notes set flds=? where id=?",
+            ('<img src="USED.png"> [sound:missing.mp3] <a href="linked-missing.png">link</a> <div style="background:url(bg-missing.png)">\x1f<img src="_kept.png">', note_id),
+        )
+        models = json.loads(db.execute("select models from col").fetchone()[0])
+        basic = next(model for model in models.values() if model["name"] == "Basic")
+        basic["tmpls"][0]["qfmt"] += '<img src="template-missing.png">'
+        db.execute("update col set models=?", (json.dumps(models),))
+
+    swift_collection = os.path.join(swift_root, "User 1", "collection.anki2")
+    shutil.copy2(oracle_path, swift_collection)
+    oracle_media = oracle_path.removesuffix(".anki2") + ".media"
+    swift_media = os.path.join(swift_root, "User 1", "collection.media")
+    for media_path in (oracle_media, swift_media):
+        os.makedirs(media_path, exist_ok=True)
+        for filename in ("used.png", "_kept.png", "unused.png", "_orphan.png"):
+            with open(os.path.join(media_path, filename), "wb") as media_file:
+                media_file.write(filename.encode())
+
+    col = Collection(oracle_path)
+    try:
+        response = col.media.check()
+        expected = {
+            "unused": sorted(response.unused),
+            "missing": sorted(response.missing),
+            "missingNoteIDs": sorted(response.missing_media_notes),
+        }
+    finally:
+        col.close()
+    actual = run_harness(swift_root, "media-check")
+    return diff(f"tools:media-check/note-{note_id}", expected, actual)
+
+
+def database_check_snapshot(col):
+    db = col.db
+    def rows(query):
+        return [list(row) for row in db.all(query)]
+
+    notetypes_by_id = {model["id"]: model["name"] for model in col.models.all()}
+    notes = rows("select id, guid, mid, tags, flds, sfld, csum, flags, data from notes order by id")
+
+    def stable_notetype_name(name):
+        match = re.fullmatch(r"db-check-\d+-(\d+)(?:-\d+)?", name)
+        return f"db-check-{match.group(1)}" if match else name
+
+    for note in notes:
+        name = notetypes_by_id.get(note[2], f"missing-{note[2]}")
+        note[2] = stable_notetype_name(name)
+
+    return {
+        "deckNames": sorted(deck.name for deck in col.decks.all_names_and_ids()),
+        "notetypeNames": sorted(stable_notetype_name(model["name"]) for model in col.models.all()),
+        "nextPosition": int(col.conf.get("nextPos", 0)),
+        "invalidIDs": int(db.scalar(
+            "select (select count(*) from notes where id>?) + (select count(*) from cards where id>?) + (select count(*) from revlog where id>?)",
+            int(time.time() * 1000) + 86_400_000,
+            int(time.time() * 1000) + 86_400_000,
+            int(time.time() * 1000) + 86_400_000,
+        )),
+        "notes": notes,
+        "cards": rows("select id, nid, did, ord, usn, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data from cards order by id"),
+        "revlog": rows("select id, cid, ease, ivl, lastIvl, factor, time, type from revlog order by id"),
+        "graves": rows("select usn, oid, type from graves order by oid, type"),
+    }
+
+
+def database_check_id_stable_snapshot(snapshot):
+    note_guids = {note[0]: note[1] for note in snapshot["notes"]}
+    card_refs = {}
+    notes = []
+    for note in snapshot["notes"]:
+        notes.append(note[1:])
+    cards = []
+    for card in snapshot["cards"]:
+        note_guid = note_guids.get(card[1], f"missing-{card[1]}")
+        card_refs[card[0]] = (note_guid, card[3])
+        cards.append([note_guid, card[2], card[3], *card[4:]])
+    revlog = []
+    for row in snapshot["revlog"]:
+        note_guid, ordinal = card_refs.get(row[1], (f"missing-card-{row[1]}", -1))
+        revlog.append([note_guid, ordinal, *row[2:]])
+    stable = dict(snapshot)
+    stable["notes"] = sorted(notes, key=lambda row: row[0])
+    stable["cards"] = sorted(cards, key=lambda row: (row[0], row[2]))
+    stable["revlog"] = sorted(revlog, key=lambda row: tuple(map(str, row)))
+    return stable
+
+
+def check_database_check():
+    problems = []
+    scenarios = [
+        "clean", "orphan-card", "card-properties", "revlog-properties", "note-fields",
+        "extra-note-fields", "missing-deck", "missing-deck-parent", "filtered-state",
+        "missing-template", "duplicate-ord", "high-new-position", "missing-notetype", "invalid-ids", "invalid-utf8",
+    ]
+    for scenario in scenarios:
+        oracle_path, swift_root = prepare("sched")
+        swift_path = os.path.join(swift_root, "User 1", "collection.anki2")
+        with sqlite3.connect(oracle_path) as db:
+            if scenario == "orphan-card":
+                source = db.execute("select * from cards order by id limit 1").fetchone()
+                orphan = list(source)
+                orphan[0] += 1_000_000
+                orphan[1] = orphan[1] + 10_000_000
+                db.execute("insert into cards values (" + ",".join("?" for _ in orphan) + ")", orphan)
+            elif scenario == "card-properties":
+                card_id = db.execute("select id from cards order by id limit 1").fetchone()[0]
+                db.execute("update cards set ord=-3, ivl=2.5, odue=1.5, mod=mod+9999999999 where id=?", (card_id,))
+            elif scenario == "revlog-properties":
+                row = db.execute("select id from revlog order by id limit 1").fetchone()
+                if row:
+                    db.execute("update revlog set ivl=2.5, lastIvl=-1.5, time=-4.2, type=99 where id=?", row)
+            elif scenario == "note-fields":
+                row = db.execute("select id, flds from notes order by id limit 1").fetchone()
+                fields = row[1].split("\x1f")
+                db.execute("update notes set flds=? where id=?", (fields[0], row[0]))
+            elif scenario == "extra-note-fields":
+                row = db.execute("select id from notes order by id limit 1").fetchone()
+                db.execute("update notes set flds=? where id=?", ("one\x1ftwo\x1fthree", row[0]))
+            elif scenario == "missing-deck":
+                card_id = db.execute("select id from cards order by id limit 1").fetchone()[0]
+                db.execute("update cards set did=1234 where id=?", (card_id,))
+            elif scenario == "missing-deck-parent":
+                deck_data = json.loads(db.execute("select decks from col").fetchone()[0])
+                parent_id = next(deck_id for deck_id, deck in deck_data.items() if deck["name"] == "Lang")
+                del deck_data[parent_id]
+                db.execute("update col set decks=?", (json.dumps(deck_data),))
+            elif scenario == "filtered-state":
+                card_id = db.execute("select id from cards order by id limit 1").fetchone()[0]
+                db.execute("update cards set odid=1234, odue=6 where id=?", (card_id,))
+            elif scenario == "missing-template":
+                card_id = db.execute("select id from cards order by id limit 1").fetchone()[0]
+                db.execute("update cards set ord=99 where id=?", (card_id,))
+            elif scenario == "duplicate-ord":
+                source = db.execute("select * from cards order by id limit 1").fetchone()
+                duplicate = list(source)
+                duplicate[0] += 1_000_000
+                db.execute("insert into cards values (" + ",".join("?" for _ in duplicate) + ")", duplicate)
+            elif scenario == "high-new-position":
+                card_id = db.execute("select id from cards where type=0 and queue=0 order by id limit 1").fetchone()[0]
+                db.execute("update cards set due=2000000 where id=?", (card_id,))
+            elif scenario == "missing-notetype":
+                note_id = db.execute("select id from notes order by id limit 1").fetchone()[0]
+                db.execute("update notes set mid=987654321 where id=?", (note_id,))
+            elif scenario == "invalid-ids":
+                note_rows = db.execute("select id from notes order by id").fetchall()
+                note_mapping = {row[0]: 1_000_000 + index for index, row in enumerate(note_rows)}
+                for old_id, new_id in note_mapping.items():
+                    db.execute("update notes set id=? where id=?", (new_id, old_id))
+                    db.execute("update cards set nid=? where nid=?", (new_id, old_id))
+                card_rows = db.execute("select id from cards order by id").fetchall()
+                card_mapping = {row[0]: 2_000_000 + index for index, row in enumerate(card_rows)}
+                for old_id, new_id in card_mapping.items():
+                    db.execute("update cards set id=? where id=?", (new_id, old_id))
+                    db.execute("update revlog set cid=? where cid=?", (new_id, old_id))
+                revlog_rows = db.execute("select id from revlog order by id").fetchall()
+                for index, (old_id,) in enumerate(revlog_rows):
+                    db.execute("update revlog set id=? where id=?", (3_000_000 + index, old_id))
+                card_id, note_id = db.execute(
+                    "select cards.id, cards.nid from cards join revlog on revlog.cid=cards.id order by cards.id limit 1"
+                ).fetchone()
+                invalid_base = (int(time.time()) + 3 * 86_400) * 1000
+                invalid_note_id = invalid_base + 1
+                invalid_card_id = invalid_base + 2
+                invalid_revlog_id = invalid_base + 3
+                db.execute("update notes set id=? where id=?", (invalid_note_id, note_id))
+                db.execute("update cards set nid=? where nid=?", (invalid_note_id, note_id))
+                db.execute("update cards set id=? where id=?", (invalid_card_id, card_id))
+                db.execute("update revlog set cid=? where cid=?", (invalid_card_id, card_id))
+                db.execute("update revlog set id=? where id=(select min(id) from revlog where cid=?)", (invalid_revlog_id, invalid_card_id))
+            elif scenario == "invalid-utf8":
+                note_id = db.execute("select id from notes order by id limit 1").fetchone()[0]
+                db.execute(
+                    "update notes set flds=cast(? as text) where id=?",
+                    (sqlite3.Binary(b"bad\xfffield\x1fback"), note_id),
+                )
+            db.commit()
+        shutil.copy2(oracle_path, swift_path)
+
+        col = Collection(oracle_path)
+        try:
+            col.fix_integrity()
+            expected = database_check_snapshot(col)
+        finally:
+            col.close()
+
+        actual = run_harness(swift_root, "database-check")
+        for note in actual["notes"]:
+            note[2] = re.sub(r"db-check-\d+-(\d+)(?:-\d+)?", r"db-check-\1", note[2])
+        actual["notetypeNames"] = sorted(
+            re.sub(r"db-check-\d+-(\d+)(?:-\d+)?", r"db-check-\1", name)
+            for name in actual["notetypeNames"]
+        )
+        if scenario in {"invalid-ids", "missing-template"}:
+            expected = database_check_id_stable_snapshot(expected)
+            actual = database_check_id_stable_snapshot(actual)
+        actual = {key: actual[key] for key in ("deckNames", "notetypeNames", "nextPosition", "invalidIDs", "notes", "cards", "revlog", "graves")}
+        problems += diff(f"tools:database-check/{scenario}", expected, actual)
+    return problems
+
+
+def check_profiles():
+    oracle_path, swift_root = prepare("sched")
+    col = Collection(oracle_path)
+    try:
+        expected = {
+            "appearedAfterCreate": True,
+            "duplicateCreationRejected": True,
+            "reservedNameRejected": True,
+            "secondaryWasEmpty": True,
+            "separateCollectionPath": True,
+            "initialSecondaryPreferencesMatchPrimary": True,
+            "secondaryNotesAfterAdd": 1,
+            "secondaryCardsAfterAdd": 1,
+            "renamePreservedCollection": True,
+            "renamedPreferencesPersist": True,
+            "primaryNotesBefore": col.db.scalar("select count(*) from notes"),
+            "primaryCardsBefore": col.db.scalar("select count(*) from cards"),
+            "primaryNotesAfter": col.db.scalar("select count(*) from notes"),
+            "primaryCardsAfter": col.db.scalar("select count(*) from cards"),
+            "keyboardPreferencesAreGlobal": True,
+            "renamedNoteFields": "Profile sentinel\x1fisolated",
+            "renamedCardsAfterSwitch": 1,
+            "renamedPreferencesAfterSwitch": True,
+            "deletedProfileDirectory": True,
+            "activeProfileRestored": True,
+            "remainingProfiles": ["User 1"],
+        }
+        actual = run_harness(swift_root, "profile-actions")
+    finally:
+        col.close()
+    return diff("tools:profiles", expected, actual)
 
 
 def check_filtered():
@@ -1757,6 +3086,454 @@ def check_filtered():
                 actual[key].sort(key=lambda row: row["id"])
         problems += diff(f"filtered:{index}:{order}", expected, actual)
     return problems
+
+
+def filtered_options_from_deck(deck, include_name=True):
+    result = {
+        "terms": deck.get("terms", []),
+        "reschedule": deck.get("resched", True),
+        "previewDelay": deck.get("previewDelay", 0),
+        "previewAgainSecs": deck.get("previewAgainSecs", 60),
+        "previewHardSecs": deck.get("previewHardSecs", 600),
+        "previewGoodSecs": deck.get("previewGoodSecs", 0),
+    }
+    if include_name:
+        result["name"] = deck["name"]
+    return result
+
+
+def filtered_options_snapshot(col, deck_id):
+    deck = col.decks.get(deck_id)
+    return {
+        "options": filtered_options_from_deck(deck),
+        "cards": filtered_snapshot(col, deck_id),
+        "isCurrentDeck": col.decks.get_current_id() == deck_id,
+    }
+
+
+def configure_filtered_deck(deck, *, name, terms, reschedule, again, hard, good, allow_empty=False):
+    deck.name = name
+    deck.config.reschedule = reschedule
+    deck.config.preview_again_secs = again
+    deck.config.preview_hard_secs = hard
+    deck.config.preview_good_secs = good
+    del deck.config.search_terms[:]
+    for search, limit, order in terms:
+        term = deck.config.search_terms.add()
+        term.search = search
+        term.limit = limit
+        term.order = order
+    deck.allow_empty = allow_empty
+
+
+def check_filtered_options():
+    oracle_path, swift_root = prepare("sched")
+    oracle = Collection(oracle_path)
+    try:
+        default_deck = oracle.sched.get_or_create_filtered_deck(0)
+        default_options = {
+            "terms": [[term.search, term.limit, int(term.order)] for term in default_deck.config.search_terms],
+            "reschedule": default_deck.config.reschedule,
+            "previewDelay": default_deck.config.preview_delay,
+            "previewAgainSecs": default_deck.config.preview_again_secs,
+            "previewHardSecs": default_deck.config.preview_hard_secs,
+            "previewGoodSecs": default_deck.config.preview_good_secs,
+        }
+
+        first = oracle.sched.get_or_create_filtered_deck(0)
+        configure_filtered_deck(
+            first,
+            name="Parity Filtered",
+            terms=[
+                ("deck:Lang is:review", 5, Deck.Filtered.SearchTerm.OLDEST_REVIEWED_FIRST),
+                ("deck:Math is:new", 4, Deck.Filtered.SearchTerm.DUE),
+            ],
+            reschedule=False,
+            again=75,
+            hard=480,
+            good=0,
+        )
+        first_id = oracle.sched.add_or_update_filtered_deck(first).id
+        created = filtered_options_snapshot(oracle, first_id)
+
+        second = oracle.sched.get_or_create_filtered_deck(first_id)
+        configure_filtered_deck(
+            second,
+            name="  Parity Filtered Updated  ",
+            terms=[("deck:Math is:new", 3, Deck.Filtered.SearchTerm.REVERSE_ADDED)],
+            reschedule=True,
+            again=30,
+            hard=90,
+            good=120,
+        )
+        second_id = oracle.sched.add_or_update_filtered_deck(second).id
+        updated = filtered_options_snapshot(oracle, second_id)
+
+        empty_update_rejected = False
+        rejected = oracle.sched.get_or_create_filtered_deck(second_id)
+        configure_filtered_deck(
+            rejected,
+            name="Parity Filtered Updated",
+            terms=[("cid:9999999999999999", 1, Deck.Filtered.SearchTerm.DUE)],
+            reschedule=True,
+            again=30,
+            hard=90,
+            good=120,
+        )
+        try:
+            oracle.sched.add_or_update_filtered_deck(rejected)
+        except Exception:
+            empty_update_rejected = True
+        after_rejected_update = filtered_options_snapshot(oracle, second_id)
+
+        emptied = oracle.sched.get_or_create_filtered_deck(second_id)
+        configure_filtered_deck(
+            emptied,
+            name="Parity Filtered Updated",
+            terms=[("cid:9999999999999999", 1, Deck.Filtered.SearchTerm.DUE)],
+            reschedule=True,
+            again=30,
+            hard=90,
+            good=120,
+            allow_empty=True,
+        )
+        empty_id = oracle.sched.add_or_update_filtered_deck(emptied).id
+        empty_allowed = filtered_options_snapshot(oracle, empty_id)
+
+        expected = {
+            "defaults": default_options,
+            "created": created,
+            "updated": updated,
+            "emptyUpdateRejected": empty_update_rejected,
+            "afterRejectedUpdate": after_rejected_update,
+            "emptyAllowed": empty_allowed,
+        }
+    finally:
+        oracle.close()
+
+    actual = run_harness(swift_root, "filtered-options-actions")
+    problems = diff("filtered:options", expected, actual)
+    actual_collection_path = os.path.join(swift_root, "User 1", "collection.anki2")
+    actual_collection = Collection(actual_collection_path)
+    try:
+        actual_deck = actual_collection.decks.by_name("Parity Filtered Updated")
+        if not actual_deck:
+            problems.append("filtered:options/persisted: baralho atualizado não foi lido pelo backend Anki")
+        else:
+            problems += diff(
+                "filtered:options/persisted-wire",
+                expected["emptyAllowed"]["options"],
+                filtered_options_from_deck(actual_deck),
+            )
+            problems += diff(
+                "filtered:options/persisted-state",
+                expected["emptyAllowed"],
+                filtered_options_snapshot(actual_collection, actual_deck["id"]),
+            )
+    finally:
+        actual_collection.close()
+    return problems
+
+
+def check_icloud_merge():
+    root = tempfile.mkdtemp(prefix="ankios-icloud-merge-", dir=WORK)
+    set_lang("en")
+    base = os.path.join(root, "base.anki2")
+    local_path = os.path.join(root, "local.anki2")
+    cloud_path = os.path.join(root, "cloud.anki2")
+    output_path = os.path.join(root, "merged.anki2")
+    now = int(time.time())
+    collision_note_id = int(time.time() * 1000) + 100_000
+    collision_card_id = collision_note_id + 100
+
+    try:
+        base_col = Collection(base)
+        deck_id = base_col.decks.id("iCloud Merge")
+        ids = _add_notes(base_col, deck_id, "Basic", [
+            ["shared conflict", "base"],
+            ["local edit", "base"],
+            ["cloud edit", "base"],
+            ["deleted locally", "base"],
+        ])
+        base_guids = {
+            name: base_col.db.scalar("select guid from notes where id=?", nid)
+            for name, nid in zip(("conflict", "local", "cloud", "deleted"), ids)
+        }
+        base_col.close(downgrade=True)
+        shutil.copy(base, local_path)
+        shutil.copy(base, cloud_path)
+
+        local_col = Collection(local_path)
+        note = local_col.get_note(ids[0])
+        note.fields[1] = "local wins"
+        local_col.update_note(note)
+        local_col.db.execute("update notes set mod=? where id=?", now + 4000, ids[0])
+
+        note = local_col.get_note(ids[1])
+        note.fields[1] = "local independent edit"
+        local_col.update_note(note)
+        local_col.db.execute("update notes set mod=? where id=?", now + 3000, ids[1])
+
+        local_only = local_col.new_note(local_col.models.by_name("Basic"))
+        local_only.fields = ["local only", "kept"]
+        local_col.add_note(local_only, deck_id)
+        local_original_id = local_only.id
+        local_col.db.execute("update notes set id=?, mod=? where id=?", collision_note_id, now + 2500, local_original_id)
+        local_col.db.execute(
+            "update cards set id=?, nid=? where nid=?",
+            collision_card_id,
+            collision_note_id,
+            local_original_id,
+        )
+        local_col.remove_notes([ids[3]])
+        local_col.db.execute("update col set mod=? where id=1", now + 4000)
+        local_col.close(downgrade=True)
+
+        cloud_col = Collection(cloud_path)
+        note = cloud_col.get_note(ids[0])
+        note.fields[1] = "cloud older"
+        cloud_col.update_note(note)
+        cloud_col.db.execute("update notes set mod=? where id=?", now + 2000, ids[0])
+
+        note = cloud_col.get_note(ids[2])
+        note.fields[1] = "cloud independent edit"
+        cloud_col.update_note(note)
+        cloud_col.db.execute("update notes set mod=? where id=?", now + 3500, ids[2])
+
+        cloud_only = cloud_col.new_note(cloud_col.models.by_name("Basic"))
+        cloud_only.fields = ["cloud only", "kept"]
+        cloud_col.add_note(cloud_only, deck_id)
+        cloud_original_id = cloud_only.id
+        cloud_col.db.execute("update notes set id=?, mod=? where id=?", collision_note_id, now + 3000, cloud_original_id)
+        cloud_col.db.execute(
+            "update cards set id=?, nid=? where nid=?",
+            collision_card_id,
+            collision_note_id,
+            cloud_original_id,
+        )
+        cloud_col.db.execute("update col set mod=? where id=1", now + 3500)
+        cloud_col.close(downgrade=True)
+
+        _, swift_root = prepare("sched")
+        run_harness(swift_root, "icloud-merge", local_path, cloud_path, output_path)
+
+        connection = sqlite3.connect(output_path)
+        rows = connection.execute("select guid, flds, id from notes").fetchall()
+        cards = connection.execute("select nid, id from cards").fetchall()
+        graves = connection.execute("select oid, type from graves").fetchall()
+        connection.close()
+        fields_by_guid = {guid: fields.split("\x1f") for guid, fields, _ in rows}
+        ids_by_guid = {guid: nid for guid, _, nid in rows}
+        expected = {
+            "noteCount": 5,
+            "cardCount": 5,
+            "conflictBack": "local wins",
+            "localEditBack": "local independent edit",
+            "cloudEditBack": "cloud independent edit",
+            "localOnly": True,
+            "cloudOnly": True,
+            "deletedNoteAbsent": True,
+            "noteIDsUnique": True,
+            "cardIDsUnique": True,
+            "cardNotesPresent": True,
+            "cloudCollisionRemapped": True,
+            "localCollisionPreserved": True,
+            "deletionGravePreserved": True,
+        }
+        actual = {
+            "noteCount": len(rows),
+            "cardCount": len(cards),
+            "conflictBack": fields_by_guid[base_guids["conflict"]][1],
+            "localEditBack": fields_by_guid[base_guids["local"]][1],
+            "cloudEditBack": fields_by_guid[base_guids["cloud"]][1],
+            "localOnly": any(fields[0] == "local only" and fields[1] == "kept" for fields in fields_by_guid.values()),
+            "cloudOnly": any(fields[0] == "cloud only" and fields[1] == "kept" for fields in fields_by_guid.values()),
+            "deletedNoteAbsent": base_guids["deleted"] not in fields_by_guid,
+            "noteIDsUnique": len(ids_by_guid.values()) == len(set(ids_by_guid.values())),
+            "cardIDsUnique": len(cards) == len({cid for _, cid in cards}),
+            "cardNotesPresent": all(nid in set(ids_by_guid.values()) for nid, _ in cards),
+            "cloudCollisionRemapped": ids_by_guid.get(next((guid for guid, fields in fields_by_guid.items() if fields[0] == "cloud only"), "")) != collision_note_id,
+            "localCollisionPreserved": ids_by_guid.get(next((guid for guid, fields in fields_by_guid.items() if fields[0] == "local only"), "")) == collision_note_id,
+            "deletionGravePreserved": any(oid == ids[3] and grave_type == 1 for oid, grave_type in graves),
+        }
+        return diff("icloud:merge-conflicts-and-recovery", expected, actual)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+        set_lang("pt_BR")
+
+
+def check_icloud_sync():
+    root = tempfile.mkdtemp(prefix="ankios-icloud-sync-", dir=WORK)
+    set_lang("en")
+    base = os.path.join(root, "base.anki2")
+    device_a = os.path.join(root, "device-a", "Profiles")
+    device_b = os.path.join(root, "device-b", "Profiles")
+    cloud = os.path.join(root, "cloud", "Profiles")
+    now = int(time.time())
+
+    try:
+        base_col = Collection(base)
+        deck_id = base_col.decks.id("iCloud Sync")
+        note_ids = _add_notes(base_col, deck_id, "Basic", [
+            ["shared conflict", "base"],
+            ["local independent", "base"],
+            ["cloud independent", "base"],
+        ])
+        base_col.close(downgrade=True)
+
+        for profile_name in ("Main", "Deleted", "Recreated", "LocalOnly"):
+            profile = os.path.join(device_a, profile_name)
+            os.makedirs(profile, exist_ok=True)
+            shutil.copy(base, os.path.join(profile, "collection.anki2"))
+            with open(os.path.join(profile, ".ankios-created-at"), "w", encoding="utf-8") as marker:
+                marker.write("100")
+
+        media_a = os.path.join(device_a, "Main", "collection.media")
+        os.makedirs(media_a, exist_ok=True)
+        media_baseline = {
+            "stable.bin": b"stable",
+            "delete-local.bin": b"delete from device A",
+            "delete-remote.bin": b"delete from device B",
+            "diverge.bin": b"baseline",
+        }
+        for name, contents in media_baseline.items():
+            with open(os.path.join(media_a, name), "wb") as media_file:
+                media_file.write(contents)
+
+        first = run_harness(device_a, "icloud-sync", cloud)
+        second = run_harness(device_b, "icloud-sync", cloud)
+        local_media_b = os.path.join(device_b, "Main", "collection.media")
+        media_downloaded = all(
+            open(os.path.join(local_media_b, name), "rb").read() == contents
+            for name, contents in media_baseline.items()
+        )
+
+        cloud_only = os.path.join(cloud, "CloudOnly")
+        os.makedirs(cloud_only, exist_ok=True)
+        shutil.copy(base, os.path.join(cloud_only, "collection.anki2"))
+        with open(os.path.join(cloud_only, ".ankios-created-at"), "w", encoding="utf-8") as marker:
+            marker.write("1000")
+
+        manifest = {"deletedAt": {"Deleted": 500, "Recreated": 500}}
+        with open(os.path.join(device_a, ".ankios-icloud-profiles.json"), "w", encoding="utf-8") as manifest_file:
+            json.dump(manifest, manifest_file, sort_keys=True)
+        with open(os.path.join(device_a, "Recreated", ".ankios-created-at"), "w", encoding="utf-8") as marker:
+            marker.write("600")
+
+        connection = sqlite3.connect(os.path.join(device_a, "Main", "collection.anki2"))
+        connection.execute("update notes set flds=?, mod=?, usn=-1 where id=?", ("shared conflict" + chr(31) + "device A wins", now + 5000, note_ids[0]))
+        connection.execute("update notes set flds=?, mod=?, usn=-1 where id=?", ("local independent" + chr(31) + "device A edit", now + 4000, note_ids[1]))
+        connection.execute("update col set mod=? where id=1", (now + 5000,))
+        connection.commit()
+        connection.close()
+
+        connection = sqlite3.connect(os.path.join(device_b, "Main", "collection.anki2"))
+        connection.execute("update notes set flds=?, mod=?, usn=-1 where id=?", ("shared conflict" + chr(31) + "device B older edit", now + 3000, note_ids[0]))
+        connection.execute("update notes set flds=?, mod=?, usn=-1 where id=?", ("cloud independent" + chr(31) + "device B edit", now + 6000, note_ids[2]))
+        connection.execute("update col set mod=? where id=1", (now + 6000,))
+        connection.commit()
+        connection.close()
+
+        os.remove(os.path.join(media_a, "delete-local.bin"))
+        media_b = os.path.join(device_b, "Main", "collection.media")
+        os.remove(os.path.join(media_b, "delete-remote.bin"))
+        with open(os.path.join(media_a, "diverge.bin"), "wb") as media_file:
+            media_file.write(b"device A version")
+        with open(os.path.join(media_b, "diverge.bin"), "wb") as media_file:
+            media_file.write(b"device B newer version")
+        newer_timestamp = time.time() + 20
+        os.utime(os.path.join(media_b, "diverge.bin"), (newer_timestamp, newer_timestamp))
+        with open(os.path.join(cloud, "Main", "collection.media", "cloud-only.bin"), "wb") as media_file:
+            media_file.write(b"created in cloud")
+
+        sync_a = run_harness(device_a, "icloud-sync", cloud)
+        sync_b = run_harness(device_b, "icloud-sync", cloud)
+        sync_a_final = run_harness(device_a, "icloud-sync", cloud)
+        sync_b_final = run_harness(device_b, "icloud-sync", cloud)
+        idempotent = run_harness(device_b, "icloud-sync", cloud)
+
+        database_a = os.path.join(device_a, "Main", "collection.anki2")
+        database_b = os.path.join(device_b, "Main", "collection.anki2")
+        with sqlite3.connect(database_a) as connection:
+            note_fields = {
+                note_id: fields.split(chr(31))
+                for note_id, fields in connection.execute("select id, flds from notes")
+            }
+        profile_names_a = set(os.listdir(device_a))
+        profile_names_b = set(os.listdir(device_b))
+        profile_names_cloud = set(os.listdir(cloud))
+        with open(os.path.join(device_a, ".ankios-icloud-profiles.json"), encoding="utf-8") as manifest_file:
+            final_manifest = json.load(manifest_file)
+
+        media_names_a = set(os.listdir(os.path.join(device_a, "Main", "collection.media")))
+        media_names_b = set(os.listdir(os.path.join(device_b, "Main", "collection.media")))
+        media_names_cloud = set(os.listdir(os.path.join(cloud, "Main", "collection.media")))
+        media_roots = (
+            os.path.join(device_a, "Main", "collection.media"),
+            os.path.join(device_b, "Main", "collection.media"),
+            os.path.join(cloud, "Main", "collection.media"),
+        )
+        media_equal = media_names_a == media_names_b == media_names_cloud and all(
+            open(os.path.join(media_roots[0], name), "rb").read()
+            == open(os.path.join(media_roots[1], name), "rb").read()
+            == open(os.path.join(media_roots[2], name), "rb").read()
+            for name in media_names_a
+        )
+        backup_count = sum(
+            len([name for name in os.listdir(os.path.join(profile_root, "Main", "Backups")) if name.endswith(".anki2")])
+            if os.path.isdir(os.path.join(profile_root, "Main", "Backups")) else 0
+            for profile_root in (device_a, device_b, cloud)
+        )
+        expected = {
+            "firstUpload": True,
+            "secondDeviceReceived": True,
+            "initialMediaDownloaded": True,
+            "localProfileReplicated": True,
+            "cloudProfileDownloaded": True,
+            "deletedProfileRemoved": True,
+            "recreatedProfilePreserved": True,
+            "tombstoneCleared": True,
+            "localWinsNewerConflict": "device A wins",
+            "localIndependentEditPreserved": "device A edit",
+            "cloudIndependentEditPreserved": "device B edit",
+            "deviceAReceivedMergedCollection": True,
+            "deviceBIsCurrentAfterMerge": True,
+            "mergedDatabasesConverged": True,
+            "conflictBackupCount": 2,
+            "conflictBackupSummary": True,
+            "mediaDeletesReplicated": True,
+            "newerMediaConflictWins": b"device B newer version",
+            "cloudOnlyMediaReplicated": b"created in cloud",
+            "mediaConverged": True,
+            "idempotentSummary": "iCloud já estava em dia.",
+        }
+        actual = {
+            "firstUpload": "coleção enviada" in first["summary"],
+            "secondDeviceReceived": "coleção recebida" in second["summary"],
+            "initialMediaDownloaded": media_downloaded,
+            "localProfileReplicated": "LocalOnly" in set(os.listdir(cloud)),
+            "cloudProfileDownloaded": "CloudOnly" in profile_names_b and "CloudOnly" in profile_names_a,
+            "deletedProfileRemoved": all("Deleted" not in profiles for profiles in (profile_names_a, profile_names_b, profile_names_cloud)),
+            "recreatedProfilePreserved": all("Recreated" in profiles for profiles in (profile_names_a, profile_names_b, profile_names_cloud)),
+            "tombstoneCleared": "Recreated" not in final_manifest["deletedAt"] and "Deleted" in final_manifest["deletedAt"],
+            "localWinsNewerConflict": note_fields[note_ids[0]][1],
+            "localIndependentEditPreserved": note_fields[note_ids[1]][1],
+            "cloudIndependentEditPreserved": note_fields[note_ids[2]][1],
+            "deviceAReceivedMergedCollection": "coleção recebida" in sync_a_final["summary"],
+            "deviceBIsCurrentAfterMerge": sync_b_final["summary"] == "iCloud já estava em dia.",
+            "mergedDatabasesConverged": all(hashlib.sha256(open(path, "rb").read()).digest() == hashlib.sha256(open(database_a, "rb").read()).digest() for path in (database_b, os.path.join(cloud, "Main", "collection.anki2"))),
+            "conflictBackupCount": backup_count,
+            "conflictBackupSummary": "conflitante(s) salva(s)" in sync_b["summary"],
+            "mediaDeletesReplicated": "delete-local.bin" not in media_names_a | media_names_b | media_names_cloud and "delete-remote.bin" not in media_names_a | media_names_b | media_names_cloud,
+            "newerMediaConflictWins": open(os.path.join(device_a, "Main", "collection.media", "diverge.bin"), "rb").read(),
+            "cloudOnlyMediaReplicated": open(os.path.join(device_a, "Main", "collection.media", "cloud-only.bin"), "rb").read(),
+            "mediaConverged": media_equal,
+            "idempotentSummary": idempotent["summary"],
+        }
+        return diff("icloud:sync-orchestration", expected, actual)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+        set_lang("pt_BR")
 
 
 def check_sync_actions():
@@ -2061,6 +3838,33 @@ def check_csv():
         official_text = file.read()
     problems = diff("csv:export", official_text.splitlines(), app_text.splitlines())
 
+    selected_official_export = os.path.join(work, "official-selected-note.tsv")
+    selected_app_export = os.path.join(work, "app-selected-note.tsv")
+    selected_collection = Collection(oracle_path)
+    try:
+        selected_note_id = selected_collection.db.scalar("select id from notes order by id limit 1")
+        selected_collection.export_note_csv(
+            out_path=selected_official_export,
+            limit=NoteIdsLimit(note_ids=[selected_note_id]),
+            with_html=True,
+            with_tags=True,
+            with_deck=True,
+            with_notetype=True,
+            with_guid=True,
+        )
+    finally:
+        selected_collection.close()
+    run_harness(swift_root, "csv-export-notes", selected_app_export, str(selected_note_id))
+    with open(selected_app_export, encoding="utf-8") as file:
+        selected_app_text = file.read()
+    with open(selected_official_export, encoding="utf-8") as file:
+        selected_official_text = file.read()
+    problems += diff(
+        "csv:export-selected-note",
+        selected_official_text.splitlines(),
+        selected_app_text.splitlines(),
+    )
+
     csv_path = os.path.join(work, "import.csv")
     with open(csv_path, "w", encoding="utf-8", newline="") as file:
         file.write(
@@ -2133,6 +3937,336 @@ def check_csv():
         csv_collection_snapshot(official_path),
         csv_collection_snapshot(swift_path),
     )
+    return problems
+
+
+def _package_archive_entries(path):
+    with zipfile.ZipFile(path) as archive:
+        return [(entry.filename, archive.read(entry.filename)) for entry in archive.infolist()]
+
+
+def _write_package_archive(path, entries, compression=zipfile.ZIP_STORED):
+    with zipfile.ZipFile(path, "w", compression=compression) as archive:
+        for name, content in entries:
+            archive.writestr(name, content)
+
+
+def _make_zip64_package(source, destination):
+    _write_package_archive(destination, _package_archive_entries(source))
+    data = bytearray(open(destination, "rb").read())
+    eocd = data.rfind(b"PK\x05\x06")
+    _, _, _, _, entry_count, directory_size, directory_offset, _ = struct.unpack_from("<IHHHHIIH", data, eocd)
+    zip64_record = struct.pack(
+        "<IQHHIIQQQQ",
+        0x06064B50,
+        44,
+        45,
+        45,
+        0,
+        0,
+        entry_count,
+        entry_count,
+        directory_size,
+        directory_offset,
+    )
+    locator = struct.pack("<IIQI", 0x07064B50, 0, eocd, 1)
+    output = bytearray(data[:eocd] + zip64_record + locator + data[eocd:])
+    struct.pack_into("<HHHHII", output, eocd + 4, 0, 0, 0xFFFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF)
+    with open(destination, "wb") as archive:
+        archive.write(output)
+
+
+def _mark_package_entry_encrypted(path, entry_name):
+    data = bytearray(open(path, "rb").read())
+    eocd = data.rfind(b"PK\x05\x06")
+    entry_count = struct.unpack_from("<H", data, eocd + 10)[0]
+    offset = struct.unpack_from("<I", data, eocd + 16)[0]
+    for _ in range(entry_count):
+        if data[offset:offset + 4] != b"PK\x01\x02":
+            raise ValueError("invalid package central directory")
+        name_length, extra_length, comment_length = struct.unpack_from("<HHH", data, offset + 28)
+        name_start = offset + 46
+        name = bytes(data[name_start:name_start + name_length]).decode("utf-8")
+        if name == entry_name:
+            flags = struct.unpack_from("<H", data, offset + 8)[0] | 1
+            local_offset = struct.unpack_from("<I", data, offset + 42)[0]
+            struct.pack_into("<H", data, offset + 8, flags)
+            struct.pack_into("<H", data, local_offset + 6, flags)
+            with open(path, "wb") as archive:
+                archive.write(data)
+            return
+        offset = name_start + name_length + extra_length + comment_length
+    raise ValueError(f"package entry not found: {entry_name}")
+
+
+def _archive_collection_counts(path):
+    db = sqlite3.connect(path)
+    try:
+        return {
+            "notes": db.execute("select count(*) from notes").fetchone()[0],
+            "cards": db.execute("select count(*) from cards").fetchone()[0],
+        }
+    finally:
+        db.close()
+
+
+def check_package_archive_edges(source_package, package_work):
+    edge_root = os.path.join(package_work, "archive-edge-cases")
+    shutil.rmtree(edge_root, ignore_errors=True)
+    os.makedirs(edge_root)
+    entries = _package_archive_entries(source_package)
+    cases = {}
+
+    zip64_path = os.path.join(edge_root, "zip64.apkg")
+    _make_zip64_package(source_package, zip64_path)
+    cases["zip64"] = (zip64_path, True)
+
+    for name, compression in (("bzip2", zipfile.ZIP_BZIP2), ("lzma", zipfile.ZIP_LZMA)):
+        path = os.path.join(edge_root, f"{name}.apkg")
+        _write_package_archive(path, entries, compression)
+        cases[name] = (path, False)
+
+    encrypted_path = os.path.join(edge_root, "encrypted-entry.apkg")
+    _write_package_archive(encrypted_path, entries)
+    _mark_package_entry_encrypted(encrypted_path, "meta")
+    cases["encrypted-entry"] = (encrypted_path, False)
+
+    version_path = os.path.join(edge_root, "unsupported-version.apkg")
+    _write_package_archive(
+        version_path,
+        [(name, b"\x08\x04" if name == "meta" else content) for name, content in entries],
+    )
+    cases["unsupported-version"] = (version_path, False)
+
+    missing_collection_path = os.path.join(edge_root, "missing-collection.apkg")
+    _write_package_archive(missing_collection_path, [("meta", b"\x08\x03")])
+    cases["missing-collection"] = (missing_collection_path, False)
+
+    problems = []
+    for name, (package_path, expected_acceptance) in cases.items():
+        official_path = os.path.join(edge_root, f"{name}-official.anki2")
+        official = Collection(official_path)
+        official_before = {
+            "notes": official.db.scalar("select count(*) from notes"),
+            "cards": official.db.scalar("select count(*) from cards"),
+        }
+        try:
+            try:
+                official.import_anki_package(ImportAnkiPackageRequest(package_path=package_path))
+                official_accepted = True
+            except Exception:
+                official_accepted = False
+            official_after = {
+                "notes": official.db.scalar("select count(*) from notes"),
+                "cards": official.db.scalar("select count(*) from cards"),
+            }
+        finally:
+            official.close()
+
+        app_root = os.path.join(edge_root, f"{name}-app")
+        os.makedirs(os.path.join(app_root, "User 1"))
+        proc = subprocess.run(
+            [HARNESS, "import", package_path],
+            capture_output=True,
+            text=True,
+            env=dict(os.environ, ANKIOS_PROFILES_ROOT=app_root),
+        )
+        app_accepted = proc.returncode == 0
+        app_after = _archive_collection_counts(os.path.join(app_root, "User 1", "collection.anki2"))
+
+        if official_accepted != expected_acceptance:
+            problems.append(
+                f"packages:archive-edge-cases:{name}: referência aceitou={official_accepted}, esperado={expected_acceptance}"
+            )
+        if app_accepted != official_accepted:
+            problems.append(
+                f"packages:archive-edge-cases:{name}: aceitação Anki={official_accepted}, AnkiOS={app_accepted}"
+            )
+        expected_counts = official_after if official_accepted else official_before
+        if not official_accepted and official_after != official_before:
+            problems.append(
+                f"packages:archive-edge-cases:{name}: Anki alterou a coleção após rejeitar o arquivo"
+            )
+        if not app_accepted and app_after != official_before:
+            problems.append(
+                f"packages:archive-edge-cases:{name}: AnkiOS alterou a coleção após rejeitar o arquivo"
+            )
+        if app_accepted and app_after != expected_counts:
+            problems.append(
+                f"packages:archive-edge-cases:{name}: contagens Anki={expected_counts}, AnkiOS={app_after}"
+            )
+    return problems
+
+
+def check_selected_deck_export():
+    oracle_path, swift_root = prepare("sched")
+    package_work = os.path.join(WORK, "selected-deck-export")
+    shutil.rmtree(package_work, ignore_errors=True)
+    os.makedirs(package_work)
+
+    source = Collection(oracle_path)
+    try:
+        selected_id = source.decks.id("Parity Export")
+        child_id = source.decks.id("Parity Export::Child")
+        unrelated_id = source.decks.id("Parity Export Unrelated")
+        basic = source.models.by_name("Basic")
+        for front, back, deck_id in [
+            ("parity selected parent", "parent answer", selected_id),
+            ("parity selected child", "child answer", child_id),
+            ("parity unrelated", "unrelated answer", unrelated_id),
+        ]:
+            note = source.new_note(basic)
+            note.fields[0] = front
+            note.fields[1] = back
+            source.add_note(note, deck_id)
+        source.close(downgrade=True)
+    finally:
+        try:
+            source.close()
+        except Exception:
+            pass
+
+    swift_collection = os.path.join(swift_root, "User 1", "collection.anki2")
+    shutil.copy2(oracle_path, swift_collection)
+    from anki.media import media_paths_from_col_path
+    source_media, _ = media_paths_from_col_path(oracle_path)
+    swift_media, _ = media_paths_from_col_path(swift_collection)
+    shutil.rmtree(swift_media, ignore_errors=True)
+    if os.path.isdir(source_media):
+        shutil.copytree(source_media, swift_media)
+
+    options = ExportAnkiPackageOptions(
+        with_scheduling=False,
+        with_deck_configs=False,
+        with_media=True,
+        legacy=False,
+    )
+    official_package = os.path.join(package_work, "official.apkg")
+    reference = Collection(oracle_path)
+    try:
+        reference.export_anki_package(
+            out_path=official_package,
+            options=options,
+            limit=DeckIdLimit(deck_id=selected_id),
+        )
+    finally:
+        reference.close()
+
+    app_package = os.path.join(package_work, "ankios.apkg")
+    run_harness(swift_root, "export-deck", str(selected_id), app_package)
+
+    imported = {}
+    for name, package_path in (("official", official_package), ("ankios", app_package)):
+        collection_path = os.path.join(package_work, f"{name}-imported.anki2")
+        collection = Collection(collection_path)
+        try:
+            collection.import_anki_package(
+                ImportAnkiPackageRequest(
+                    package_path=package_path,
+                    options=ImportAnkiPackageOptions(
+                        merge_notetypes=True,
+                        with_scheduling=False,
+                        with_deck_configs=True,
+                    ),
+                )
+            )
+        finally:
+            collection.close()
+        media_path, _ = media_paths_from_col_path(collection_path)
+        imported[name] = package_snapshot(collection_path, media_path)
+
+    problems = diff("packages:selected-deck-export", imported["official"], imported["ankios"])
+    expected_fronts = {"parity selected parent", "parity selected child"}
+    actual_fronts = {note["fields"].split("\x1f", 1)[0] for note in imported["ankios"]["notes"]}
+    if actual_fronts != expected_fronts:
+        problems.append(
+            f"packages:selected-deck-export/scope: esperado={sorted(expected_fronts)}, AnkiOS={sorted(actual_fronts)}"
+        )
+    return problems
+
+
+def check_selected_cards_export():
+    oracle_path, swift_root = prepare("sched")
+    package_work = os.path.join(WORK, "selected-cards-export")
+    shutil.rmtree(package_work, ignore_errors=True)
+    os.makedirs(package_work)
+
+    source = Collection(oracle_path)
+    try:
+        cloze = source.models.by_name("Cloze")
+        note = source.new_note(cloze)
+        note.fields[0] = "parity first {{c1::deletion}} and second {{c2::deletion}}"
+        source.add_note(note, source.decks.id("Default"))
+        selected_card_ids = source.card_ids_of_note(note.id)
+        unrelated = source.new_note(source.models.by_name("Basic"))
+        unrelated.fields[0] = "parity unrelated card"
+        unrelated.fields[1] = "must stay out"
+        source.add_note(unrelated, source.decks.id("Parity Cards Unrelated"))
+        source.close(downgrade=True)
+    finally:
+        try:
+            source.close()
+        except Exception:
+            pass
+
+    swift_collection = os.path.join(swift_root, "User 1", "collection.anki2")
+    shutil.copy2(oracle_path, swift_collection)
+    from anki.media import media_paths_from_col_path
+    source_media, _ = media_paths_from_col_path(oracle_path)
+    swift_media, _ = media_paths_from_col_path(swift_collection)
+    shutil.rmtree(swift_media, ignore_errors=True)
+    if os.path.isdir(source_media):
+        shutil.copytree(source_media, swift_media)
+
+    options = ExportAnkiPackageOptions(
+        with_scheduling=False,
+        with_deck_configs=False,
+        with_media=True,
+        legacy=False,
+    )
+    official_package = os.path.join(package_work, "official.apkg")
+    reference = Collection(oracle_path)
+    try:
+        reference.export_anki_package(
+            out_path=official_package,
+            options=options,
+            limit=CardIdsLimit(card_ids=[selected_card_ids[0]]),
+        )
+    finally:
+        reference.close()
+
+    app_package = os.path.join(package_work, "ankios.apkg")
+    run_harness(swift_root, "export-cards", app_package, str(selected_card_ids[0]))
+
+    imported = {}
+    for name, package_path in (("official", official_package), ("ankios", app_package)):
+        collection_path = os.path.join(package_work, f"{name}-imported.anki2")
+        collection = Collection(collection_path)
+        try:
+            collection.import_anki_package(
+                ImportAnkiPackageRequest(
+                    package_path=package_path,
+                    options=ImportAnkiPackageOptions(
+                        merge_notetypes=True,
+                        with_scheduling=False,
+                        with_deck_configs=True,
+                    ),
+                )
+            )
+        finally:
+            collection.close()
+        media_path, _ = media_paths_from_col_path(collection_path)
+        imported[name] = package_snapshot(collection_path, media_path)
+
+    problems = diff("packages:selected-cards-export", imported["official"], imported["ankios"])
+    expected_fronts = {note.fields[0]}
+    actual_fronts = {item["fields"].split("\x1f", 1)[0] for item in imported["ankios"]["notes"]}
+    if actual_fronts != expected_fronts or len(imported["ankios"]["cards"]) != 2:
+        problems.append(
+            "packages:selected-cards-export/scope: Anki exportou o cartão selecionado e seu irmão Cloze, "
+            "sem a nota independente; "
+            f"notes={sorted(actual_fronts)}, cards={len(imported['ankios']['cards'])}"
+        )
     return problems
 
 
@@ -2314,6 +4448,17 @@ def check_packages():
     problems += check_package_notetype_conditions_without_merge()
     problems += check_package_schema_merge()
 
+    routing_names = ["Deck.APkg", "Full.COLPKG", "legacy.DB", "archive.zip", "notes.txt"]
+    routing_expected = [
+        {"extension": "apkg", "route": "deckPackage", "systemOpen": True},
+        {"extension": "colpkg", "route": "collectionPackage", "systemOpen": True},
+        {"extension": "db", "route": "mnemosyneDatabase", "systemOpen": False},
+        {"extension": "zip", "route": "deckPackage", "systemOpen": False},
+        {"extension": "txt", "route": "deckPackage", "systemOpen": False},
+    ]
+    routing_actual = run_harness(swift_root, "package-routing", *routing_names)
+    problems += diff("packages:system-routing", routing_expected, routing_actual)
+
     real_package = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "Learn_Hiragana.apkg"))
     if os.path.isfile(real_package):
         real_work = os.path.join(WORK, "real-anki-deck")
@@ -2342,6 +4487,195 @@ def check_packages():
             package_snapshot(official_path, official_media),
             package_snapshot(swift_path, swift_media),
         )
+        official = Collection(official_path)
+        try:
+            rendered_expected = card_render_snapshot(official)
+        finally:
+            official.close()
+        rendered_actual = run_harness(swift_root, "render-cards")
+        rendered_actual.sort(key=lambda card: (card["guid"], card["ordinal"]))
+        render_keys = ("guid", "ordinal", "questionText", "answerText", "questionSounds")
+        rendered_actual = [{key: card[key] for key in render_keys} for card in rendered_actual]
+        problems += diff("packages:real-anki-deck-rendering", rendered_expected, rendered_actual)
+
+        io_collection = Collection(official_path)
+        try:
+            io_model = next(
+                model for model in io_collection.models.all()
+                if model["type"] == 1
+                and any(field["name"].lower() in {"occlusion", "occlusions", "oclusão"} for field in model["flds"])
+                and any(field["name"].lower() in {"image", "imagem"} for field in model["flds"])
+            )
+            io_note = io_collection.new_note(io_model)
+            io_values = {
+                "occlusion": "{{c1::image-occlusion:rect:left=0.1000:top=0.1000:width=0.2500:height=0.3000:angle=1250:fill=#44aa33:oi=1}} {{c2::image-occlusion:ellipse:left=0.5000:top=0.5000:rx=0.1000:ry=0.1500:angle=2500:oi=1}} {{c3::image-occlusion:polygon:points=0.1000,0.1000 0.2000,0.1000 0.1500,0.2000:fill=#ff0000:oi=1}} {{c4::image-occlusion:text:text=alpha\\:beta\\::left=0.6000:top=0.2000:scale=1.0000:fs=0.0400:fill=#222222:oi=1}} {{c5::image-occlusion:rect:left=0.3000:top=0.3000:width=0.2000:height=0.2000:oi=1}}",
+                "occlusions": "{{c1::image-occlusion:rect:left=0.1000:top=0.1000:width=0.2500:height=0.3000:angle=1250:fill=#44aa33:oi=1}} {{c2::image-occlusion:ellipse:left=0.5000:top=0.5000:rx=0.1000:ry=0.1500:angle=2500:oi=1}} {{c3::image-occlusion:polygon:points=0.1000,0.1000 0.2000,0.1000 0.1500,0.2000:fill=#ff0000:oi=1}} {{c4::image-occlusion:text:text=alpha\\:beta\\::left=0.6000:top=0.2000:scale=1.0000:fs=0.0400:fill=#222222:oi=1}} {{c5::image-occlusion:rect:left=0.3000:top=0.3000:width=0.2000:height=0.2000:oi=1}}",
+                "oclusão": "{{c1::image-occlusion:rect:left=0.1000:top=0.1000:width=0.2500:height=0.3000:angle=1250:fill=#44aa33:oi=1}} {{c2::image-occlusion:ellipse:left=0.5000:top=0.5000:rx=0.1000:ry=0.1500:angle=2500:oi=1}} {{c3::image-occlusion:polygon:points=0.1000,0.1000 0.2000,0.1000 0.1500,0.2000:fill=#ff0000:oi=1}} {{c4::image-occlusion:text:text=alpha\\:beta\\::left=0.6000:top=0.2000:scale=1.0000:fs=0.0400:fill=#222222:oi=1}} {{c5::image-occlusion:rect:left=0.3000:top=0.3000:width=0.2000:height=0.2000:oi=1}}",
+                "image": '<img src="io-parity.png">',
+                "imagem": '<img src="io-parity.png">',
+                "header": "IO parity header",
+                "cabeçalho": "IO parity header",
+                "back extra": "IO parity extra",
+                "verso extra": "IO parity extra",
+                "comments": "IO parity comment",
+                "comentário": "IO parity comment",
+            }
+            for index, field in enumerate(io_model["flds"]):
+                io_note.fields[index] = io_values.get(field["name"].lower(), "")
+            with open(os.path.join(official_media, "io-parity.png"), "wb") as image_file:
+                image_file.write(png)
+            io_collection.add_note(io_note, io_collection.decks.id("IO parity"))
+            io_guid = io_note.guid
+            mixed_values = dict(io_values)
+            for field_name in ("occlusion", "occlusions", "oclusão"):
+                mixed_values[field_name] = mixed_values[field_name].replace(
+                    ":angle=2500:oi=1", ":angle=2500"
+                ).replace(":fill=#222222:oi=1", ":fill=#222222")
+            mixed_note = io_collection.new_note(io_model)
+            for index, field in enumerate(io_model["flds"]):
+                mixed_note.fields[index] = mixed_values.get(field["name"].lower(), "")
+            io_collection.add_note(mixed_note, io_collection.decks.id("IO parity"))
+            io_mixed_guid = mixed_note.guid
+            ellipse_values = dict(io_values)
+            ellipse_field = "{{c1::image-occlusion:ellipse:left=0.5000:top=0.5000:rx=0.1000:ry=0.1500}}"
+            for field_name in ("occlusion", "occlusions", "oclusão"):
+                ellipse_values[field_name] = ellipse_field
+            ellipse_note = io_collection.new_note(io_model)
+            for index, field in enumerate(io_model["flds"]):
+                ellipse_note.fields[index] = ellipse_values.get(field["name"].lower(), "")
+            io_collection.add_note(ellipse_note, io_collection.decks.id("IO parity"))
+            io_ellipse_guid = ellipse_note.guid
+            io_guids = [io_guid, io_mixed_guid, io_ellipse_guid]
+            io_expected = card_render_snapshot(io_collection, io_guids)
+            io_expected_masks = {}
+            io_expected_behavior = {}
+            for guid in io_guids:
+                io_expected_masks.update({
+                    f"{guid}:{ordinal}": masks
+                    for ordinal, masks in image_occlusion_render_snapshot(io_collection, guid).items()
+                })
+                io_expected_behavior[guid] = image_occlusion_behavior_snapshot(
+                    io_collection, guid
+                )
+            io_package = os.path.join(real_work, "image-occlusion-parity.apkg")
+            io_collection.export_anki_package(
+                out_path=io_package,
+                options=ExportAnkiPackageOptions(
+                    with_scheduling=False,
+                    with_deck_configs=False,
+                    with_media=True,
+                    legacy=False,
+                ),
+                limit=None,
+            )
+        finally:
+            io_collection.close()
+
+        io_swift_root = os.path.join(real_work, "image-occlusion-swift")
+        os.makedirs(os.path.join(io_swift_root, "User 1"))
+        run_harness(io_swift_root, "import", io_package, "--merge-notetypes")
+        io_actual = [
+            row for row in run_harness(io_swift_root, "render-cards")
+            if row["guid"] in io_guids
+        ]
+        io_actual.sort(key=lambda row: (row["guid"], row["ordinal"]))
+        io_render_keys = ("guid", "ordinal", "questionText", "answerText", "questionSounds")
+        io_actual_projection = [{key: row[key] for key in io_render_keys} for row in io_actual]
+        io_expected_projection = [{key: row[key] for key in io_render_keys} for row in io_expected]
+        problems += diff("packages:image-occlusion-rendering", io_expected_projection, io_actual_projection)
+        io_actual_masks = {}
+        io_actual_behavior = {guid: {} for guid in io_guids}
+        for row in io_actual:
+            parser = ImageOcclusionAttributeParser()
+            parser.feed(row["questionHTML"])
+            io_actual_masks[f"{row['guid']}:{row['ordinal']}"] = sorted(
+                parser.rows,
+                key=lambda item: (int(item.get("data-ordinal", "0")), item.get("data-shape", "")),
+            )
+            io_actual_behavior[row["guid"]][str(row["ordinal"])] = {
+                "question": image_occlusion_behavior_from_html(row["questionHTML"]),
+                "answer": image_occlusion_behavior_from_html(row["answerHTML"]),
+            }
+            if not row["questionImageOcclusionBridge"] or not row["answerImageOcclusionBridge"]:
+                problems.append(f"packages:image-occlusion-rendering[{row['ordinal']}]: ponte do template oficial ausente")
+            if not row["answerImageOcclusionToggleBound"]:
+                problems.append(f"packages:image-occlusion-rendering[{row['ordinal']}]: botão oficial de alternância não conectado")
+            if not row["questionImageOcclusionContainer"] or not row["answerImageOcclusionTogglePresent"]:
+                problems.append(f"packages:image-occlusion-rendering[{row['ordinal']}]: elementos do template oficial ausentes")
+        problems += diff("packages:image-occlusion-shape-attributes", io_expected_masks, io_actual_masks)
+        problems += diff("packages:image-occlusion-render-states", io_expected_behavior, io_actual_behavior)
+
+        def compare_io_editor_roundtrip(guid, expected_value, editable_count, preserved_count, shape_name):
+            prefix = f"packages:image-occlusion-editor-{shape_name}"
+            roundtrip = run_harness(io_swift_root, "image-occlusion-roundtrip", guid)
+            edit_problems = []
+            if roundtrip["editableMaskCount"] != editable_count or roundtrip["preservedMaskCount"] != preserved_count:
+                edit_problems.append(
+                    f"{prefix}: esperado {editable_count} máscaras editáveis e {preserved_count} preservadas, "
+                    f"recebido {roundtrip['editableMaskCount']} editáveis e {roundtrip['preservedMaskCount']} preservadas"
+                )
+            edit_problems += diff(f"{prefix}:field", expected_value, roundtrip["occlusion"])
+
+            edited_collection = Collection(official_path)
+            try:
+                note_id = edited_collection.db.scalar("select id from notes where guid=?", guid)
+                edited_note = edited_collection.get_note(note_id)
+                field_index = next(
+                    index for index, field in enumerate(io_model["flds"])
+                    if field["name"].lower() in {"occlusion", "occlusions", "oclusão"}
+                )
+                edited_note.fields[field_index] = roundtrip["occlusion"]
+                edited_collection.update_note(edited_note)
+                expected_cards = card_render_snapshot(edited_collection, [guid])
+                expected_masks = {
+                    f"{guid}:{ordinal}": masks
+                    for ordinal, masks in image_occlusion_render_snapshot(edited_collection, guid).items()
+                }
+                expected_states = image_occlusion_behavior_snapshot(edited_collection, guid)
+            finally:
+                edited_collection.close()
+
+            actual_cards = [
+                row for row in run_harness(io_swift_root, "render-cards")
+                if row["guid"] == guid
+            ]
+            actual_cards.sort(key=lambda row: (row["guid"], row["ordinal"]))
+            actual_projection = [{key: row[key] for key in io_render_keys} for row in actual_cards]
+            edit_problems += diff(f"{prefix}:cards", expected_cards, actual_projection)
+            actual_masks = {}
+            actual_states = {}
+            for row in actual_cards:
+                parser = ImageOcclusionAttributeParser()
+                parser.feed(row["questionHTML"])
+                actual_masks[f"{guid}:{row['ordinal']}"] = sorted(
+                    parser.rows,
+                    key=lambda item: (int(item.get("data-ordinal", "0")), item.get("data-shape", "")),
+                )
+                actual_states[str(row["ordinal"])] = {
+                    "question": image_occlusion_behavior_from_html(row["questionHTML"]),
+                    "answer": image_occlusion_behavior_from_html(row["answerHTML"]),
+                }
+            edit_problems += diff(f"{prefix}:shapes", expected_masks, actual_masks)
+            edit_problems += diff(f"{prefix}:states", expected_states, actual_states)
+            return edit_problems
+
+        expected_rect_edit = io_values["occlusion"].replace(
+            "{{c5::image-occlusion:rect:left=0.3000:",
+            "{{c5::image-occlusion:rect:left=0.3100:",
+        ) + (
+            " {{c6::image-occlusion:rect:left=0.2500:top=0.4000:width=0.1200:height=0.1800:oi=1}}"
+            " {{c7::image-occlusion:ellipse:left=0.6200:top=0.1000:rx=0.0700:ry=0.0400:oi=1}}"
+        )
+        problems += compare_io_editor_roundtrip(io_guid, expected_rect_edit, 1, 4, "rect")
+        expected_ellipse_edit = (
+            "{{c1::image-occlusion:ellipse:left=0.5100:top=0.5000:rx=0.1000:ry=0.1500}} "
+            "{{c2::image-occlusion:rect:left=0.2500:top=0.4000:width=0.1200:height=0.1800}} "
+            "{{c3::image-occlusion:ellipse:left=0.6200:top=0.1000:rx=0.0700:ry=0.0400}}"
+        )
+        problems += compare_io_editor_roundtrip(io_ellipse_guid, expected_ellipse_edit, 1, 0, "ellipse")
+    problems += check_package_archive_edges(official_package, package_work)
+    problems += check_selected_deck_export()
+    problems += check_selected_cards_export()
     return problems
 
 
@@ -2388,23 +4722,53 @@ def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     checks = args or ["all"]
     if checks == ["all"]:
-        checks = ["timing", "counts", "states", "fsrs-empty-steps", "grade-now", "session", "search", "retention", "stats", "cardgen", "templates", "decks", "delete", "empty", "queue", "sync", "tags", "notetypes", "latex", "filtered", "packages", "csv"]
+        checks = ["timing", "counts", "states", "load-balancer", "fsrs-empty-steps", "grade-now", "study-undo", "typed-answer", "auto-advance-actions", "auto-advance-timers", "review-shortcuts", "korean-shortcuts", "widget", "media-check", "database-check", "profiles", "session", "search", "retention", "stats", "cardgen", "templates", "decks", "deck-options", "rich-media", "delete", "empty", "queue", "browser-sort", "browser-selection", "preferences", "sync", "tags", "notetypes", "latex", "filtered", "filtered-options", "packages", "csv"]
     total = 0
     for command in checks:
         if command == "grade-now":
             problems = check_grade_now()
+        elif command == "study-undo":
+            problems = check_study_undo()
+        elif command == "typed-answer":
+            problems = check_type_answer()
+        elif command == "auto-advance-actions":
+            problems = check_auto_advance_actions()
+        elif command == "auto-advance-timers":
+            problems = check_auto_advance_timers()
+        elif command == "review-shortcuts":
+            problems = check_review_shortcuts()
+        elif command == "korean-shortcuts":
+            problems = check_korean_shortcuts()
+        elif command == "widget":
+            problems = check_widget_grade()
+        elif command == "media-check":
+            problems = check_media_check()
+        elif command == "database-check":
+            problems = check_database_check()
+        elif command == "profiles":
+            problems = check_profiles()
         elif command == "fsrs-empty-steps":
             problems = check_fsrs_empty_steps()
         elif command == "packages":
             problems = check_packages()
+        elif command == "deck-export":
+            problems = check_selected_deck_export()
+        elif command == "card-export":
+            problems = check_selected_cards_export()
         elif command == "csv":
             problems = check_csv()
         elif command == "filtered":
             problems = check_filtered()
+        elif command == "filtered-options":
+            problems = check_filtered_options()
         elif command == "delete":
             problems = check_delete_actions()
         elif command == "decks":
             problems = check_deck_actions()
+        elif command == "deck-options":
+            problems = check_deck_options()
+        elif command == "rich-media":
+            problems = check_rich_media()
         elif command == "cardgen":
             problems = check_cardgen_actions()
         elif command == "templates":
@@ -2413,8 +4777,20 @@ def main():
             problems = check_empty_actions()
         elif command == "queue":
             problems = check_queue_actions()
+        elif command == "browser-sort":
+            problems = check_browser_sort()
+        elif command == "browser-selection":
+            problems = check_browser_selection()
+        elif command == "preferences":
+            problems = check_preferences_persist()
+        elif command in ("load-balancer", "load-balancer-gap"):
+            problems = check_load_balancer()
         elif command == "sync":
             problems = check_sync_actions()
+        elif command == "icloud-merge":
+            problems = check_icloud_merge()
+        elif command == "icloud-sync":
+            problems = check_icloud_sync()
         elif command == "tags":
             problems = check_tag_actions()
         elif command == "notetypes":

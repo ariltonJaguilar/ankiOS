@@ -9,6 +9,24 @@ extension UTType {
     static let ankiColpkg = UTType(filenameExtension: "colpkg") ?? .archive
 }
 
+enum PackageImportRoute: String {
+    case deckPackage
+    case collectionPackage
+    case mnemosyneDatabase
+
+    static func route(for url: URL) -> PackageImportRoute {
+        switch url.pathExtension.lowercased() {
+        case "colpkg": .collectionPackage
+        case "db": .mnemosyneDatabase
+        default: .deckPackage
+        }
+    }
+
+    static func canOpenFromSystem(_ url: URL) -> Bool {
+        ["apkg", "colpkg"].contains(url.pathExtension.lowercased())
+    }
+}
+
 enum ImportError: Error, LocalizedError {
     case invalidPackage
     case missingCollection
@@ -90,7 +108,7 @@ final class ApkgImporter {
         updateNotes: PackageUpdateCondition = .ifNewer,
         updateNotetypes: PackageUpdateCondition = .ifNewer
     ) async throws -> String {
-        let isColpkg = url.pathExtension.lowercased() == "colpkg"
+        let isColpkg = PackageImportRoute.route(for: url) == .collectionPackage
         includeScheduling = isColpkg || withScheduling
         includeDeckConfigs = isColpkg || withDeckConfigs
         self.updateNotes = updateNotes
@@ -300,7 +318,7 @@ final class ApkgImporter {
         let decksJSON = try src.scalarText("SELECT decks FROM col") ?? "{}"
         let dconfJSON = try src.scalarText("SELECT dconf FROM col") ?? "{}"
         let tagsJSON = try src.scalarText("SELECT tags FROM col") ?? "{}"
-        let confJSON = try src.scalarText("SELECT conf FROM col") ?? "{}"
+        let confJSON = CollectionSchema.encodeJSON(try CollectionSchema.collectionConfig(from: src))
         if !includeScheduling && !replacing,
            let sourceConf = try? JSONSerialization.jsonObject(with: Data(confJSON.utf8)) as? [String: Any] {
             nextNewPosition = max(1, (sourceConf["nextPos"] as? NSNumber)?.intValue ?? 1)
@@ -343,16 +361,18 @@ final class ApkgImporter {
             source: src
         )
         let modelsWithDecks = try remapModelDeckReferences(modelMerge.json, deckIDs: deckMerge.idMap)
+        let normalizedModels = try normalizeNotetypeDeckIDs(modelsWithDecks)
 
         try dest.run("UPDATE col SET decks=?, models=?, dconf=?, tags=?", bind: { stmt in
             try SQLiteDatabase.bindText(stmt, 1, deckMerge.json)
-            try SQLiteDatabase.bindText(stmt, 2, modelsWithDecks)
+            try SQLiteDatabase.bindText(stmt, 2, normalizedModels)
             try SQLiteDatabase.bindText(stmt, 3, configMerge.json)
             try SQLiteDatabase.bindText(stmt, 4, try self.mergeJSONObjects(destTagsJSON, tagsJSON))
         })
 
         if let importedConf = try JSONSerialization.jsonObject(with: Data(confJSON.utf8)) as? [String: Any],
-           var localConf = try JSONSerialization.jsonObject(with: Data((try dest.scalarText("SELECT conf FROM col") ?? "{}").utf8)) as? [String: Any] {
+           !importedConf.isEmpty {
+            var localConf = store.conf
             if replacing {
                 for (key, value) in importedConf { localConf[key] = value }
             } else {
@@ -388,10 +408,8 @@ final class ApkgImporter {
         let dest = store.db!
         var maps = ImportIDMaps()
         let importedConf = try collectionConfig(from: src)
-        if !importedConf.isEmpty,
-           var localConf = try JSONSerialization.jsonObject(
-            with: Data((try dest.scalarText("SELECT conf FROM col") ?? "{}").utf8)
-           ) as? [String: Any] {
+        if !importedConf.isEmpty {
+            var localConf = store.conf
             if replacing {
                 for (key, value) in importedConf { localConf[key] = value }
             } else {
@@ -525,8 +543,9 @@ final class ApkgImporter {
             maps.noteTypes = modelMerge.idMap
             maps.noteTypeFields = modelMerge.fieldMaps
             maps.noteTypeTemplates = modelMerge.templateMaps
+            let normalizedModels = try normalizeNotetypeDeckIDs(modelMerge.json)
             try dest.run("UPDATE col SET models = ?", bind: {
-                try SQLiteDatabase.bindText($0, 1, modelMerge.json)
+                try SQLiteDatabase.bindText($0, 1, normalizedModels)
             })
             try migrateMergedNotetypeData(modelMerge)
             if !modelMerge.changedIDs.isEmpty {
@@ -567,7 +586,7 @@ final class ApkgImporter {
                 Self.mergeProtoOther(
                     common,
                     into: &deck,
-                    excluding: ["id", "name", "mod", "usn", "collapsed", "browserCollapsed", "desc", "md", "dyn", "conf", "extendNew", "extendRev", "newToday", "revToday", "lrnToday", "timeToday", "terms", "resched", "previewDelay", "previewHard", "previewGood", "previewAgain", "desiredRetention", "newLimit", "reviewLimit", "newLimitToday", "reviewLimitToday"]
+                    excluding: ["id", "name", "mod", "usn", "collapsed", "browserCollapsed", "desc", "md", "dyn", "conf", "extendNew", "extendRev", "newToday", "revToday", "lrnToday", "timeToday", "terms", "resched", "previewDelay", "previewHard", "previewGood", "previewAgain", "previewAgainSecs", "previewHardSecs", "previewGoodSecs", "desiredRetention", "newLimit", "reviewLimit", "newLimitToday", "reviewLimitToday"]
                 )
                 if let normal = kind.messages(1).last {
                     deck["conf"] = normal.int64(1)
@@ -599,9 +618,9 @@ final class ApkgImporter {
                         deck["ankiosSearchOrder2"] = Self.filteredOrder(second.int(3))
                     }
                     deck["previewDelay"] = filtered.int(4)
-                    deck["previewHard"] = filtered.int(5)
-                    deck["previewGood"] = filtered.int(6)
-                    deck["previewAgain"] = filtered.int(7)
+                    deck["previewHardSecs"] = filtered.int(5)
+                    deck["previewGoodSecs"] = filtered.int(6)
+                    deck["previewAgainSecs"] = filtered.int(7)
                 }
                 decks[String(id)] = deck
             }
@@ -699,8 +718,9 @@ final class ApkgImporter {
             })
             let mergedModels = try dest.scalarText("SELECT models FROM col") ?? "{}"
             let remappedModels = try remapModelDeckReferences(mergedModels, deckIDs: maps.decks)
+            let remappedModelsWithNormalizedIDs = try normalizeNotetypeDeckIDs(remappedModels)
             try dest.run("UPDATE col SET models = ?", bind: {
-                try SQLiteDatabase.bindText($0, 1, remappedModels)
+                try SQLiteDatabase.bindText($0, 1, remappedModelsWithNormalizedIDs)
             })
         }
         try copyNotesAndCards(from: src, to: dest, maps: &maps, withScheduling: includeScheduling, shiftCollectionRelativeDates: !replacing, updateNotes: updateNotes)
@@ -710,22 +730,7 @@ final class ApkgImporter {
     }
 
     private func collectionConfig(from db: SQLiteDatabase) throws -> [String: Any] {
-        if let raw = try db.scalarText("SELECT conf FROM col"),
-           let conf = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any],
-           !conf.isEmpty {
-            return conf
-        }
-        guard try hasTable("config", in: db) else { return [:] }
-
-        var conf: [String: Any] = [:]
-        try db.query("SELECT key, val FROM config") { stmt in
-            let key = SQLiteDatabase.text(stmt, 0)
-            let value = SQLiteDatabase.blob(stmt, 1)
-            guard !key.isEmpty,
-                  let decoded = try? JSONSerialization.jsonObject(with: value, options: [.fragmentsAllowed]) else { return }
-            conf[key] = decoded
-        }
-        return conf
+        try CollectionSchema.collectionConfig(from: db)
     }
 
     private func hasTable(_ name: String, in db: SQLiteDatabase) throws -> Bool {
@@ -1266,8 +1271,9 @@ final class ApkgImporter {
             changedTypes.insert(pair.incomingMID)
         }
 
+        let normalizedModels = try normalizeNotetypeDeckIDs(CollectionSchema.encodeJSON(models))
         try destination.run("UPDATE col SET models=?") {
-            try SQLiteDatabase.bindText($0, 1, CollectionSchema.encodeJSON(models))
+            try SQLiteDatabase.bindText($0, 1, normalizedModels)
         }
         try store.reloadMeta()
         for mid in changedTypes { try store.syncCardsForNotetype(mid: mid) }
@@ -1859,6 +1865,23 @@ final class ApkgImporter {
         return CollectionSchema.encodeJSON(models)
     }
 
+    private func normalizeNotetypeDeckIDs(_ json: String) throws -> String {
+        var models = (try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]) ?? [:]
+        for (key, rawModel) in models {
+            guard var model = rawModel as? [String: Any] else { continue }
+            if model["did"] == nil { model["did"] = NSNull() }
+            if let rawTemplates = model["tmpls"] as? [[String: Any]] {
+                model["tmpls"] = rawTemplates.map { rawTemplate in
+                    var template = rawTemplate
+                    if template["did"] == nil { template["did"] = NSNull() }
+                    return template
+                }
+            }
+            models[key] = model
+        }
+        return CollectionSchema.encodeJSON(models)
+    }
+
     private func rewriteLegacyModelMedia(_ json: String) throws -> String {
         guard !mediaRenames.isEmpty else { return json }
         var models = (try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]) ?? [:]
@@ -1938,6 +1961,8 @@ struct ApkgImportOptionsSheet: View {
     @State private var mergeNotetypes = false
     @State private var updateNotes = PackageUpdateCondition.ifNewer
     @State private var updateNotetypes = PackageUpdateCondition.ifNewer
+    @State private var updateNotesChoicePresented = false
+    @State private var updateNotetypesChoicePresented = false
     let onImport: (Bool, Bool, Bool, PackageUpdateCondition, PackageUpdateCondition) -> Void
 
     var body: some View {
@@ -1946,30 +1971,33 @@ struct ApkgImportOptionsSheet: View {
                 GlassCard(cornerRadius: 22) {
                     GlassFormSection(title: "Opções de importação") {
                     Toggle("Importar progresso de estudo", isOn: $withScheduling)
+                        .accessibilityIdentifier("packageImport.scheduling")
                     Text("Inclui intervalos, histórico, cartões marcados e suspensões. Desativado, os cartões novos entram como novos e o progresso local existente é mantido.")
                         .font(.caption)
                         .foregroundStyle(AppTheme.secondaryText)
                     Toggle("Importar predefinições de baralho", isOn: $withDeckConfigs)
+                        .accessibilityIdentifier("packageImport.deckConfigs")
                     Text("Quando desativado, os baralhos importados usam a predefinição padrão desta coleção.")
                         .font(.caption)
                         .foregroundStyle(AppTheme.secondaryText)
                     Toggle("Mesclar tipos de nota", isOn: $mergeNotetypes)
+                        .accessibilityIdentifier("packageImport.mergeNotetypes")
                     Text("Une campos e templates equivalentes. As opções de atualização controlam notas e modelos; o progresso do pacote substitui o agendamento local somente quando ativado acima.")
                         .font(.caption)
                         .foregroundStyle(AppTheme.secondaryText)
                     DisclosureGroup("Atualizações") {
-                        Picker("Notas existentes", selection: $updateNotes) {
-                            ForEach(PackageUpdateCondition.allCases) { condition in
-                                Text(condition.title).tag(condition)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        Picker("Tipos de nota existentes", selection: $updateNotetypes) {
-                            ForEach(PackageUpdateCondition.allCases) { condition in
-                                Text(condition.title).tag(condition)
-                            }
-                        }
-                        .pickerStyle(.menu)
+                        updateConditionMenu(
+                            title: "Notas existentes",
+                            selection: $updateNotes,
+                            identifier: "packageImport.updateNotes",
+                            isPresented: $updateNotesChoicePresented
+                        )
+                        updateConditionMenu(
+                            title: "Tipos de nota existentes",
+                            selection: $updateNotetypes,
+                            identifier: "packageImport.updateNotetypes",
+                            isPresented: $updateNotetypesChoicePresented
+                        )
                     }
                     }
                     .tint(AppTheme.accent)
@@ -1988,12 +2016,49 @@ struct ApkgImportOptionsSheet: View {
                         dismiss()
                     }
                     .fontWeight(.semibold)
+                    .accessibilityIdentifier("packageImport.confirm")
                 }
             }
         }
         #if os(macOS)
         .frame(minWidth: 420, minHeight: 300)
         #endif
+    }
+
+    private func updateConditionMenu(
+        title: LocalizedStringKey,
+        selection: Binding<PackageUpdateCondition>,
+        identifier: String,
+        isPresented: Binding<Bool>
+    ) -> some View {
+        Button {
+            isPresented.wrappedValue = true
+        } label: {
+            GlassOptionRow(title: title) {
+                HStack(spacing: 4) {
+                    Text(selection.wrappedValue.title)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .multilineTextAlignment(.trailing)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2.weight(.semibold))
+                }
+                .foregroundStyle(AppTheme.primaryText)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+        .accessibilityValue(selection.wrappedValue.title)
+        .confirmationDialog(title, isPresented: isPresented, titleVisibility: .visible) {
+            ForEach(PackageUpdateCondition.allCases) { condition in
+                Button(condition.title) {
+                    selection.wrappedValue = condition
+                }
+                .accessibilityIdentifier("\(identifier).choice.\(condition.rawValue)")
+            }
+            Button("Cancelar", role: .cancel) {}
+        }
     }
 }
 

@@ -7,6 +7,7 @@ struct CustomStudyView: View {
 
     @EnvironmentObject private var store: CollectionStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
 
     @State private var mode: CustomStudyMode = .extendNew
     @State private var cramKind: CramKind = .new
@@ -46,6 +47,7 @@ struct CustomStudyView: View {
                                     .padding(.vertical, 4)
                                 }
                                 .buttonStyle(GlassButtonStyle(tint: mode == item ? AppTheme.accent : .white, prominent: false, tintStrength: 0.16, expands: true))
+                                .accessibilityIdentifier("customStudy.mode.\(item.id)")
                             }
                         }
                         .padding(16)
@@ -69,9 +71,11 @@ struct CustomStudyView: View {
                                     Stepper("", value: amountBinding, in: mode.range)
                                         .labelsHidden()
                                         .fixedSize()
+                                        .accessibilityIdentifier("customStudy.amount.stepper")
                                 }
-                                Text(mode.trailingText(amount: amount))
+                                Text(mode.trailingText(amount: amount, locale: locale))
                                     .foregroundStyle(AppTheme.primaryText.opacity(0.92))
+                                    .accessibilityIdentifier("customStudy.amount.unit")
                             }
                         }
 
@@ -110,12 +114,14 @@ struct CustomStudyView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancelar") { dismiss() }
+                        .accessibilityIdentifier("customStudy.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(mode == .cram ? "Escolha etiquetas." : "Aceitar") {
                         accept()
                     }
                     .disabled(!canAccept)
+                    .accessibilityIdentifier("customStudy.accept")
                 }
             }
             .onAppear {
@@ -322,7 +328,7 @@ enum CustomStudyMode: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    var title: LocalizedStringKey {
         switch self {
         case .extendNew: "Aumentar o limite de cartões novos por hoje"
         case .extendRev: "Aumentar o limite de cartões a revisar hoje"
@@ -333,25 +339,25 @@ enum CustomStudyMode: String, CaseIterable, Identifiable {
         }
     }
 
-    var leadingText: String {
+    var leadingText: LocalizedStringKey {
         switch self {
         case .extendNew: "Aumentar o limite de cartões novos de hoje em"
         case .extendRev: "Aumentar o limite de cartões a revisar hoje em"
         case .forgot: "Revisar os cartões esquecidos nos últimos"
         case .ahead: "Antecipar a revisão dos próximos"
         case .preview: "Visualizar cartões novos criados por último"
-        case .cram: "Selecionar"
+        case .cram: "custom-study.select"
         }
     }
 
-    func trailingText(amount: Int) -> String {
+    func trailingText(amount: Int, locale: Locale) -> String {
         switch self {
         case .extendNew, .extendRev:
-            "cartões"
+            AnkiLanguageCatalog.localizedPluralSuffix("\(amount) custom-study.cards", locale: locale)
         case .forgot, .ahead, .preview:
-            amount == 1 ? "dia" : "dias"
+            AnkiLanguageCatalog.localizedPluralSuffix("\(amount) custom-study.days", locale: locale)
         case .cram:
-            "cartões do baralho"
+            AnkiLanguageCatalog.localizedPluralSuffix("\(amount) custom-study.cards-from-the-deck", locale: locale)
         }
     }
 
@@ -372,7 +378,7 @@ enum CramKind: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    var title: LocalizedStringKey {
         switch self {
         case .new: "Somente cartões novos."
         case .due: "Apenas cartões pendentes."
@@ -434,11 +440,12 @@ private struct SelectiveStudyView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .tint(AppTheme.accent)
-                        tagList(selected: include, enabled: requireOne, toggle: toggleInclude)
+                        .accessibilityIdentifier("customStudy.tags.requireOne")
+                        tagList(selected: include, enabled: requireOne, identifier: "include", toggle: toggleInclude)
                         Text("Excluir cartões com as etiquetas:")
                             .font(.headline.weight(.semibold))
                             .foregroundStyle(AppTheme.primaryText)
-                        tagList(selected: exclude, enabled: true, toggle: toggleExclude)
+                        tagList(selected: exclude, enabled: true, identifier: "exclude", toggle: toggleExclude)
                     }
                     .padding(20)
                 }
@@ -450,9 +457,11 @@ private struct SelectiveStudyView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancelar") { dismiss() }
+                        .accessibilityIdentifier("selectiveStudy.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("OK") { accept() }
+                        .accessibilityIdentifier("customStudy.tags.accept")
                 }
             }
             .alert("Estudo Seletivo", isPresented: failurePresented) {
@@ -488,7 +497,12 @@ private struct SelectiveStudyView: View {
         }
     }
 
-    private func tagList(selected: Set<String>, enabled: Bool, toggle: @escaping (String) -> Void) -> some View {
+    private func tagList(
+        selected: Set<String>,
+        enabled: Bool,
+        identifier: String,
+        toggle: @escaping (String) -> Void
+    ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(tags, id: \.self) { tag in
                 Button {
@@ -505,6 +519,7 @@ private struct SelectiveStudyView: View {
                 }
                 .buttonStyle(GlassChipButtonStyle())
                 .disabled(!enabled)
+                .accessibilityIdentifier("customStudy.tag.\(identifier).\(tag)")
             }
         }
         .padding(tags.isEmpty ? 8 : 14)

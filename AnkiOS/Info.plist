@@ -2,8 +2,21 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.bigbear.AnkiOS.study</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ankios</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>O AnkiOS grava áudio nos campos das notas quando você solicita.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>O AnkiOS usa a câmera para adicionar imagens aos campos das notas quando você solicita.</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

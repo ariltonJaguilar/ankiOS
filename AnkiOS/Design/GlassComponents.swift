@@ -67,7 +67,7 @@ struct GlassIconButtonStyle: ButtonStyle {
 }
 
 struct CountChip: View {
-    let label: String
+    let label: LocalizedStringKey
     let count: Int
     let color: Color
 
@@ -177,17 +177,22 @@ struct GlassListRowBackground: View {
 
 /// One Liquid Glass row: label on the left, its control on the right.
 struct GlassOptionRow<Trailing: View>: View {
-    let title: String
+    let title: Text
     let trailing: Trailing
 
-    init(title: String, @ViewBuilder trailing: () -> Trailing) {
-        self.title = title
+    init(title: LocalizedStringKey, @ViewBuilder trailing: () -> Trailing) {
+        self.title = Text(title)
+        self.trailing = trailing()
+    }
+
+    init(verbatimTitle: String, @ViewBuilder trailing: () -> Trailing) {
+        self.title = Text(verbatim: verbatimTitle)
         self.trailing = trailing()
     }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            Text(title)
+            title
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(AppTheme.primaryText)
                 .lineLimit(2)
@@ -216,22 +221,32 @@ struct GlassOptionRow<Trailing: View>: View {
 struct GlassChoiceMenu<ID: Hashable>: View {
     @Binding var selection: ID
     let choices: [GlassChoice<ID>]
+    let accessibilityPrefix: String?
+
+    init(
+        selection: Binding<ID>,
+        choices: [GlassChoice<ID>],
+        accessibilityPrefix: String? = nil
+    ) {
+        _selection = selection
+        self.choices = choices
+        self.accessibilityPrefix = accessibilityPrefix
+    }
 
     private var selectedTitle: String {
         choices.first { $0.id == selection }?.title ?? "—"
     }
 
     var body: some View {
-        Menu {
+        Picker(selection: $selection) {
             ForEach(choices) { choice in
-                Button {
-                    selection = choice.id
-                } label: {
-                    if choice.id == selection {
-                        Label(choice.title, systemImage: "checkmark")
-                    } else {
-                        Text(choice.title)
-                    }
+                if let accessibilityPrefix {
+                    Text(choice.title)
+                        .tag(choice.id)
+                        .accessibilityIdentifier("\(accessibilityPrefix).\(choice.title)")
+                } else {
+                    Text(choice.title)
+                        .tag(choice.id)
                 }
             }
         } label: {
@@ -246,6 +261,7 @@ struct GlassChoiceMenu<ID: Hashable>: View {
             .foregroundStyle(AppTheme.primaryText)
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
+        .pickerStyle(.menu)
         .menuIndicator(.hidden)
         .buttonStyle(GlassChipButtonStyle())
     }
@@ -257,17 +273,17 @@ struct GlassChoice<ID: Hashable>: Identifiable {
 }
 
 struct GlassFormSection<Content: View>: View {
-    let title: String
+    let title: Text
     let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
+    init(title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
+        self.title = Text(title)
         self.content = content()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
+            title
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(AppTheme.primaryText)
                 .padding(.leading, 4)

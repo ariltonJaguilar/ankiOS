@@ -6,8 +6,7 @@ import UIKit
 import AppKit
 #endif
 
-/// Anki's image occlusion note: one cloze card per mask, stored as
-/// `{{c1::image-occlusion:rect:left=…:top=…:width=…:height=…}}`.
+/// Anki's image occlusion note: one cloze card per mask, stored in the note's cloze field.
 struct ImageOcclusionEditor: View {
     var deckID: Int64
     var noteID: Int64?
@@ -22,6 +21,7 @@ struct ImageOcclusionEditor: View {
     @State private var imageFilename: String?
     @State private var image: PlatformPicture?
     @State private var masks: [OcclusionMask] = []
+    @State private var preservedMasks: [String] = []
     @State private var drag: CGRect?
     @State private var showImporter = false
     @State private var message: String?
@@ -38,10 +38,12 @@ struct ImageOcclusionEditor: View {
                                 Text("Elipse").tag("ellipse")
                             }
                             .pickerStyle(.segmented)
+                            .accessibilityIdentifier("imageOcclusion.shape")
                             GlassOptionRow(title: "Ocultar as outras") {
                                 Toggle("", isOn: $hideAll)
                                     .labelsHidden()
                                     .tint(AppTheme.accent)
+                                    .accessibilityIdentifier("imageOcclusion.hideOthers")
                             }
                             Text(hideAll
                                  ? "Cada cartão esconde todas as máscaras e revela uma na resposta."
@@ -83,8 +85,10 @@ struct ImageOcclusionEditor: View {
                 }
                 HStack(spacing: 12) {
                     Button("Fechar") { dismiss() }
+                        .accessibilityIdentifier("imageOcclusion.close")
                         .buttonStyle(GlassButtonStyle(tint: .white, tintStrength: 0.18, expands: true))
                     Button(noteID == nil ? "Adicionar" : "Salvar") { save() }
+                        .accessibilityIdentifier("imageOcclusion.save")
                         .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
                 }
                 .padding(.horizontal, 20)
@@ -114,6 +118,7 @@ struct ImageOcclusionEditor: View {
     private var canvas: some View {
         GlassFormSection(title: "Imagem") {
             Button("Escolher imagem") { showImporter = true }
+                .accessibilityIdentifier("imageOcclusion.chooseImage")
                 .buttonStyle(GlassButtonStyle(tint: .white, tintStrength: 0.16, expands: true))
             if let image {
                 OcclusionCanvas(image: image, masks: masks, drag: drag) { rect in
@@ -179,6 +184,7 @@ struct ImageOcclusionEditor: View {
         comments = value(["Comentários", "Comments"], fallback: 4)
         let parsed = ImageOcclusionNotetype.parseMasks(occlusion)
         masks = parsed.masks
+        preservedMasks = parsed.preserved
         hideAll = parsed.hideAll
         if let name = ImageOcclusionNotetype.imageFilename(in: imageField) {
             imageFilename = name
@@ -206,7 +212,7 @@ struct ImageOcclusionEditor: View {
             message = "Escolha uma imagem."
             return
         }
-        guard !masks.isEmpty else {
+        guard !masks.isEmpty || !preservedMasks.isEmpty else {
             message = "Desenhe pelo menos uma máscara."
             return
         }
@@ -221,7 +227,7 @@ struct ImageOcclusionEditor: View {
                     fields[fallback] = text
                 }
             }
-            put(["Oclusão", "Occlusion", "Occlusions"], 0, ImageOcclusionNotetype.clozeText(masks: masks, hideAll: hideAll))
+            put(["Oclusão", "Occlusion", "Occlusions"], 0, ImageOcclusionNotetype.clozeText(masks: masks, hideAll: hideAll, preserved: preservedMasks))
             put(["Imagem", "Image"], 1, "<img src=\"\(imageFilename)\">")
             put(["Cabeçalho", "Header"], 2, header)
             put(["Extra do verso", "Back Extra"], 3, backExtra)
@@ -242,6 +248,7 @@ struct OcclusionMask: Identifiable, Hashable {
     let id = UUID()
     var rect: CGRect
     var shape: String = "rect"
+    var ordinal: Int? = nil
 }
 
 private struct OcclusionCanvas: View {
@@ -283,6 +290,10 @@ private struct OcclusionCanvas: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .contentShape(Rectangle())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Imagem")
+            .accessibilityIdentifier("imageOcclusion.canvas")
+            .accessibilityAddTraits(.allowsDirectInteraction)
             .gesture(
                 DragGesture(minimumDistance: 2)
                     .onChanged { value in
@@ -410,44 +421,112 @@ enum ImageOcclusionNotetype {
         return id
     }
 
-    static func clozeText(masks: [OcclusionMask], hideAll: Bool) -> String {
-        masks.enumerated().map { index, mask in
+    static func clozeText(masks: [OcclusionMask], hideAll: Bool, preserved: [String] = []) -> String {
+        var entries: [(ordinal: Int, order: Int, text: String)] = []
+        var usedOrdinals = Set<Int>()
+        for (index, token) in preserved.enumerated() {
+            guard let ordinal = clozeOrdinal(in: token) else { continue }
+            entries.append((ordinal, index, token))
+            usedOrdinals.insert(ordinal)
+        }
+
+        var nextOrdinal = max(usedOrdinals.max() ?? 0, masks.compactMap(\.ordinal).max() ?? 0) + 1
+        for (index, mask) in masks.enumerated() {
+            var ordinal = mask.ordinal ?? nextOrdinal
+            if usedOrdinals.contains(ordinal) {
+                while usedOrdinals.contains(nextOrdinal) { nextOrdinal += 1 }
+                ordinal = nextOrdinal
+            }
+            usedOrdinals.insert(ordinal)
+            nextOrdinal = max(nextOrdinal, ordinal + 1)
             let rect = mask.rect
             let oi = hideAll ? ":oi=1" : ""
             let shape = mask.shape == "ellipse" ? "ellipse" : "rect"
-            return String(
-                format: "{{c%d::image-occlusion:%@:left=%.4f:top=%.4f:width=%.4f:height=%.4f%@}}",
-                index + 1, shape, rect.minX, rect.minY, rect.width, rect.height, oi
-            )
-        }.joined(separator: " ")
+            let token: String
+            if shape == "ellipse" {
+                token = String(
+                    format: "{{c%d::image-occlusion:ellipse:left=%.4f:top=%.4f:rx=%.4f:ry=%.4f%@}}",
+                    ordinal, rect.minX, rect.minY, rect.width / 2, rect.height / 2, oi
+                )
+            } else {
+                token = String(
+                    format: "{{c%d::image-occlusion:rect:left=%.4f:top=%.4f:width=%.4f:height=%.4f%@}}",
+                    ordinal, rect.minX, rect.minY, rect.width, rect.height, oi
+                )
+            }
+            entries.append((ordinal, preserved.count + index, token))
+        }
+        return entries.sorted {
+            $0.ordinal == $1.ordinal ? $0.order < $1.order : $0.ordinal < $1.ordinal
+        }.map(\.text).joined(separator: " ")
     }
 
-    static func parseMasks(_ text: String) -> (masks: [OcclusionMask], hideAll: Bool) {
-        guard let regex = try? NSRegularExpression(
-            pattern: #"image-occlusion:(rect|ellipse):left=([0-9.]+):top=([0-9.]+):width=([0-9.]+):height=([0-9.]+)([^}]*)"#
-        ) else { return ([], true) }
+    static func parseMasks(_ text: String) -> (masks: [OcclusionMask], hideAll: Bool, preserved: [String]) {
+        guard let tokenRegex = try? NSRegularExpression(
+            pattern: #"\{\{c([0-9]+)::(.*?)\}\}"#,
+            options: [.dotMatchesLineSeparators]
+        ), let maskRegex = try? NSRegularExpression(
+            pattern: #"^image-occlusion:(rect|ellipse):left=([0-9]+(?:\.[0-9]+)?):top=([0-9]+(?:\.[0-9]+)?):(?:width=([0-9]+(?:\.[0-9]+)?):height=([0-9]+(?:\.[0-9]+)?)|rx=([0-9]+(?:\.[0-9]+)?):ry=([0-9]+(?:\.[0-9]+)?))(?::oi=1)?$"#
+        ) else { return ([], true, [text].filter { !$0.isEmpty }) }
+
         var masks: [OcclusionMask] = []
+        var preserved: [String] = []
         var hideAll = false
         let range = NSRange(text.startIndex..., in: text)
-        regex.enumerateMatches(in: text, range: range) { match, _, _ in
+        tokenRegex.enumerateMatches(in: text, range: range) { match, _, _ in
             guard let match,
-                  let shapeR = Range(match.range(at: 1), in: text),
-                  let leftR = Range(match.range(at: 2), in: text),
-                  let topR = Range(match.range(at: 3), in: text),
-                  let widthR = Range(match.range(at: 4), in: text),
-                  let heightR = Range(match.range(at: 5), in: text),
-                  let left = Double(text[leftR]),
-                  let top = Double(text[topR]),
-                  let width = Double(text[widthR]),
-                  let height = Double(text[heightR]) else { return }
-            let tail = Range(match.range(at: 6), in: text).map { String(text[$0]) } ?? ""
-            if tail.contains("oi=1") { hideAll = true }
+                  let tokenRange = Range(match.range(at: 0), in: text),
+                  let ordinalRange = Range(match.range(at: 1), in: text),
+                  let bodyStringRange = Range(match.range(at: 2), in: text),
+                  let ordinal = Int(text[ordinalRange]) else { return }
+            let token = String(text[tokenRange])
+            let body = String(text[bodyStringRange])
+            if token.contains(":oi=1") { hideAll = true }
+            let bodyNSRange = NSRange(body.startIndex..., in: body)
+            guard let mask = maskRegex.firstMatch(in: body, range: bodyNSRange),
+                  let shapeRange = Range(mask.range(at: 1), in: body),
+                  let leftRange = Range(mask.range(at: 2), in: body),
+                  let topRange = Range(mask.range(at: 3), in: body),
+                  let left = Double(body[leftRange]),
+                  let top = Double(body[topRange]) else {
+                preserved.append(token)
+                return
+            }
+            let shape = String(body[shapeRange])
+            let width: Double
+            let height: Double
+            if let widthRange = Range(mask.range(at: 4), in: body),
+               let heightRange = Range(mask.range(at: 5), in: body),
+               let parsedWidth = Double(body[widthRange]),
+               let parsedHeight = Double(body[heightRange]),
+               shape == "rect" || shape == "ellipse" {
+                width = parsedWidth
+                height = parsedHeight
+            } else if shape == "ellipse",
+                      let rxRange = Range(mask.range(at: 6), in: body),
+                      let ryRange = Range(mask.range(at: 7), in: body),
+                      let rx = Double(body[rxRange]),
+                      let ry = Double(body[ryRange]) {
+                width = rx * 2
+                height = ry * 2
+            } else {
+                preserved.append(token)
+                return
+            }
             masks.append(OcclusionMask(
                 rect: CGRect(x: left, y: top, width: width, height: height),
-                shape: String(text[shapeR])
+                shape: shape,
+                ordinal: ordinal
             ))
         }
-        return (masks, hideAll || masks.isEmpty)
+        return (masks, hideAll || masks.isEmpty, preserved)
+    }
+
+    private static func clozeOrdinal(in token: String) -> Int? {
+        guard let regex = try? NSRegularExpression(pattern: #"^\{\{c([0-9]+)::"#),
+              let match = regex.firstMatch(in: token, range: NSRange(token.startIndex..., in: token)),
+              let range = Range(match.range(at: 1), in: token) else { return nil }
+        return Int(token[range])
     }
 
     static func imageFilename(in html: String) -> String? {

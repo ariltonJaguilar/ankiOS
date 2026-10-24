@@ -14,7 +14,8 @@ struct SettingsView: View {
     @State private var showCSVImport = false
     @State private var pendingCSVName: String?
     @State private var pendingCSVText: String?
-    @State private var exportURL: URL?
+    @State private var offerTutorialAfterCSVImport = false
+    @State private var exportSheetItem: ShareSheetItem?
     @State private var rollday: Double = 4
     @State private var schedulerFSRS = false
     @State private var duplicates: [String] = []
@@ -42,10 +43,6 @@ struct SettingsView: View {
     @State private var showMediaCheck = false
     @State private var mediaReport: MediaCheckReport?
     @State private var mediaCheckStatus: String?
-    @State private var ankiWebUsername = ""
-    @State private var ankiWebPassword = ""
-    @State private var ankiWebEndpoint = ""
-    @State private var changingAnkiWebAccount = false
 
     init(requestedAction: Binding<Action?> = .constant(nil)) {
         _requestedAction = requestedAction
@@ -56,109 +53,9 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
-                    GlassFormSection(title: "AnkiWeb") {
-                        if store.ankiWebConfigured && !changingAnkiWebAccount {
-                            Label("Conectado como \(store.ankiWebUsername)", systemImage: "checkmark.circle.fill")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.good)
-                                .padding(.horizontal, 4)
-                            Button {
-                                Task { await store.syncWithAnkiWeb() }
-                            } label: {
-                                Label("Sincronizar agora", systemImage: "arrow.triangle.2.circlepath")
-                            }
-                            .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
-                            .disabled(store.collectionSyncing)
-                            Button("Usar outra conta") {
-                                changingAnkiWebAccount = true
-                                ankiWebPassword = ""
-                            }
-                            .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.16, expands: true))
-                            Button("Desconectar conta") {
-                                store.disconnectAnkiWeb()
-                                changingAnkiWebAccount = false
-                                ankiWebPassword = ""
-                            }
-                            .buttonStyle(GlassButtonStyle(tint: AppTheme.danger, prominent: false, tintStrength: 0.18, expands: true))
-                        }
-                        if !store.ankiWebConfigured || changingAnkiWebAccount {
-                            TextField("Usuário ou e-mail", text: $ankiWebUsername)
-                                .textFieldStyle(.plain)
-                                .autocorrectionDisabled()
-                                #if os(iOS)
-                                .textInputAutocapitalization(.never)
-                                #endif
-                                .glassField()
-                            SecureField("Senha do AnkiWeb", text: $ankiWebPassword)
-                                .textFieldStyle(.plain)
-                                .glassField()
-                            TextField("Servidor personalizado (opcional)", text: $ankiWebEndpoint)
-                                .textFieldStyle(.plain)
-                                .autocorrectionDisabled()
-                                #if os(iOS)
-                                .textInputAutocapitalization(.never)
-                                #endif
-                                .glassField()
-                            Button {
-                                Task {
-                                    await store.loginAnkiWeb(
-                                        username: ankiWebUsername,
-                                        password: ankiWebPassword,
-                                        endpoint: ankiWebEndpoint
-                                    )
-                                    if store.ankiWebConfigured {
-                                        ankiWebPassword = ""
-                                        changingAnkiWebAccount = false
-                                    }
-                                }
-                            } label: {
-                                Label("Conectar ao AnkiWeb", systemImage: "person.crop.circle.badge.checkmark")
-                            }
-                            .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
-                            .disabled(store.collectionSyncing)
-                            if changingAnkiWebAccount {
-                                Button("Cancelar") {
-                                    changingAnkiWebAccount = false
-                                    ankiWebPassword = ""
-                                }
-                                .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.16, expands: true))
-                            }
-                        }
-                        Text("Use sua conta AnkiWeb para sincronizar a coleção e a mídia com o Anki oficial.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                        if let ankiWebStatus = store.ankiWebStatus {
-                            Text(ankiWebStatus)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(AppTheme.good)
-                                .padding(.horizontal, 4)
-                        }
-                    }
+                    AnkiWebAccountSection()
                     #endif
-                    GlassFormSection(title: "iCloud") {
-                        Button {
-                            Task { await store.syncWithICloud() }
-                        } label: {
-                            Label(
-                                store.collectionSyncing ? "Sincronizando…" : "Sincronizar com iCloud",
-                                systemImage: "icloud"
-                            )
-                        }
-                        .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
-                        .disabled(store.collectionSyncing)
-                        Text("Envia e recebe a coleção e a mídia pela mesma conta iCloud. Em conflito, a versão mais recente prevalece e a outra é salva em Backups.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                        if let iCloudStatus = store.iCloudStatus {
-                            Text(iCloudStatus)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(AppTheme.good)
-                                .padding(.horizontal, 4)
-                        }
-                    }
-                    GlassFormSection(title: "Coleção") {
+                    GlassFormSection(title: "settings.collection.section") {
                         toolButton("Importar .apkg, .colpkg ou Mnemosyne .db") { showImport = true }
                         toolButton("Importar CSV / texto") { showCSVImport = true }
                         GlassOptionRow(title: "Exportar agendamento e histórico") {
@@ -166,18 +63,21 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .tint(AppTheme.accent)
                                 .onChange(of: apkgIncludeScheduling) { _, _ in saveApkgExportOptions() }
+                                .accessibilityIdentifier("settings.export.option.scheduling")
                         }
                         GlassOptionRow(title: "Exportar predefinições de baralho") {
                             Toggle("", isOn: $apkgIncludeDeckPresets)
                                 .labelsHidden()
                                 .tint(AppTheme.accent)
                                 .onChange(of: apkgIncludeDeckPresets) { _, _ in saveApkgExportOptions() }
+                                .accessibilityIdentifier("settings.export.option.deck-presets")
                         }
                         GlassOptionRow(title: "Exportar mídia") {
                             Toggle("", isOn: $apkgIncludeMedia)
                                 .labelsHidden()
                                 .tint(AppTheme.accent)
                                 .onChange(of: apkgIncludeMedia) { _, _ in saveApkgExportOptions() }
+                                .accessibilityIdentifier("settings.export.option.media")
                         }
                         Text("Essas opções também se aplicam à exportação de baralhos e cartões selecionados.")
                             .font(.caption)
@@ -238,21 +138,27 @@ struct SettingsView: View {
                                 .onChange(of: csvMatchWithinDeck) { _, _ in saveCSVImportOptions() }
                         }
                         toolButton("Exportar coleção .apkg") { exportAll() }
+                            .accessibilityIdentifier("settings.export.apkg.collection")
                         toolButton("Exportar coleção completa (.colpkg)") { exportCollectionPackage() }
+                            .accessibilityIdentifier("settings.export.colpkg")
                         GlassOptionRow(title: "Exportar baralho") {
                             GlassChoiceMenu(
                                 selection: $exportDeckID,
                                 choices: [GlassChoice(id: Int64?.none, title: "Coleção inteira")]
                                     + store.decks.filter { !$0.isFiltered }.map {
                                         GlassChoice(id: Optional($0.id), title: $0.displayName)
-                                    }
+                                    },
+                                accessibilityPrefix: "settings.export.deck.choice"
                             )
+                            .accessibilityIdentifier("settings.export.deck")
                         }
                         toolButton("Exportar baralho selecionado .apkg") { exportDeck(id: exportDeckID) }
                             .disabled(exportDeckID == nil)
+                            .accessibilityIdentifier("settings.export.apkg.deck")
                         toolButton("Exportar notas como TSV") { exportTSV() }
                         Button("Criar backup agora", systemImage: "externaldrive.badge.timemachine") { backupCollection() }
                             .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
+                            .accessibilityIdentifier("settings.backup.create")
                         if automaticBackupURLs.isEmpty {
                             Text("Ainda não há backups automáticos neste perfil.")
                                 .font(.caption)
@@ -266,12 +172,15 @@ struct SettingsView: View {
                                     showRestoreCollectionConfirm = true
                                 }
                                 .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.3, expands: true))
+                                .accessibilityIdentifier("settings.backup.restore")
                             }
                         }
-                        toolButton("Verificar banco de dados") { checkDB() }
+                        toolButton(LocalizedStringKey("Verificar banco de dados")) { checkDB() }
+                            .accessibilityIdentifier("settings.database.check")
                         toolButton("Otimizar banco (VACUUM)") { optimizeDB() }
                         toolButton("Procurar duplicatas") { findDuplicates() }
                         toolButton("Verificar mídia") { checkMedia() }
+                            .accessibilityIdentifier("settings.media.check")
                     }
                     GlassFormSection(title: "Agendador") {
                         GlassOptionRow(title: "Usar FSRS") {
@@ -322,7 +231,7 @@ struct SettingsView: View {
                             }
                         }
                     }
-                    GlassFormSection(title: "Cartões") {
+                    GlassFormSection(title: "settings.cards.section") {
                         toolButton("Desocultar todos os cartões ocultos") {
                             do {
                                 try store.unburyAll()
@@ -350,10 +259,6 @@ struct SettingsView: View {
                         GlassOptionRow(title: "App") {
                             Text("AnkiOS").foregroundStyle(AppTheme.primaryText)
                         }
-                        Text("Estudo local compatível com Anki. A sincronização usa o iCloud da sua conta Apple.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
                     }
                 }
                 .padding(20)
@@ -362,11 +267,8 @@ struct SettingsView: View {
             }
             .background(AppBackground())
             .navigationTitle("Ferramentas")
+            .ankiKeyboardDismissToolbar()
             .onAppear {
-                #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
-                if ankiWebUsername.isEmpty { ankiWebUsername = store.ankiWebUsername }
-                if ankiWebEndpoint.isEmpty { ankiWebEndpoint = store.ankiWebEndpoint }
-                #endif
                 rollday = Double(store.rolloverHour)
                 schedulerFSRS = store.fsrsEnabled
                 apkgIncludeScheduling = store.conf["apkgIncludeScheduling"] as? Bool ?? false
@@ -387,7 +289,9 @@ struct SettingsView: View {
                 refreshAutomaticBackups()
                 consumeRequestedAction()
             }
-            .onChange(of: store.activeProfile) { _, _ in refreshAutomaticBackups() }
+            .onChange(of: store.activeProfile) { _, _ in
+                refreshAutomaticBackups()
+            }
             .onChange(of: store.automaticBackupRevision) { _, _ in refreshAutomaticBackups() }
             .onChange(of: requestedAction) { _, _ in consumeRequestedAction() }
             .onChange(of: store.isBootstrapping) { _, _ in consumeRequestedAction() }
@@ -407,16 +311,16 @@ struct SettingsView: View {
                     do {
                         guard let url = try result.get().first else { return }
                         let scoped = url.startAccessingSecurityScopedResource()
-                        if url.pathExtension.lowercased() == "colpkg" {
+                        switch PackageImportRoute.route(for: url) {
+                        case .collectionPackage:
                             pendingCollectionPackage = url
                             pendingCollectionPackageScoped = scoped
                             showRestoreCollectionConfirm = true
                             return
-                        }
-                        if url.pathExtension.lowercased() == "db" {
+                        case .mnemosyneDatabase:
                             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                             store.lastError = try MnemosyneImporter(store: store).importFile(at: url)
-                        } else {
+                        case .deckPackage:
                             pendingDeckPackage = url
                             pendingDeckPackageScoped = scoped
                             showDeckImportOptions = true
@@ -438,37 +342,41 @@ struct SettingsView: View {
                     store.lastError = error.localizedDescription
                 }
             }
-            .sheet(isPresented: Binding(get: { pendingCSVText != nil }, set: { if !$0 { pendingCSVText = nil; pendingCSVName = nil } })) {
+        .sheet(isPresented: Binding(get: { pendingCSVText != nil }, set: { if !$0 { pendingCSVText = nil; pendingCSVName = nil } }), onDismiss: {
+            guard offerTutorialAfterCSVImport else { return }
+            offerTutorialAfterCSVImport = false
+            store.notifyDeckContentAdded()
+        }) {
                 if let pendingCSVText {
                     CSVImportReviewView(
                         fileName: pendingCSVName ?? "Texto",
                         text: pendingCSVText,
                         store: store,
+                        offerTutorialAfterDismissal: $offerTutorialAfterCSVImport,
                         deckID: csvDeckID,
                         notetypeID: csvNotetypeID
                     )
                     .environmentObject(store)
                 }
             }
-            .sheet(isPresented: Binding(get: { exportURL != nil }, set: { if !$0 { exportURL = nil } })) {
-                if let exportURL { ShareSheet(items: [exportURL]) }
+            .sheet(item: $exportSheetItem) { item in
+                ShareSheet(items: [item.url])
+                    .accessibilityIdentifier("settings.export.share-sheet")
             }
             .sheet(isPresented: $showMediaCheck, onDismiss: {
                 mediaReport = nil
                 mediaCheckStatus = nil
             }) {
-                if let mediaReport {
-                    MediaCheckSheet(
-                        report: mediaReport,
-                        status: mediaCheckStatus,
-                        onRescan: { refreshMediaReport() },
-                        onTagMissingNotes: { tagNotesWithMissingMedia() },
-                        onTrashUnused: { trashUnusedMedia() },
-                        onRestoreTrash: { restoreMediaTrash() },
-                        onEmptyTrash: { emptyMediaTrash() },
-                        onRenderLatex: { renderMissingLatex() }
-                    )
-                }
+                MediaCheckSheet(
+                    report: mediaReport ?? .empty,
+                    status: mediaCheckStatus,
+                    onRescan: { refreshMediaReport() },
+                    onTagMissingNotes: { tagNotesWithMissingMedia() },
+                    onTrashUnused: { trashUnusedMedia() },
+                    onRestoreTrash: { restoreMediaTrash() },
+                    onEmptyTrash: { emptyMediaTrash() },
+                    onRenderLatex: { renderMissingLatex() }
+                )
             }
             .sheet(isPresented: $showDeckImportOptions) {
                 ApkgImportOptionsSheet { withScheduling, withDeckConfigs, mergeNotetypes, updateNotes, updateNotetypes in
@@ -530,6 +438,11 @@ struct SettingsView: View {
     }
 
     private func toolButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(LocalizedStringKey(title), action: action)
+            .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.16, expands: true))
+    }
+
+    private func toolButton(_ title: LocalizedStringKey, action: @escaping () -> Void) -> some View {
         Button(title, action: action)
             .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.16, expands: true))
     }
@@ -585,7 +498,7 @@ struct SettingsView: View {
         pendingCollectionPackageScoped = false
     }
 
-    private func settingsLink<Destination: View>(_ title: String, @ViewBuilder destination: () -> Destination) -> some View {
+    private func settingsLink<Destination: View>(_ title: LocalizedStringKey, @ViewBuilder destination: () -> Destination) -> some View {
         NavigationLink {
             destination()
         } label: {
@@ -613,7 +526,7 @@ struct SettingsView: View {
         do {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("AnkiOS-collection.colpkg")
             try ApkgExporter(store: store).exportCollectionPackage(to: url)
-            exportURL = url
+            exportSheetItem = ShareSheetItem(url: url)
         } catch {
             store.lastError = error.localizedDescription
         }
@@ -644,13 +557,25 @@ struct SettingsView: View {
         do {
             let name: String
             if let id, let deck = store.deck(id: id) {
-                name = deck.displayName.replacingOccurrences(of: "/", with: "-")
+                let displayName = deck.displayName
+                let latinName = displayName.applyingTransform(.toLatin, reverse: false)?
+                    .applyingTransform(.stripCombiningMarks, reverse: false) ?? displayName
+                let safeName = String(latinName.unicodeScalars.map { scalar -> Character in
+                    if scalar.value < 128, CharacterSet.alphanumerics.contains(scalar) {
+                        return Character(scalar)
+                    }
+                    if scalar == "-" || scalar == "_" {
+                        return Character(scalar)
+                    }
+                    return "-"
+                }).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+                name = safeName.isEmpty ? "deck-\(id)" : safeName
             } else {
                 name = "collection"
             }
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("AnkiOS-\(name).apkg")
             try ApkgExporter(store: store).export(deckID: id, to: url)
-            exportURL = url
+            exportSheetItem = ShareSheetItem(url: url)
         } catch {
             store.lastError = error.localizedDescription
         }
@@ -660,7 +585,7 @@ struct SettingsView: View {
         do {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("AnkiOS-notes.tsv")
             try CSVExporter(store: store).exportNotes(to: url)
-            exportURL = url
+            exportSheetItem = ShareSheetItem(url: url)
         } catch {
             store.lastError = error.localizedDescription
         }
@@ -690,463 +615,9 @@ struct SettingsView: View {
     }
 
     private func checkDB() {
-        do {
-            let integrity = try store.db.scalarText("PRAGMA quick_check")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "sem resultado"
-            guard integrity == "ok" else {
-                store.lastError = "A coleção apresenta um problema de integridade: \(integrity)"
-                return
-            }
-
-            let backupDirectory = store.profileDirectory.appendingPathComponent("Backups", isDirectory: true)
-            try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
-            let stamp = Int64(Date().timeIntervalSince1970 * 1000)
-            let backup = backupDirectory.appendingPathComponent("collection-check-\(stamp).anki2")
-            try store.db.backup(to: backup)
-
-            try store.db.run("VACUUM")
-            try store.db.run("ANALYZE")
-
-            var repairedFieldCounts = 0
-            var removedInvalidCards = 0
-            var notesWithoutNotetype = 0
-            var repairedCardProperties = 0
-            var repairedRevlogProperties = 0
-            var recoveredDecks = 0
-            var recoveredNotetypes = 0
-            var repairedIDs = 0
-            var orphanedCards: [Int64] = []
-            try store.db.exec("BEGIN IMMEDIATE")
-            do {
-                repairedCardProperties += try repairCardProperties()
-
-                try store.db.query("SELECT id FROM cards WHERE nid NOT IN (SELECT id FROM notes)") { statement in
-                    orphanedCards.append(sqlite3_column_int64(statement, 0))
-                }
-                try store.recordGraves(ids: orphanedCards, type: 0)
-                try store.db.run("DELETE FROM cards WHERE nid NOT IN (SELECT id FROM notes)")
-
-                recoveredDecks += try recoverMissingDecks()
-                repairedCardProperties += try clearInvalidFilteredDeckState()
-                recoveredNotetypes = try recoverMissingNotetypes()
-
-                var noteIDs: [Int64] = []
-                try store.db.query("SELECT id FROM notes ORDER BY id") { statement in
-                    noteIDs.append(sqlite3_column_int64(statement, 0))
-                }
-                for noteID in noteIDs {
-                    guard var note = try store.fetchNote(id: noteID) else { continue }
-                    guard let model = store.notetype(id: note.mid) else {
-                        notesWithoutNotetype += 1
-                        continue
-                    }
-
-                    let expectedFieldCount = max(1, (model.flds.map(\.ord).max() ?? -1) + 1)
-                    if note.fields.count != expectedFieldCount {
-                        var fields = Array(note.fields.prefix(expectedFieldCount))
-                        if fields.count < expectedFieldCount {
-                            fields.append(contentsOf: repeatElement("", count: expectedFieldCount - fields.count))
-                        }
-                        var tags = note.tagList
-                        if !tags.contains("db-check") { tags.append("db-check") }
-                        try store.updateNote(note, fields: fields, tags: tags.joined(separator: " "))
-                        repairedFieldCounts += 1
-                        guard let repaired = try store.fetchNote(id: noteID) else { continue }
-                        note = repaired
-                    }
-
-                    let wanted = model.isCloze
-                        ? Set(ClozeHelper.ords(in: note.fields))
-                        : Set(store.activeTemplateOrds(model: model, fields: note.fields, tags: note.tagList))
-                    var cardRows: [(id: Int64, ord: Int)] = []
-                    try store.db.query("SELECT id, ord FROM cards WHERE nid = ? ORDER BY id", bind: {
-                        SQLiteDatabase.bindInt64($0, 1, noteID)
-                    }) { statement in
-                        cardRows.append((sqlite3_column_int64(statement, 0), Int(sqlite3_column_int(statement, 1))))
-                    }
-                    var seenOrds = Set<Int>()
-                    let invalidCardIDs = cardRows.compactMap { card in
-                        !wanted.contains(card.ord) || !seenOrds.insert(card.ord).inserted ? card.id : nil
-                    }
-                    if !invalidCardIDs.isEmpty {
-                        try store.recordGraves(ids: invalidCardIDs, type: 0)
-                        for cardID in invalidCardIDs {
-                            try store.db.run("DELETE FROM cards WHERE id = ?", bind: {
-                                SQLiteDatabase.bindInt64($0, 1, cardID)
-                            })
-                        }
-                        removedInvalidCards += invalidCardIDs.count
-                    }
-                    if !wanted.isEmpty {
-                        try store.regenerateCards(forNoteID: noteID)
-                    }
-                }
-
-                try store.rebuildTagRegistry()
-                repairedRevlogProperties = try repairRevlogProperties()
-                recoveredDecks += try recoverMissingDeckParents()
-
-                var updatedConf = store.conf
-                let nextPosition = try store.db.scalarInt("SELECT COALESCE(MAX(due), 0) + 1 FROM cards WHERE type = 0")
-                updatedConf["nextPos"] = max((updatedConf["nextPos"] as? Int ?? 1), nextPosition)
-                try store.saveConf(updatedConf)
-                repairedIDs = try repairInvalidIDs()
-                try store.refreshCounts()
-                try store.db.exec("COMMIT")
-            } catch {
-                try? store.db.exec("ROLLBACK")
-                try? store.reloadMeta()
-                try? store.refreshCounts()
-                throw error
-            }
-
-            let notes = try store.db.scalarInt("SELECT COUNT(*) FROM notes")
-            let cards = try store.db.scalarInt("SELECT COUNT(*) FROM cards")
-            store.lastError = "Coleção verificada e otimizada: \(notes) notas, \(cards) cartões; \(orphanedCards.count) cartões órfãos removidos, \(removedInvalidCards) cartões sem modelo removidos, \(repairedFieldCounts) notas ajustadas, \(repairedCardProperties) propriedades de cartões corrigidas, \(repairedRevlogProperties) registros de revisão corrigidos, \(recoveredDecks) baralhos restaurados, \(recoveredNotetypes) tipos de nota restaurados e \(repairedIDs) IDs corrigidos. \(notesWithoutNotetype) notas sem tipo compatível foram preservadas. Tags reconstruídas; backup salvo no perfil."
-        } catch {
-            store.lastError = error.localizedDescription
-        }
-    }
-
-    private func repairCardProperties() throws -> Int {
-        let now = Int64(Date().timeIntervalSince1970)
-        let today = store.schedDay()
-        var repaired = 0
-
-        let newDueExpression = "CASE WHEN type = 0 AND queue != 4 THEN 1000000 + due % 1000000 ELSE due END"
-        repaired += try store.db.scalarInt("SELECT COUNT(*) FROM cards WHERE due >= 1000000 AND due != \(newDueExpression)")
-        try store.db.run("""
-            UPDATE cards
-            SET due = \(newDueExpression), mod = \(now), usn = -1
-            WHERE due >= 1000000 AND due != \(newDueExpression)
-        """)
-
-        let dueExpression = "CASE WHEN queue = 2 AND due > 100000 THEN \(today) ELSE min(max(round(due), -2147483648), 2147483647) END"
-        repaired += try store.db.scalarInt("SELECT COUNT(*) FROM cards WHERE due != \(dueExpression)")
-        try store.db.run("""
-            UPDATE cards
-            SET due = \(dueExpression), mod = \(now), usn = -1
-            WHERE due != \(dueExpression)
-        """)
-
-        let intervalExpression = "min(max(round(ivl), -2147483648), 2147483647)"
-        repaired += try store.db.scalarInt("SELECT COUNT(*) FROM cards WHERE ivl != \(intervalExpression)")
-        try store.db.run("""
-            UPDATE cards
-            SET ivl = \(intervalExpression), mod = \(now), usn = -1
-            WHERE ivl != \(intervalExpression)
-        """)
-
-        let originalDueExpression = "CASE WHEN odid = 0 THEN 0 ELSE min(max(round(odue), -2147483648), 2147483647) END"
-        repaired += try store.db.scalarInt("SELECT COUNT(*) FROM cards WHERE odue != \(originalDueExpression)")
-        try store.db.run("""
-            UPDATE cards
-            SET odue = \(originalDueExpression), mod = \(now), usn = -1
-            WHERE odue != \(originalDueExpression)
-        """)
-
-        let ordinalExpression = "min(max(ord, 0), 65535)"
-        repaired += try store.db.scalarInt("SELECT COUNT(*) FROM cards WHERE ord != \(ordinalExpression)")
-        try store.db.run("""
-            UPDATE cards
-            SET ord = \(ordinalExpression), mod = \(now), usn = -1
-            WHERE ord != \(ordinalExpression)
-        """)
-
-        let modificationExpression = "min(max(round(mod), 0), \(now))"
-        repaired += try store.db.scalarInt("SELECT COUNT(*) FROM cards WHERE mod != \(modificationExpression)")
-        try store.db.run("""
-            UPDATE cards
-            SET mod = \(modificationExpression), usn = -1
-            WHERE mod != \(modificationExpression)
-        """)
-        return repaired
-    }
-
-    private func recoverMissingDecks() throws -> Int {
-        var referencedIDs: [Int64] = []
-        try store.db.query("SELECT DISTINCT did FROM cards ORDER BY did") { statement in
-            referencedIDs.append(sqlite3_column_int64(statement, 0))
-        }
-        let missingIDs = referencedIDs.filter { store.deck(id: $0) == nil }
-        guard !missingIDs.isEmpty else { return 0 }
-
-        var nextDecks = store.decks
-        var names = Set(nextDecks.map { $0.name.lowercased() })
-        let now = Int64(Date().timeIntervalSince1970)
-        for id in missingIDs {
-            var name = "recovered\(id)"
-            var suffix = 2
-            while names.contains(name.lowercased()) {
-                name = "recovered\(id)-\(suffix)"
-                suffix += 1
-            }
-            names.insert(name.lowercased())
-            nextDecks.append(AnkiDeck(
-                id: id,
-                name: name,
-                mod: now,
-                usn: -1,
-                collapsed: false,
-                browserCollapsed: false,
-                desc: "",
-                dyn: 0,
-                conf: 1,
-                extendNew: 0,
-                extendRev: 0,
-                newToday: [0, 0],
-                revToday: [0, 0],
-                lrnToday: [0, 0],
-                timeToday: [0, 0]
-            ))
-        }
-        try store.saveDecks(nextDecks)
-        return missingIDs.count
-    }
-
-    private func clearInvalidFilteredDeckState() throws -> Int {
-        var invalidIDs: [Int64] = []
-        try store.db.query("SELECT id, did FROM cards WHERE odid > 0") { statement in
-            let cardID = sqlite3_column_int64(statement, 0)
-            let deckID = sqlite3_column_int64(statement, 1)
-            if store.deck(id: deckID)?.isFiltered != true {
-                invalidIDs.append(cardID)
-            }
-        }
-        guard !invalidIDs.isEmpty else { return 0 }
-
-        let now = Int64(Date().timeIntervalSince1970)
-        for cardID in invalidIDs {
-            try store.db.run(
-                "UPDATE cards SET odid = 0, odue = 0, mod = ?, usn = -1 WHERE id = ?",
-                bind: {
-                    SQLiteDatabase.bindInt64($0, 1, now)
-                    SQLiteDatabase.bindInt64($0, 2, cardID)
-                }
-            )
-        }
-        return invalidIDs.count
-    }
-
-    private func recoverMissingNotetypes() throws -> Int {
-        var noteRows: [(id: Int64, mid: Int64)] = []
-        try store.db.query("SELECT id, mid FROM notes ORDER BY mid, id") { statement in
-            noteRows.append((
-                sqlite3_column_int64(statement, 0),
-                sqlite3_column_int64(statement, 1)
-            ))
-        }
-        var noteGroups: [Int64: [(id: Int64, fields: Int)]] = [:]
-        for row in noteRows where store.notetype(id: row.mid) == nil {
-            guard let note = try store.fetchNote(id: row.id) else { continue }
-            noteGroups[row.mid, default: []].append((row.id, note.fields.count))
-        }
-        guard !noteGroups.isEmpty else {
-            guard store.notetypes.isEmpty else { return 0 }
-            var typeID = store.timestampID()
-            while store.notetype(id: typeID) != nil {
-                typeID = store.timestampID()
-            }
-            let data = try JSONSerialization.data(withJSONObject: CollectionSchema.makeBasicNotetype(
-                id: typeID,
-                now: Int64(Date().timeIntervalSince1970)
-            ))
-            let basic = try JSONDecoder().decode(AnkiNotetype.self, from: data)
-            try store.saveNotetypes([basic])
-            return 1
-        }
-
-        let now = Int64(Date().timeIntervalSince1970)
-        var recoveredTypes: [AnkiNotetype] = []
-        var idMappings: [(oldID: Int64, newID: Int64)] = []
-        var names = Set(store.notetypes.map { $0.name.lowercased() })
-        for (missingID, notes) in noteGroups.sorted(by: { $0.key < $1.key }) {
-            var maxOrdinal = 0
-            for note in notes {
-                let ordinal = try store.db.scalarInt(
-                    "SELECT COALESCE(MAX(ord), 0) FROM cards WHERE nid = ?",
-                    bind: { SQLiteDatabase.bindInt64($0, 1, note.id) }
-                )
-                maxOrdinal = max(maxOrdinal, ordinal)
-            }
-
-            var typeID = store.timestampID()
-            while store.notetype(id: typeID) != nil || recoveredTypes.contains(where: { $0.id == typeID }) {
-                typeID = store.timestampID()
-            }
-            let data = try JSONSerialization.data(withJSONObject: CollectionSchema.makeBasicNotetype(id: typeID, now: now))
-            var recovered = try JSONDecoder().decode(AnkiNotetype.self, from: data)
-            var name = "db-check-\(now)-\(missingID)"
-            var suffix = 2
-            while names.contains(name.lowercased()) {
-                name = "db-check-\(now)-\(missingID)-\(suffix)"
-                suffix += 1
-            }
-            names.insert(name.lowercased())
-            recovered.name = name
-
-            let fieldCount = max(2, notes.map { $0.fields }.max() ?? 2)
-            while recovered.flds.count < fieldCount {
-                let ordinal = recovered.flds.count
-                recovered.flds.append(AnkiField(name: "\(ordinal + 1)", ord: ordinal))
-            }
-
-            let questionFormat = recovered.tmpls[0].qfmt
-            let answerFormat = recovered.tmpls[0].afmt
-            let templateCount = max(maxOrdinal + 1, 1)
-            while recovered.tmpls.count < templateCount {
-                let ordinal = recovered.tmpls.count
-                recovered.tmpls.append(AnkiTemplate(
-                    name: "Card \(ordinal + 1)",
-                    ord: ordinal,
-                    qfmt: questionFormat,
-                    afmt: answerFormat
-                ))
-            }
-            recovered.assignMissingComponentIDs()
-            recoveredTypes.append(recovered)
-            idMappings.append((missingID, typeID))
-        }
-
-        try store.saveNotetypes(store.notetypes + recoveredTypes)
-        for mapping in idMappings {
-            try store.db.run(
-                "UPDATE notes SET mid = ?, mod = ?, usn = -1 WHERE mid = ?",
-                bind: {
-                    SQLiteDatabase.bindInt64($0, 1, mapping.newID)
-                    SQLiteDatabase.bindInt64($0, 2, now)
-                    SQLiteDatabase.bindInt64($0, 3, mapping.oldID)
-                }
-            )
-        }
-        return recoveredTypes.count
-    }
-
-    private func repairRevlogProperties() throws -> Int {
-        let interval = "min(max(round(ivl), -2147483648), 2147483647)"
-        let lastInterval = "min(max(round(lastIvl), -2147483648), 2147483647)"
-        let time = "min(max(round(time), 0), 2147483647)"
-        let kind = "CASE WHEN type = 0 AND time = 0 AND ease = 0 THEN 5 ELSE type END"
-        let invalidCount = try store.db.scalarInt("""
-            SELECT COUNT(*) FROM revlog
-            WHERE ivl != \(interval)
-               OR lastIvl != \(lastInterval)
-               OR time != \(time)
-               OR type != \(kind)
-        """)
-        try store.db.run("""
-            UPDATE revlog
-            SET ivl = \(interval),
-                lastIvl = \(lastInterval),
-                time = \(time),
-                type = \(kind)
-            WHERE ivl != \(interval)
-               OR lastIvl != \(lastInterval)
-               OR time != \(time)
-               OR type != \(kind)
-        """)
-        return invalidCount
-    }
-
-    private func recoverMissingDeckParents() throws -> Int {
-        var names = Set(store.decks.map { $0.name.lowercased() })
-        var nextDecks = store.decks
-        let now = Int64(Date().timeIntervalSince1970)
-        var created = 0
-        let deckNames = nextDecks.map(\.name)
-        for deckName in deckNames {
-            let components = deckName.components(separatedBy: "::")
-            guard components.count > 1 else { continue }
-            for index in 1..<components.count {
-                let parent = components.prefix(index).joined(separator: "::")
-                guard names.insert(parent.lowercased()).inserted else { continue }
-                var id = store.timestampID()
-                while nextDecks.contains(where: { $0.id == id }) {
-                    id = store.timestampID()
-                }
-                nextDecks.append(AnkiDeck(
-                    id: id,
-                    name: parent,
-                    mod: now,
-                    usn: -1,
-                    collapsed: false,
-                    browserCollapsed: false,
-                    desc: "",
-                    dyn: 0,
-                    conf: 1,
-                    extendNew: 0,
-                    extendRev: 0,
-                    newToday: [0, 0],
-                    revToday: [0, 0],
-                    lrnToday: [0, 0],
-                    timeToday: [0, 0]
-                ))
-                created += 1
-            }
-        }
-        if created > 0 {
-            try store.saveDecks(nextDecks)
-        }
-        return created
-    }
-
-    private func repairInvalidIDs() throws -> Int {
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        let cutoff = now + 86_400_000
-        let invalidCount = try store.db.scalarInt("""
-            SELECT
-                (SELECT COUNT(*) FROM notes WHERE id > \(cutoff)) +
-                (SELECT COUNT(*) FROM cards WHERE id > \(cutoff)) +
-                (SELECT COUNT(*) FROM revlog WHERE id > \(cutoff))
-        """)
-        guard invalidCount > 0 else { return 0 }
-
-        try repairIDs(in: "notes", relatedTable: "cards", relatedColumn: "nid", cutoff: cutoff, preferredID: now)
-        try repairIDs(in: "cards", relatedTable: "revlog", relatedColumn: "cid", cutoff: cutoff, preferredID: now)
-        try repairIDs(in: "revlog", relatedTable: nil, relatedColumn: nil, cutoff: cutoff, preferredID: now)
-        return invalidCount
-    }
-
-    private func repairIDs(
-        in table: String,
-        relatedTable: String?,
-        relatedColumn: String?,
-        cutoff: Int64,
-        preferredID: Int64
-    ) throws {
-        var invalidIDs: [Int64] = []
-        try store.db.query("SELECT id FROM \(table) WHERE id > \(cutoff) ORDER BY id") { statement in
-            invalidIDs.append(sqlite3_column_int64(statement, 0))
-        }
-        guard !invalidIDs.isEmpty else { return }
-
-        var occupiedIDs = Set<Int64>()
-        try store.db.query("SELECT id FROM \(table) WHERE id <= \(cutoff)") { statement in
-            occupiedIDs.insert(sqlite3_column_int64(statement, 0))
-        }
-        let maxValidID = try store.db.scalarInt64("SELECT COALESCE(MAX(id), 0) FROM \(table) WHERE id <= \(cutoff)")
-        var nextID = max(preferredID, maxValidID + 1)
-        for invalidID in invalidIDs {
-            while nextID > cutoff || occupiedIDs.contains(nextID) {
-                nextID = nextID >= cutoff ? 1 : nextID + 1
-            }
-            try store.db.run(
-                "UPDATE \(table) SET id = ? WHERE id = ?",
-                bind: {
-                    SQLiteDatabase.bindInt64($0, 1, nextID)
-                    SQLiteDatabase.bindInt64($0, 2, invalidID)
-                }
-            )
-            if let relatedTable, let relatedColumn {
-                try store.db.run(
-                    "UPDATE \(relatedTable) SET \(relatedColumn) = ? WHERE \(relatedColumn) = ?",
-                    bind: {
-                        SQLiteDatabase.bindInt64($0, 1, nextID)
-                        SQLiteDatabase.bindInt64($0, 2, invalidID)
-                    }
-                )
-            }
-            occupiedIDs.insert(nextID)
-            nextID += 1
+        Task { @MainActor in
+            await Task.yield()
+            CollectionDatabaseChecker(store: store).run()
         }
     }
 
@@ -1201,6 +672,10 @@ struct SettingsView: View {
     }
 
     private func makeMediaCheckReport() throws -> MediaCheckReport {
+        try Self.makeMediaCheckReport(store: store)
+    }
+
+    static func makeMediaCheckReport(store: CollectionStore) throws -> MediaCheckReport {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: store.mediaRoot, withIntermediateDirectories: true)
         let trashRoot = store.profileDirectory.appendingPathComponent("media.trash", isDirectory: true)
@@ -1225,7 +700,7 @@ struct SettingsView: View {
             let noteID = sqlite3_column_int64(stmt, 0)
             let notetypeID = sqlite3_column_int64(stmt, 1)
             let fields = SQLiteDatabase.text(stmt, 2)
-            for rawName in MediaStore.mediaFiles(in: fields) {
+            for rawName in Self.ankiMediaFiles(in: fields) {
                 let name = Self.decodeMediaFilename(rawName)
                 guard Self.isLocalMediaFilename(name) else { continue }
                 referencesByName[name, default: []].insert(noteID)
@@ -1310,6 +785,31 @@ struct SettingsView: View {
             name = name.replacingOccurrences(of: encoded, with: decoded, options: .caseInsensitive)
         }
         return name.removingPercentEncoding ?? name
+    }
+
+    private static func ankiMediaFiles(in text: String) -> [String] {
+        let patterns: [(String, [Int])] = [
+            (#"\[sound:([^\]]+)\]"#, [1]),
+            (#"(?i)<(?:img|audio|source)\b[^>]*\bsrc\s*=\s*(?:\"([^\"]+)\"|'([^']+)'|([^\s>]+))[^>]*>"#, [1, 2, 3]),
+            (#"(?i)<object\b[^>]*\bdata\s*=\s*(?:\"([^\"]+)\"|'([^']+)'|([^\s>]+))[^>]*>"#, [1, 2, 3])
+        ]
+        var filenames: [String] = []
+        for (pattern, captureGroups) in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(text.startIndex..., in: text)
+            regex.enumerateMatches(in: text, range: range) { match, _, _ in
+                guard let match else { return }
+                for group in captureGroups {
+                    guard let capture = Range(match.range(at: group), in: text) else { continue }
+                    let filename = String(text[capture]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !filename.isEmpty, !filenames.contains(filename) {
+                        filenames.append(filename)
+                    }
+                    break
+                }
+            }
+        }
+        return filenames
     }
 
     private static func isLocalMediaFilename(_ name: String) -> Bool {
@@ -1493,7 +993,248 @@ struct SettingsView: View {
 
 }
 
-private struct MediaCheckReport {
+#if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+struct AnkiWebAccountSection: View {
+    @EnvironmentObject private var store: CollectionStore
+    @State private var ankiWebUsername = ""
+    @State private var ankiWebPassword = ""
+
+    var showsLoginForm = false
+    var onConnected: () -> Void = {}
+
+    var body: some View {
+        GlassFormSection(title: "AnkiWeb") {
+            VStack(alignment: .leading, spacing: 14) {
+                if store.ankiWebConfigured {
+                    Label("Conectado como \(store.ankiWebUsername)", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.good)
+                        .padding(.horizontal, 4)
+                    Button {
+                        Task { await store.syncWithAnkiWeb() }
+                    } label: {
+                        Label("Sincronizar agora", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
+                    .disabled(store.collectionSyncing)
+                    Button("Desconectar conta") {
+                        store.disconnectAnkiWeb()
+                        ankiWebPassword = ""
+                    }
+                    .buttonStyle(GlassButtonStyle(tint: AppTheme.danger, prominent: false, tintStrength: 0.18, expands: true))
+                }
+                if !store.ankiWebConfigured {
+                    if showsLoginForm {
+                        TextField("Usuário ou e-mail", text: $ankiWebUsername)
+                            .textFieldStyle(.plain)
+                            .autocorrectionDisabled()
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
+                            .glassField()
+                            .accessibilityIdentifier("ankiweb.username")
+                        SecureField("Senha do AnkiWeb", text: $ankiWebPassword)
+                            .textFieldStyle(.plain)
+                            .glassField()
+                            .accessibilityIdentifier("ankiweb.password")
+                        Button {
+                            Task {
+                                await store.loginAnkiWeb(username: ankiWebUsername, password: ankiWebPassword)
+                                if store.ankiWebConfigured {
+                                    ankiWebPassword = ""
+                                    onConnected()
+                                }
+                            }
+                        } label: {
+                            Label("Conectar ao AnkiWeb", systemImage: "person.crop.circle.badge.checkmark")
+                        }
+                        .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
+                        .disabled(store.collectionSyncing)
+                        .accessibilityIdentifier("ankiweb.connect")
+                    } else {
+                        Button {
+                            store.pendingAnkiWebLoginPanel = true
+                        } label: {
+                            Label("Iniciar sessão", systemImage: "person.crop.circle.badge.checkmark")
+                        }
+                        .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
+                        .accessibilityIdentifier("ankiweb.openLoginPanel")
+                    }
+                }
+                Text("Use sua conta AnkiWeb para sincronizar a coleção e a mídia com o Anki oficial.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .padding(.horizontal, 4)
+                if let ankiWebStatus = store.ankiWebStatus,
+                   ankiWebStatus != "Conectado como \(store.ankiWebUsername)." {
+                    Text(ankiWebStatus)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.good)
+                        .padding(.horizontal, 4)
+                }
+            }
+        }
+        .onAppear {
+            ankiWebUsername = store.ankiWebUsername
+        }
+        .onChange(of: store.activeProfile) { _, _ in
+            ankiWebUsername = store.ankiWebUsername
+            ankiWebPassword = ""
+        }
+    }
+}
+
+struct AnkiWebLoginPanel: View {
+    @Environment(\.dismiss) private var dismiss
+    let onConnected: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Label("Conectar ao AnkiWeb", systemImage: "arrow.triangle.2.circlepath.circle.fill")
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(AppTheme.primaryText)
+                        .padding(.horizontal, 4)
+                    AnkiWebAccountSection(showsLoginForm: true, onConnected: {
+                        onConnected()
+                        dismiss()
+                    })
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+                .padding(.bottom, 32)
+                .frame(maxWidth: 560, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            }
+            .navigationTitle("Sincronizar com AnkiWeb")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Fechar") { dismiss() }
+                        .accessibilityIdentifier("ankiweb.login.close")
+                }
+                #else
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Fechar") { dismiss() }
+                        .accessibilityIdentifier("ankiweb.login.close")
+                }
+                #endif
+            }
+        }
+        #if os(iOS)
+        .presentationDetents([.height(500), .large])
+        .presentationDragIndicator(.visible)
+        #else
+        .frame(minWidth: 500, minHeight: 480)
+        #endif
+    }
+}
+
+struct AnkiWebFullSyncPanel: View {
+    let prompt: AnkiWebFullSyncPrompt
+    let onUpload: () -> Void
+    let onDownload: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                            .font(.system(size: 38, weight: .medium))
+                            .foregroundStyle(AppTheme.accent)
+                        Text("Sincronização completa necessária")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(AppTheme.primaryText)
+                            .accessibilityIdentifier("ankiweb.fullSync.title")
+                        Text(prompt.message)
+                            .font(.body)
+                            .foregroundStyle(AppTheme.secondaryText)
+                            .lineSpacing(4)
+                        Text(directionExplanation)
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.secondaryText)
+                            .lineSpacing(3)
+                            .accessibilityIdentifier("ankiweb.fullSync.directionExplanation")
+                    }
+                    if prompt.direction == .upload || prompt.direction == .either {
+                        fullSyncAction(
+                            title: "Enviar coleção local",
+                            detail: "A coleção do AnkiWeb será substituída pela coleção deste aparelho.",
+                            systemImage: "arrow.up.to.line",
+                            identifier: "ankiweb.fullSync.upload",
+                            action: onUpload
+                        )
+                    }
+                    if prompt.direction == .download || prompt.direction == .either {
+                        fullSyncAction(
+                            title: "Baixar coleção do AnkiWeb",
+                            detail: "A coleção deste aparelho será substituída pela coleção do AnkiWeb.",
+                            systemImage: "arrow.down.to.line",
+                            identifier: "ankiweb.fullSync.download",
+                            action: onDownload
+                        )
+                    }
+                    Button("sync.cancel-full-sync", action: onCancel)
+                        .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.18, expands: true))
+                        .accessibilityIdentifier("ankiweb.fullSync.cancel")
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 28)
+                .padding(.bottom, 28)
+                .frame(maxWidth: 560, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            }
+            .background(AppBackground())
+            .navigationTitle("AnkiWeb")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+        }
+    }
+
+    private var directionExplanation: LocalizedStringKey {
+        switch prompt.direction {
+        case .download:
+            "O Anki detectou cartões no AnkiWeb, mas nenhum nesta coleção local; por isso, só permite baixar. Isso substituirá a coleção do aparelho. Se você esperava enviar cartões locais, cancele antes de continuar."
+        case .upload:
+            "O AnkiWeb não tem cartões, por isso só permite enviar. O envio substitui a coleção remota."
+        case .either:
+            "O Anki não mescla coleções durante uma sincronização completa. Enviar mantém a coleção local; baixar mantém a do AnkiWeb. A outra será substituída."
+        }
+    }
+
+    private func fullSyncAction(
+        title: LocalizedStringKey,
+        detail: LocalizedStringKey,
+        systemImage: String,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .lineSpacing(3)
+                Button(action: action) {
+                    Label(title, systemImage: systemImage)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(GlassButtonStyle(tint: AppTheme.danger, tintStrength: 0.3, expands: true))
+                .accessibilityIdentifier(identifier)
+            }
+        }
+    }
+}
+#endif
+
+struct MediaCheckReport {
     var fileCount: Int
     var unused: [String]
     var missing: [String]
@@ -1502,6 +1243,19 @@ private struct MediaCheckReport {
     var folders: [String]
     var trashCount: Int
     var trashBytes: Int64
+
+    static var empty: Self {
+        Self(
+            fileCount: 0,
+            unused: [],
+            missing: [],
+            missingLatex: [],
+            missingNoteIDs: [],
+            folders: [],
+            trashCount: 0,
+            trashBytes: 0
+        )
+    }
 }
 
 private struct MediaCheckSheet: View {
@@ -1634,7 +1388,528 @@ private struct MediaCheckSheet: View {
     }
 
     private func toolButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
+        Button(LocalizedStringKey(title), action: action)
             .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.16, expands: true))
     }
+}
+
+@MainActor
+final class CollectionDatabaseChecker {
+    private let store: CollectionStore
+
+    init(store: CollectionStore) {
+        self.store = store
+    }
+
+    func run() {
+        do {
+            let integrity = try store.db.scalarText("PRAGMA quick_check")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "sem resultado"
+            guard integrity == "ok" else {
+                store.lastError = "A coleção apresenta um problema de integridade: \(integrity)"
+                return
+            }
+
+            let backupDirectory = store.profileDirectory.appendingPathComponent("Backups", isDirectory: true)
+            try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+            let stamp = Int64(Date().timeIntervalSince1970 * 1000)
+            let backup = backupDirectory.appendingPathComponent("collection-check-\(stamp).anki2")
+            try store.db.backup(to: backup)
+
+            try store.db.run("VACUUM")
+            try store.db.run("ANALYZE")
+
+            var repairedFieldCounts = 0
+            var removedInvalidCards = 0
+            var notesWithoutNotetype = 0
+            var repairedCardProperties = 0
+            var repairedRevlogProperties = 0
+            var recoveredDecks = 0
+            var recoveredNotetypes = 0
+            var repairedIDs = 0
+            var orphanedCards: [Int64] = []
+            try store.db.exec("BEGIN IMMEDIATE")
+            do {
+                repairedCardProperties += try repairCardProperties()
+
+                try store.db.query("SELECT id FROM cards WHERE nid NOT IN (SELECT id FROM notes)") { statement in
+                    orphanedCards.append(sqlite3_column_int64(statement, 0))
+                }
+                try store.db.run("DELETE FROM cards WHERE nid NOT IN (SELECT id FROM notes)")
+
+                recoveredDecks += try recoverMissingDecks()
+                repairedCardProperties += try clearInvalidFilteredDeckState()
+                recoveredNotetypes = try recoverMissingNotetypes()
+
+                var noteIDs: [Int64] = []
+                try store.db.query("SELECT id FROM notes ORDER BY id") { statement in
+                    noteIDs.append(sqlite3_column_int64(statement, 0))
+                }
+                for noteID in noteIDs {
+                    guard var note = try store.fetchNote(id: noteID) else { continue }
+                    guard let model = store.notetype(id: note.mid) else {
+                        notesWithoutNotetype += 1
+                        continue
+                    }
+
+                    let expectedFieldCount = max(1, (model.flds.map(\.ord).max() ?? -1) + 1)
+                    if note.fields.count != expectedFieldCount {
+                        var fields = note.fields
+                        if fields.count > expectedFieldCount {
+                            let lastFieldIndex = expectedFieldCount - 1
+                            fields = Array(fields.prefix(expectedFieldCount))
+                            fields[lastFieldIndex] = note.fields.dropFirst(lastFieldIndex).joined(separator: "; ")
+                        }
+                        if fields.count < expectedFieldCount {
+                            fields.append(contentsOf: repeatElement("", count: expectedFieldCount - fields.count))
+                        }
+                        var tags = note.tagList
+                        if !tags.contains("db-check") { tags.append("db-check") }
+                        try store.updateNote(note, fields: fields, tags: tags.joined(separator: " "))
+                        repairedFieldCounts += 1
+                        guard let repaired = try store.fetchNote(id: noteID) else { continue }
+                        note = repaired
+                    }
+
+                    let wanted = model.isCloze
+                        ? Set(ClozeHelper.ords(in: note.fields))
+                        : Set(store.activeTemplateOrds(model: model, fields: note.fields, tags: note.tagList))
+                    var cardRows: [(id: Int64, ord: Int)] = []
+                    try store.db.query("SELECT id, ord FROM cards WHERE nid = ? ORDER BY id", bind: {
+                        SQLiteDatabase.bindInt64($0, 1, noteID)
+                    }) { statement in
+                        cardRows.append((sqlite3_column_int64(statement, 0), Int(sqlite3_column_int(statement, 1))))
+                    }
+                    var seenOrds = Set<Int>()
+                    let invalidCardIDs = cardRows.compactMap { card in
+                        !wanted.contains(card.ord) || !seenOrds.insert(card.ord).inserted ? card.id : nil
+                    }
+                    let retainedCardIDs = Set(cardRows.map(\.id).filter { !invalidCardIDs.contains($0) })
+                    if !invalidCardIDs.isEmpty {
+                        for cardID in invalidCardIDs {
+                            try store.db.run("DELETE FROM cards WHERE id = ?", bind: {
+                                SQLiteDatabase.bindInt64($0, 1, cardID)
+                            })
+                        }
+                        removedInvalidCards += invalidCardIDs.count
+                    }
+                    if !wanted.isEmpty {
+                        try store.regenerateCards(forNoteID: noteID)
+                        var emptyNewCardIDs: [Int64] = []
+                        try store.db.query("SELECT id FROM cards WHERE nid = ? AND data = ''", bind: {
+                            SQLiteDatabase.bindInt64($0, 1, noteID)
+                        }) { statement in
+                            let cardID = sqlite3_column_int64(statement, 0)
+                            if !retainedCardIDs.contains(cardID) { emptyNewCardIDs.append(cardID) }
+                        }
+                        for cardID in emptyNewCardIDs {
+                            try store.db.run("UPDATE cards SET data = '{}' WHERE id = ?", bind: {
+                                SQLiteDatabase.bindInt64($0, 1, cardID)
+                            })
+                        }
+                    }
+                }
+
+                try store.rebuildTagRegistry()
+                repairedRevlogProperties = try repairRevlogProperties()
+                recoveredDecks += try recoverMissingDeckParents()
+
+                var updatedConf = store.conf
+                let nextPosition = try store.db.scalarInt("SELECT COALESCE(MAX(due), 0) + 1 FROM cards WHERE type = 0")
+                updatedConf["nextPos"] = max((updatedConf["nextPos"] as? Int ?? 1), nextPosition)
+                try store.saveConf(updatedConf)
+                repairedIDs = try repairInvalidIDs()
+                try store.refreshCounts()
+                try store.db.exec("COMMIT")
+            } catch {
+                try? store.db.exec("ROLLBACK")
+                try? store.reloadMeta()
+                try? store.refreshCounts()
+                throw error
+            }
+
+            let notes = try store.db.scalarInt("SELECT COUNT(*) FROM notes")
+            let cards = try store.db.scalarInt("SELECT COUNT(*) FROM cards")
+            store.lastError = "Coleção verificada e otimizada: \(notes) notas, \(cards) cartões; \(orphanedCards.count) cartões órfãos removidos, \(removedInvalidCards) cartões sem modelo removidos, \(repairedFieldCounts) notas ajustadas, \(repairedCardProperties) propriedades de cartões corrigidas, \(repairedRevlogProperties) registros de revisão corrigidos, \(recoveredDecks) baralhos restaurados, \(recoveredNotetypes) tipos de nota restaurados e \(repairedIDs) IDs corrigidos. \(notesWithoutNotetype) notas sem tipo compatível foram preservadas. Tags reconstruídas; backup salvo no perfil."
+        } catch {
+            store.lastError = error.localizedDescription
+        }
+    }
+
+    private func repairCardProperties() throws -> Int {
+        let now = Int64(Date().timeIntervalSince1970)
+        let today = store.schedDay()
+        var repaired = 0
+
+        let newDueExpression = "CASE WHEN type = 0 AND queue != 4 THEN 1000000 + due % 1000000 ELSE due END"
+        repaired += try store.db.scalarInt("SELECT COUNT(*) FROM cards WHERE due >= 1000000 AND due != \(newDueExpression)")
+        try store.db.run("""
+            UPDATE cards
+            SET due = \(newDueExpression), mod = \(now), usn = -1
+            WHERE due >= 1000000 AND due != \(newDueExpression)
+        """)
+
+        let dueExpression = "CASE WHEN queue = 2 AND due > 100000 THEN \(today) ELSE min(max(round(due), -2147483648), 2147483647) END"
+        repaired += try store.db.scalarInt("SELECT COUNT(*) FROM cards WHERE due != \(dueExpression)")
+        try store.db.run("""
+            UPDATE cards
+            SET due = \(dueExpression), mod = \(now), usn = -1
+            WHERE due != \(dueExpression)
+        """)
+
+        let intervalExpression = "min(max(round(ivl), -2147483648), 2147483647)"
+        repaired += try store.db.scalarInt("SELECT COUNT(*) FROM cards WHERE ivl != \(intervalExpression)")
+        try store.db.run("""
+            UPDATE cards
+            SET ivl = \(intervalExpression), mod = \(now), usn = -1
+            WHERE ivl != \(intervalExpression)
+        """)
+
+        let originalDueExpression = "min(max(round(odue), -2147483648), 2147483647)"
+        repaired += try store.db.scalarInt("SELECT COUNT(*) FROM cards WHERE odue != \(originalDueExpression)")
+        try store.db.run("""
+            UPDATE cards
+            SET odue = \(originalDueExpression), mod = \(now), usn = -1
+            WHERE odue != \(originalDueExpression)
+        """)
+
+        let ordinalExpression = "min(max(ord, 0), 65535)"
+        repaired += try store.db.scalarInt("SELECT COUNT(*) FROM cards WHERE ord != \(ordinalExpression)")
+        try store.db.run("""
+            UPDATE cards
+            SET ord = \(ordinalExpression), mod = \(now), usn = -1
+            WHERE ord != \(ordinalExpression)
+        """)
+
+        let modificationExpression = "min(max(round(mod), 0), \(now))"
+        repaired += try store.db.scalarInt("SELECT COUNT(*) FROM cards WHERE mod != \(modificationExpression)")
+        try store.db.run("""
+            UPDATE cards
+            SET mod = \(modificationExpression), usn = -1
+            WHERE mod != \(modificationExpression)
+        """)
+
+        var missingReviewTimes: [(id: Int64, data: String, timestamp: Int64)] = []
+        try store.db.query("""
+            SELECT cards.id, cards.data, MAX(revlog.id)
+            FROM cards
+            JOIN revlog ON revlog.cid = cards.id
+            GROUP BY cards.id
+            ORDER BY cards.id
+        """) { statement in
+            let id = sqlite3_column_int64(statement, 0)
+            let data = SQLiteDatabase.text(statement, 1)
+            let timestamp = sqlite3_column_int64(statement, 2) / 1000
+            guard let json = data.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: json),
+                  let values = object as? [String: Any],
+                  values["lrt"] == nil
+            else { return }
+            missingReviewTimes.append((id, data, timestamp))
+        }
+        for item in missingReviewTimes {
+            let json = Data(item.data.utf8)
+            guard var values = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any] else { continue }
+            values["lrt"] = item.timestamp
+            let updated = try JSONSerialization.data(withJSONObject: values, options: [.sortedKeys])
+            try store.db.run(
+                "UPDATE cards SET data = ?, usn = -1 WHERE id = ?",
+                bind: {
+                    try SQLiteDatabase.bindText($0, 1, String(decoding: updated, as: UTF8.self))
+                    SQLiteDatabase.bindInt64($0, 2, item.id)
+                }
+            )
+        }
+        repaired += missingReviewTimes.count
+        return repaired
+    }
+
+    private func recoverMissingDecks() throws -> Int {
+        var referencedIDs: [Int64] = []
+        try store.db.query("SELECT DISTINCT did FROM cards ORDER BY did") { statement in
+            referencedIDs.append(sqlite3_column_int64(statement, 0))
+        }
+        let missingIDs = referencedIDs.filter { store.deck(id: $0) == nil }
+        guard !missingIDs.isEmpty else { return 0 }
+
+        var nextDecks = store.decks
+        var names = Set(nextDecks.map { $0.name.lowercased() })
+        let now = Int64(Date().timeIntervalSince1970)
+        for id in missingIDs {
+            var name = "recovered\(id)"
+            var suffix = 2
+            while names.contains(name.lowercased()) {
+                name = "recovered\(id)-\(suffix)"
+                suffix += 1
+            }
+            names.insert(name.lowercased())
+            nextDecks.append(AnkiDeck(
+                id: id,
+                name: name,
+                mod: now,
+                usn: -1,
+                collapsed: false,
+                browserCollapsed: false,
+                desc: "",
+                dyn: 0,
+                conf: 1,
+                extendNew: 0,
+                extendRev: 0,
+                newToday: [0, 0],
+                revToday: [0, 0],
+                lrnToday: [0, 0],
+                timeToday: [0, 0]
+            ))
+        }
+        try store.saveDecks(nextDecks)
+        return missingIDs.count
+    }
+
+    private func clearInvalidFilteredDeckState() throws -> Int {
+        var invalidIDs: [Int64] = []
+        try store.db.query("SELECT id, did FROM cards WHERE odid > 0") { statement in
+            let cardID = sqlite3_column_int64(statement, 0)
+            let deckID = sqlite3_column_int64(statement, 1)
+            if store.deck(id: deckID)?.isFiltered != true {
+                invalidIDs.append(cardID)
+            }
+        }
+        guard !invalidIDs.isEmpty else { return 0 }
+
+        let now = Int64(Date().timeIntervalSince1970)
+        for cardID in invalidIDs {
+            try store.db.run(
+                "UPDATE cards SET odid = 0, odue = 0, mod = ?, usn = -1 WHERE id = ?",
+                bind: {
+                    SQLiteDatabase.bindInt64($0, 1, now)
+                    SQLiteDatabase.bindInt64($0, 2, cardID)
+                }
+            )
+        }
+        return invalidIDs.count
+    }
+
+    private func recoverMissingNotetypes() throws -> Int {
+        var noteRows: [(id: Int64, mid: Int64)] = []
+        try store.db.query("SELECT id, mid FROM notes ORDER BY mid, id") { statement in
+            noteRows.append((
+                sqlite3_column_int64(statement, 0),
+                sqlite3_column_int64(statement, 1)
+            ))
+        }
+        var noteGroups: [Int64: [(id: Int64, fields: Int)]] = [:]
+        for row in noteRows where store.notetype(id: row.mid) == nil {
+            guard let note = try store.fetchNote(id: row.id) else { continue }
+            noteGroups[row.mid, default: []].append((row.id, note.fields.count))
+        }
+        guard !noteGroups.isEmpty else {
+            guard store.notetypes.isEmpty else { return 0 }
+            var typeID = store.timestampID()
+            while store.notetype(id: typeID) != nil {
+                typeID = store.timestampID()
+            }
+            let data = try JSONSerialization.data(withJSONObject: CollectionSchema.makeBasicNotetype(
+                id: typeID,
+                now: Int64(Date().timeIntervalSince1970)
+            ))
+            let basic = try JSONDecoder().decode(AnkiNotetype.self, from: data)
+            try store.saveNotetypes([basic])
+            return 1
+        }
+
+        let now = Int64(Date().timeIntervalSince1970)
+        let stamp = Int64(Date().timeIntervalSince1970 * 1000)
+        var recoveredTypes: [AnkiNotetype] = []
+        var idMappings: [(oldID: Int64, newID: Int64)] = []
+        var names = Set(store.notetypes.map { $0.name.lowercased() })
+        for (missingID, notes) in noteGroups.sorted(by: { $0.key < $1.key }) {
+            var maxOrdinal = 0
+            for note in notes {
+                let ordinal = try store.db.scalarInt(
+                    "SELECT COALESCE(MAX(ord), 0) FROM cards WHERE nid = ?",
+                    bind: { SQLiteDatabase.bindInt64($0, 1, note.id) }
+                )
+                maxOrdinal = max(maxOrdinal, ordinal)
+            }
+
+            var typeID = store.timestampID()
+            while store.notetype(id: typeID) != nil || recoveredTypes.contains(where: { $0.id == typeID }) {
+                typeID = store.timestampID()
+            }
+            let data = try JSONSerialization.data(withJSONObject: CollectionSchema.makeBasicNotetype(id: typeID, now: now))
+            var recovered = try JSONDecoder().decode(AnkiNotetype.self, from: data)
+            let fieldCount = max(2, notes.map { $0.fields }.max() ?? 2)
+            var name = "db-check-\(stamp)-\(fieldCount)"
+            var suffix = 2
+            while names.contains(name.lowercased()) {
+                name = "db-check-\(stamp)-\(fieldCount)-\(suffix)"
+                suffix += 1
+            }
+            names.insert(name.lowercased())
+            recovered.name = name
+
+            while recovered.flds.count < fieldCount {
+                let ordinal = recovered.flds.count
+                recovered.flds.append(AnkiField(name: "\(ordinal + 1)", ord: ordinal))
+            }
+
+            let questionFormat = recovered.tmpls[0].qfmt
+            let answerFormat = recovered.tmpls[0].afmt
+            let templateCount = max(maxOrdinal + 1, 1)
+            while recovered.tmpls.count < templateCount {
+                let ordinal = recovered.tmpls.count
+                recovered.tmpls.append(AnkiTemplate(
+                    name: "Card \(ordinal + 1)",
+                    ord: ordinal,
+                    qfmt: questionFormat,
+                    afmt: answerFormat
+                ))
+            }
+            recovered.assignMissingComponentIDs()
+            recoveredTypes.append(recovered)
+            idMappings.append((missingID, typeID))
+        }
+
+        try store.saveNotetypes(store.notetypes + recoveredTypes)
+        for mapping in idMappings {
+            try store.db.run(
+                "UPDATE notes SET mid = ?, mod = ?, usn = -1 WHERE mid = ?",
+                bind: {
+                    SQLiteDatabase.bindInt64($0, 1, mapping.newID)
+                    SQLiteDatabase.bindInt64($0, 2, now)
+                    SQLiteDatabase.bindInt64($0, 3, mapping.oldID)
+                }
+            )
+        }
+        return recoveredTypes.count
+    }
+
+    private func repairRevlogProperties() throws -> Int {
+        let interval = "min(max(round(ivl), -2147483648), 2147483647)"
+        let lastInterval = "min(max(round(lastIvl), -2147483648), 2147483647)"
+        let time = "min(max(round(time), 0), 2147483647)"
+        let kind = "CASE WHEN type = 0 AND time = 0 AND ease = 0 THEN 5 ELSE type END"
+        let invalidCount = try store.db.scalarInt("""
+            SELECT COUNT(*) FROM revlog
+            WHERE ivl != \(interval)
+               OR lastIvl != \(lastInterval)
+               OR time != \(time)
+               OR type != \(kind)
+        """)
+        try store.db.run("""
+            UPDATE revlog
+            SET ivl = \(interval),
+                lastIvl = \(lastInterval),
+                time = \(time),
+                type = \(kind)
+            WHERE ivl != \(interval)
+               OR lastIvl != \(lastInterval)
+               OR time != \(time)
+               OR type != \(kind)
+        """)
+        return invalidCount
+    }
+
+    private func recoverMissingDeckParents() throws -> Int {
+        var names = Set(store.decks.map { $0.name.lowercased() })
+        var nextDecks = store.decks
+        let now = Int64(Date().timeIntervalSince1970)
+        var created = 0
+        let deckNames = nextDecks.map(\.name)
+        for deckName in deckNames {
+            let components = deckName.components(separatedBy: "::")
+            guard components.count > 1 else { continue }
+            for index in 1..<components.count {
+                let parent = components.prefix(index).joined(separator: "::")
+                guard names.insert(parent.lowercased()).inserted else { continue }
+                var id = store.timestampID()
+                while nextDecks.contains(where: { $0.id == id }) {
+                    id = store.timestampID()
+                }
+                nextDecks.append(AnkiDeck(
+                    id: id,
+                    name: parent,
+                    mod: now,
+                    usn: -1,
+                    collapsed: false,
+                    browserCollapsed: false,
+                    desc: "",
+                    dyn: 0,
+                    conf: 1,
+                    extendNew: 0,
+                    extendRev: 0,
+                    newToday: [0, 0],
+                    revToday: [0, 0],
+                    lrnToday: [0, 0],
+                    timeToday: [0, 0]
+                ))
+                created += 1
+            }
+        }
+        if created > 0 {
+            try store.saveDecks(nextDecks)
+        }
+        return created
+    }
+
+    private func repairInvalidIDs() throws -> Int {
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let cutoff = now + 86_400_000
+        let invalidCount = try store.db.scalarInt("""
+            SELECT
+                (SELECT COUNT(*) FROM notes WHERE id > \(cutoff)) +
+                (SELECT COUNT(*) FROM cards WHERE id > \(cutoff)) +
+                (SELECT COUNT(*) FROM revlog WHERE id > \(cutoff))
+        """)
+        guard invalidCount > 0 else { return 0 }
+
+        try repairIDs(in: "notes", relatedTable: "cards", relatedColumn: "nid", cutoff: cutoff, preferredID: now)
+        try repairIDs(in: "cards", relatedTable: "revlog", relatedColumn: "cid", cutoff: cutoff, preferredID: now)
+        try repairIDs(in: "revlog", relatedTable: nil, relatedColumn: nil, cutoff: cutoff, preferredID: now)
+        return invalidCount
+    }
+
+    private func repairIDs(
+        in table: String,
+        relatedTable: String?,
+        relatedColumn: String?,
+        cutoff: Int64,
+        preferredID: Int64
+    ) throws {
+        var invalidIDs: [Int64] = []
+        try store.db.query("SELECT id FROM \(table) WHERE id > \(cutoff) ORDER BY id") { statement in
+            invalidIDs.append(sqlite3_column_int64(statement, 0))
+        }
+        guard !invalidIDs.isEmpty else { return }
+
+        var occupiedIDs = Set<Int64>()
+        try store.db.query("SELECT id FROM \(table) WHERE id <= \(cutoff)") { statement in
+            occupiedIDs.insert(sqlite3_column_int64(statement, 0))
+        }
+        let maxValidID = try store.db.scalarInt64("SELECT COALESCE(MAX(id), 0) FROM \(table) WHERE id <= \(cutoff)")
+        var nextID = max(preferredID, maxValidID + 1)
+        for invalidID in invalidIDs {
+            while nextID > cutoff || occupiedIDs.contains(nextID) {
+                nextID = nextID >= cutoff ? 1 : nextID + 1
+            }
+            try store.db.run(
+                "UPDATE \(table) SET id = ? WHERE id = ?",
+                bind: {
+                    SQLiteDatabase.bindInt64($0, 1, nextID)
+                    SQLiteDatabase.bindInt64($0, 2, invalidID)
+                }
+            )
+            if let relatedTable, let relatedColumn {
+                try store.db.run(
+                    "UPDATE \(relatedTable) SET \(relatedColumn) = ? WHERE \(relatedColumn) = ?",
+                    bind: {
+                        SQLiteDatabase.bindInt64($0, 1, nextID)
+                        SQLiteDatabase.bindInt64($0, 2, invalidID)
+                    }
+                )
+            }
+            occupiedIDs.insert(nextID)
+            nextID += 1
+        }
+    }
+
 }

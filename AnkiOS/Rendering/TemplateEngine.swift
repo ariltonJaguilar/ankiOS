@@ -9,6 +9,21 @@ enum TemplateEngine {
         var ignoreCase: Bool
     }
 
+    private enum TypeAnswerTokenKind { case good, bad, missing }
+
+    private struct TypeAnswerToken {
+        var kind: TypeAnswerTokenKind
+        var text: String
+    }
+
+    private struct TypeAnswerOpcode {
+        var tag: String
+        var firstStart: Int
+        var firstEnd: Int
+        var secondStart: Int
+        var secondEnd: Int
+    }
+
     private indirect enum ClozeNode {
         case text(String)
         case cloze(ordinals: [Int], contents: [ClozeNode], hint: String?)
@@ -278,16 +293,23 @@ enum TemplateEngine {
 
     static func typeAnswerMatches(typed: String, expected: String, config: TypeAnswerConfig? = nil) -> Bool {
         let options = config ?? TypeAnswerConfig(fieldName: "", cloze: false, ignoreDiacritics: false, ignoreCase: false)
+        guard !typed.isEmpty else { return false }
         return comparisonCharacters(typed, config: options) == comparisonCharacters(expectedText(expected), config: options)
     }
 
     private static func comparisonCharacters(_ value: String, config: TypeAnswerConfig) -> [String] {
-        var options: String.CompareOptions = []
-        if config.ignoreDiacritics { options.insert(.diacriticInsensitive) }
-        if config.ignoreCase { options.insert(.caseInsensitive) }
-        return value.precomposedStringWithCanonicalMapping.map {
-            String($0).folding(options: options, locale: Locale(identifier: "en_US_POSIX"))
-        }
+        var characters = config.ignoreDiacritics
+            ? value.decomposedStringWithCompatibilityMapping.unicodeScalars.filter { !CharacterSet.nonBaseCharacters.contains($0) }.map(String.init)
+            : value.precomposedStringWithCanonicalMapping.unicodeScalars.map(String.init)
+        if config.ignoreCase { characters = characters.map(foldCase) }
+        return characters
+    }
+
+    private static func foldCase(_ character: String) -> String {
+        guard let scalar = character.unicodeScalars.first else { return character }
+        if scalar.value == 0x03C2 { return "σ" }
+        if scalar.value == 0x017F { return "s" }
+        return String(String(scalar).lowercased().unicodeScalars.first ?? scalar)
     }
 
     private static func expectedText(_ value: String) -> String {
@@ -310,77 +332,204 @@ enum TemplateEngine {
             return "<code id=typeans>\(escapeHTML(expected))</code>"
         }
 
-        let typedChars = Array(typed.precomposedStringWithCanonicalMapping)
-        let expectedChars = Array(expected.precomposedStringWithCanonicalMapping)
-        let typedKeys = comparisonCharacters(typed, config: config)
-        let expectedKeys = comparisonCharacters(expected, config: config)
-        guard typedKeys != expectedKeys else {
-            return "<code id=typeans><span class=typeGood>\(escapeHTML(expected))</span></code>"
-        }
-
-        guard typedChars.count * expectedChars.count <= 1_000_000 else {
-            return "<code id=typeans><span class=typeBad>\(escapeHTML(typed))</span><br><span id=typearrow>&darr;</span><br><span class=typeMissed>\(escapeHTML(expected))</span></code>"
-        }
-
-        let width = expectedChars.count + 1
-        var lcs = [UInt16](repeating: 0, count: (typedChars.count + 1) * width)
-        if !typedChars.isEmpty, !expectedChars.isEmpty {
-            for i in stride(from: typedChars.count - 1, through: 0, by: -1) {
-                for j in stride(from: expectedChars.count - 1, through: 0, by: -1) {
-                    let index = i * width + j
-                    if typedKeys[i] == expectedKeys[j] {
-                        lcs[index] = lcs[(i + 1) * width + j + 1] + 1
-                    } else {
-                        lcs[index] = max(lcs[(i + 1) * width + j], lcs[i * width + j + 1])
+        let typedNormalized = typed.precomposedStringWithCanonicalMapping
+        var typedCharacters: [String]
+        var expectedCharacters: [String]
+        var typedComparable: [String]
+        var expectedComparable: [String]
+        if config.ignoreDiacritics {
+            typedCharacters = typed.decomposedStringWithCompatibilityMapping.unicodeScalars
+                .filter { !CharacterSet.nonBaseCharacters.contains($0) }.map(String.init)
+            expectedCharacters = []
+            expectedComparable = []
+            for scalar in expected.decomposedStringWithCompatibilityMapping.unicodeScalars {
+                if CharacterSet.nonBaseCharacters.contains(scalar) {
+                    if let last = expectedCharacters.indices.last {
+                        expectedCharacters[last].append(String(scalar))
                     }
+                } else {
+                    let value = String(scalar)
+                    expectedCharacters.append(value)
+                    expectedComparable.append(value)
                 }
             }
+            typedComparable = typedCharacters
+        } else {
+            typedCharacters = Array(typedNormalized.unicodeScalars).map(String.init)
+            expectedCharacters = Array(expected.precomposedStringWithCanonicalMapping.unicodeScalars).map(String.init)
+            typedComparable = typedCharacters
+            expectedComparable = expectedCharacters
+        }
+        if config.ignoreCase {
+            typedComparable = typedComparable.map(foldCase)
+            expectedComparable = expectedComparable.map(foldCase)
         }
 
-        enum TokenKind: Equatable { case good, bad, missing }
-        var typedTokens: [(TokenKind, String)] = []
-        var expectedTokens: [(TokenKind, String)] = []
-        func append(_ text: String, kind: TokenKind, to tokens: inout [(TokenKind, String)]) {
+        if typedComparable == expectedComparable {
+            return "<code id=typeans><span class=typeGood>\(escapeHTML(expectedCharacters.joined()))</span></code>"
+        }
+        let opcodes = sequenceOpcodes(first: typedComparable, second: expectedComparable)
+        if opcodes.count == 1, opcodes[0].tag == "equal" {
+            return "<code id=typeans><span class=typeGood>\(escapeHTML(expectedCharacters.joined()))</span></code>"
+        }
+
+        var typedTokens: [TypeAnswerToken] = []
+        var expectedTokens: [TypeAnswerToken] = []
+        func append(_ text: String, kind: TypeAnswerTokenKind, to tokens: inout [TypeAnswerToken]) {
             guard !text.isEmpty else { return }
-            if let last = tokens.last, last.0 == kind {
-                tokens[tokens.count - 1].1 += text
+            if tokens.last?.kind == kind {
+                tokens[tokens.count - 1].text += text
             } else {
-                tokens.append((kind, text))
+                tokens.append(TypeAnswerToken(kind: kind, text: text))
+            }
+        }
+        for opcode in opcodes {
+            let typedSlice = typedCharacters[opcode.firstStart..<opcode.firstEnd].joined()
+            let expectedSlice = expectedCharacters[opcode.secondStart..<opcode.secondEnd].joined()
+            switch opcode.tag {
+            case "equal":
+                append(typedSlice, kind: .good, to: &typedTokens)
+                append(expectedSlice, kind: .good, to: &expectedTokens)
+            case "delete":
+                append(typedSlice, kind: .bad, to: &typedTokens)
+            case "insert":
+                append(String(repeating: "-", count: opcode.secondEnd - opcode.secondStart), kind: .missing, to: &typedTokens)
+                append(expectedSlice, kind: .missing, to: &expectedTokens)
+            case "replace":
+                append(typedSlice, kind: .bad, to: &typedTokens)
+                append(expectedSlice, kind: .missing, to: &expectedTokens)
+            default:
+                break
             }
         }
 
-        var i = 0
-        var j = 0
-        while i < typedChars.count || j < expectedChars.count {
-            if i < typedChars.count, j < expectedChars.count, typedKeys[i] == expectedKeys[j] {
-                append(String(typedChars[i]), kind: .good, to: &typedTokens)
-                append(String(expectedChars[j]), kind: .good, to: &expectedTokens)
-                i += 1
-                j += 1
-            } else if i < typedChars.count,
-                      j == expectedChars.count || lcs[(i + 1) * width + j] >= lcs[i * width + j + 1] {
-                append(String(typedChars[i]), kind: .bad, to: &typedTokens)
-                i += 1
-            } else if j < expectedChars.count {
-                append(String(repeating: "-", count: 1), kind: .missing, to: &typedTokens)
-                append(String(expectedChars[j]), kind: .missing, to: &expectedTokens)
-                j += 1
-            }
-        }
-
-        func html(_ tokens: [(TokenKind, String)]) -> String {
-            tokens.map { kind, text in
+        func html(_ tokens: [TypeAnswerToken]) -> String {
+            tokens.map { token in
                 let cssClass: String
-                switch kind {
+                switch token.kind {
                 case .good: cssClass = "typeGood"
                 case .bad: cssClass = "typeBad"
                 case .missing: cssClass = "typeMissed"
                 }
-                return "<span class=\(cssClass)>\(escapeHTML(text))</span>"
+                return "<span class=\(cssClass)>\(escapeHTML(token.text))</span>"
             }.joined()
         }
 
         return "<code id=typeans>\(html(typedTokens))<br><span id=typearrow>&darr;</span><br>\(html(expectedTokens))</code>"
+    }
+
+    private static func sequenceOpcodes(first: [String], second: [String]) -> [TypeAnswerOpcode] {
+        var positions: [String: [Int]] = [:]
+        for (index, character) in second.enumerated() { positions[character, default: []].append(index) }
+        if second.count >= 200 {
+            let threshold = second.count / 100 + 1
+            positions = positions.filter { $0.value.count <= threshold }
+        }
+
+        func longestMatch(_ firstStart: Int, _ firstEnd: Int, _ secondStart: Int, _ secondEnd: Int) -> (first: Int, second: Int, size: Int) {
+            var bestFirst = firstStart
+            var bestSecond = secondStart
+            var bestSize = 0
+            var previousLengths: [Int: Int] = [:]
+            if firstStart < firstEnd {
+                for index in firstStart..<firstEnd {
+                    var currentLengths: [Int: Int] = [:]
+                    for secondIndex in positions[first[index]] ?? [] {
+                        if secondIndex < secondStart { continue }
+                        if secondIndex >= secondEnd { break }
+                        let size = (previousLengths[secondIndex - 1] ?? 0) + 1
+                        currentLengths[secondIndex] = size
+                        if size > bestSize {
+                            bestFirst = index + 1 - size
+                            bestSecond = secondIndex + 1 - size
+                            bestSize = size
+                        }
+                    }
+                    previousLengths = currentLengths
+                }
+            }
+            for _ in 0..<2 {
+                while bestFirst > firstStart, bestSecond > secondStart,
+                      first[bestFirst - 1] == second[bestSecond - 1] {
+                    bestFirst -= 1
+                    bestSecond -= 1
+                    bestSize += 1
+                }
+                while bestFirst + bestSize < firstEnd, bestSecond + bestSize < secondEnd,
+                      first[bestFirst + bestSize] == second[bestSecond + bestSize] {
+                    bestSize += 1
+                }
+            }
+            return (bestFirst, bestSecond, bestSize)
+        }
+
+        var matches: [(first: Int, second: Int, size: Int)] = []
+        var pending = [(firstStart: 0, firstEnd: first.count, secondStart: 0, secondEnd: second.count)]
+        while let range = pending.popLast() {
+            let match = longestMatch(range.firstStart, range.firstEnd, range.secondStart, range.secondEnd)
+            guard match.size > 0 else { continue }
+            if range.firstStart < match.first, range.secondStart < match.second {
+                pending.append((range.firstStart, match.first, range.secondStart, match.second))
+            }
+            if match.first + match.size < range.firstEnd, match.second + match.size < range.secondEnd {
+                pending.append((match.first + match.size, range.firstEnd, match.second + match.size, range.secondEnd))
+            }
+            matches.append(match)
+        }
+        matches.sort {
+            if $0.first != $1.first { return $0.first < $1.first }
+            if $0.second != $1.second { return $0.second < $1.second }
+            return $0.size < $1.size
+        }
+
+        var blocks: [(first: Int, second: Int, size: Int)] = []
+        var firstStart = 0
+        var secondStart = 0
+        var size = 0
+        for match in matches {
+            if firstStart + size == match.first, secondStart + size == match.second {
+                size += match.size
+            } else {
+                if size != 0 { blocks.append((firstStart, secondStart, size)) }
+                firstStart = match.first
+                secondStart = match.second
+                size = match.size
+            }
+        }
+        if size != 0 { blocks.append((firstStart, secondStart, size)) }
+        blocks.append((first.count, second.count, 0))
+
+        var opcodes: [TypeAnswerOpcode] = []
+        var firstIndex = 0
+        var secondIndex = 0
+        for block in blocks {
+            let tag: String?
+            if firstIndex < block.first, secondIndex < block.second { tag = "replace" }
+            else if firstIndex < block.first { tag = "delete" }
+            else if secondIndex < block.second { tag = "insert" }
+            else { tag = nil }
+            if let tag {
+                opcodes.append(TypeAnswerOpcode(
+                    tag: tag,
+                    firstStart: firstIndex,
+                    firstEnd: block.first,
+                    secondStart: secondIndex,
+                    secondEnd: block.second
+                ))
+            }
+            firstIndex = block.first + block.size
+            secondIndex = block.second + block.size
+            if block.size != 0 {
+                opcodes.append(TypeAnswerOpcode(
+                    tag: "equal",
+                    firstStart: block.first,
+                    firstEnd: firstIndex,
+                    secondStart: block.second,
+                    secondEnd: secondIndex
+                ))
+            }
+        }
+        return opcodes
     }
 
     private static func processTypeAnswer(
@@ -657,6 +806,13 @@ enum TemplateEngine {
         var cursor = source.startIndex
         var nested = 0
         while cursor < source.endIndex {
+            if source[cursor] == "\\" {
+                let escaped = source.index(after: cursor)
+                if escaped < source.endIndex, [":", "\\"].contains(source[escaped]) {
+                    cursor = source.index(after: escaped)
+                    continue
+                }
+            }
             if let opening = clozeOpening(in: source, at: cursor) {
                 nested += 1
                 cursor = opening.contentsStart
@@ -738,13 +894,20 @@ enum TemplateEngine {
     /// Anki renders `image-occlusion:rect:left=…` as an absolutely positioned mask.
     private static func imageOcclusionHTML(_ body: String, ords: [Int], active: Bool, question: Bool) -> String {
         let payload = body.dropFirst("image-occlusion:".count)
-        let bits = payload.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        let bits = splitImageOcclusionProperties(String(payload))
         let shape = bits.first ?? "rect"
         var attrs: [String: String] = [:]
         for bit in bits.dropFirst() {
             let pair = bit.split(separator: "=", maxSplits: 1).map(String.init)
             guard pair.count == 2 else { continue }
             attrs[pair[0]] = pair[1].replacingOccurrences(of: "\\:", with: ":")
+        }
+        if let points = attrs["points"] {
+            attrs["points"] = points.split(separator: " ").compactMap { pair in
+                let coordinates = pair.split(separator: ",", maxSplits: 1).map(String.init)
+                guard coordinates.count == 2 else { return nil }
+                return "\(coordinates[0]),\(coordinates[1])"
+            }.joined(separator: " ")
         }
         let occludeInactive = attrs["oi"] == "1"
         var classes = ["cloze", "io-mask"]
@@ -756,15 +919,40 @@ enum TemplateEngine {
             classes.append(occludeInactive ? "io-covered" : "io-hidden")
         }
         let ordinal = ords.map(String.init).joined(separator: ",")
-        func attr(_ key: String, _ data: String, fallback: String = "0") -> String {
-            let value = (attrs[key] ?? fallback)
-                .replacingOccurrences(of: "&", with: "&amp;")
-                .replacingOccurrences(of: "\"", with: "&quot;")
-            return " data-\(data)=\"\(value)\""
+        func attr(_ key: String, _ data: String) -> String {
+            guard let value = attrs[key], !value.isEmpty else { return "" }
+            return " data-\(data)=\"\(escapeAttribute(value))\""
         }
+        let shapeAttribute = ["rect", "ellipse", "polygon", "text"].contains(shape)
+            ? " data-shape=\"\(escapeAttribute(shape))\""
+            : ""
         return """
-        <div class="\(classes.joined(separator: " "))" data-ordinal="\(ordinal)" data-shape="\(escapeHTML(shape))"\(attr("left", "left"))\(attr("top", "top"))\(attr("width", "width"))\(attr("height", "height"))\(attr("points", "points", fallback: ""))></div>
+        <div class="\(classes.joined(separator: " "))" data-ordinal="\(ordinal)"\(shapeAttribute)\(attr("left", "left"))\(attr("top", "top"))\(attr("angle", "angle"))\(attr("fill", "fill"))\(attr("width", "width"))\(attr("height", "height"))\(attr("rx", "rx"))\(attr("ry", "ry"))\(attr("points", "points"))\(attr("oi", "occludeInactive"))\(attr("text", "text"))\(attr("scale", "scale"))\(attr("fs", "font-size"))></div>
         """
+    }
+
+    private static func splitImageOcclusionProperties(_ value: String) -> [String] {
+        let characters = Array(value)
+        var parts: [String] = []
+        var current = ""
+        var index = 0
+        while index < characters.count {
+            let character = characters[index]
+            if character == "\\", index + 1 < characters.count,
+               [":", "\\"].contains(characters[index + 1]) {
+                current.append(characters[index + 1])
+                index += 2
+            } else if character == ":" {
+                parts.append(current)
+                current = ""
+                index += 1
+            } else {
+                current.append(character)
+                index += 1
+            }
+        }
+        parts.append(current)
+        return parts
     }
 
     private static func stripHTML(_ s: String) -> String {
@@ -779,7 +967,7 @@ enum TemplateEngine {
         return decodeHTMLEntities(stripped) ?? stripped
     }
 
-    private static func decodeHTMLEntities(_ input: String) -> String? {
+    static func decodeHTMLEntities(_ input: String) -> String? {
         var output = ""
         var cursor = input.startIndex
         while cursor < input.endIndex {

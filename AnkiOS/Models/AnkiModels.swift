@@ -812,7 +812,8 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
         case id, name, mod, usn, maxTaken, autoplay, timer, stopTimerOnAnswer, replayq, new, rev, lapse, dyn
         case newMix, newPerDayMinimum, interdayLearningMix, reviewOrder, newSortOrder, newGatherPriority
         case buryInterdayLearning, fsrsWeights, fsrsParams5, fsrsParams6, desiredRetention, historicalRetention, ignoreRevlogsBeforeDate, paramSearch
-        case secondsToShowQuestion, secondsToShowAnswer, questionAction, answerAction, waitForAudio, easyDayPercents
+        case secondsToShowQuestion, secondsToShowAnswer, questionAction, answerAction, waitForAudio
+        case easyDayPercents = "easyDaysPercentages"
     }
 
     init(from decoder: Decoder) throws {
@@ -940,6 +941,367 @@ struct AnkiDeckConfig: Identifiable, Hashable, Codable, Sendable {
         try c.encode(easyDayPercents, forKey: .easyDayPercents)
         try encodeExtraFields(other, to: encoder)
     }
+}
+
+enum AutoAdvanceQuestionAction: String, Sendable {
+    case showAnswer
+    case showReminder
+}
+
+enum AutoAdvanceAnswerAction: String, Sendable {
+    case buryCard
+    case answerAgain
+    case answerGood
+    case answerHard
+    case showReminder
+}
+
+enum AutoAdvanceActionResolver {
+    static func delayMilliseconds(_ seconds: Double) -> Int? {
+        guard seconds.isFinite, seconds > 0 else { return nil }
+        let milliseconds = seconds * 1_000
+        guard milliseconds.isFinite, milliseconds <= Double(Int.max) else { return nil }
+        return Int(milliseconds)
+    }
+
+    static func shouldAdvance(autoAdvanceEnabled: Bool, isWindowFocused: Bool) -> Bool {
+        autoAdvanceEnabled && isWindowFocused
+    }
+
+    static func shouldSkipAutoAdvanceForAudio(waitForAudio: Bool, hasUnfinishedPlayback: Bool) -> Bool {
+        waitForAudio && hasUnfinishedPlayback
+    }
+
+    static func question(_ rawValue: Int) -> AutoAdvanceQuestionAction {
+        guard let index = resolvedIndex(rawValue, count: 2) else { return .showAnswer }
+        return index == 1 ? .showReminder : .showAnswer
+    }
+
+    static func answer(_ rawValue: Int) -> AutoAdvanceAnswerAction {
+        guard let index = resolvedIndex(rawValue, count: 5) else { return .buryCard }
+        switch index {
+        case 1: return .answerAgain
+        case 2: return .answerGood
+        case 3: return .answerHard
+        case 4: return .showReminder
+        default: return .buryCard
+        }
+    }
+
+    private static func resolvedIndex(_ rawValue: Int, count: Int) -> Int? {
+        let index = rawValue < 0 ? count + rawValue : rawValue
+        return (0..<count).contains(index) ? index : nil
+    }
+}
+
+enum StudyKeyboardShortcutAction: String, Sendable {
+    case showAnswer
+    case edit
+    case contextMenu
+    case replayAudio
+    case buryNote
+    case buryCard
+    case suspendNote
+    case suspendCard
+    case mark
+    case setFlag1
+    case setFlag2
+    case setFlag3
+    case setFlag4
+    case setFlag5
+    case setFlag6
+    case setFlag7
+    case deleteNote
+    case createCopy
+    case setDueDate
+    case forgetCard
+    case replayOwnVoice
+    case recordOwnVoice
+    case deckOptions
+    case cardInfo
+    case previousCardInfo
+    case undo
+    case pauseAudio
+    case seekBackward
+    case seekForward
+    case toggleAutoAdvance
+}
+
+enum StudyToolAction: String, CaseIterable, Identifiable, Sendable {
+    case add
+    case edit
+    case browse
+    case cardTemplate
+    case customStudy
+    case deckStatistics
+    case decks
+    case deckOptions
+    case emptyFilteredDeck
+    case filterCram
+    case markAndBury
+    case markAndSuspend
+    case rebuildFilteredDeck
+    case studyOptions
+    case unburyDeck
+    case scratchpad
+    case scratchpadSize
+    case scrollUp
+    case scrollDown
+    case userAction1
+    case userAction2
+    case userAction3
+    case userAction4
+    case userAction5
+    case userAction6
+    case userAction7
+    case userAction8
+    case showAnswer
+    case again
+    case hard
+    case good
+    case easy
+    case contextMenu
+    case replayAudio
+    case buryNote
+    case buryCard
+    case suspendNote
+    case suspendCard
+    case mark
+    case setFlag1
+    case setFlag2
+    case setFlag3
+    case setFlag4
+    case setFlag5
+    case setFlag6
+    case setFlag7
+    case deleteNote
+    case createCopy
+    case setDueDate
+    case forgetCard
+    case replayOwnVoice
+    case recordOwnVoice
+    case cardInfo
+    case previousCardInfo
+    case undo
+    case redo
+    case configureAutoAdvance
+    case pauseAudio
+    case seekBackward
+    case seekForward
+    case toggleAutoAdvance
+    case toggleTopBar
+    case toggleBottomBar
+    case toggleNightMode
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .add: "Adicionar"
+        case .edit: "Editar"
+        case .browse: "Abrir navegador"
+        case .cardTemplate: "Cartão modelo"
+        case .customStudy: "Estudo personalizado"
+        case .deckStatistics: "Estatísticas do baralho"
+        case .decks: "tab.decks"
+        case .emptyFilteredDeck: "Devolver cartões"
+        case .filterCram: "Filtro / Cram"
+        case .markAndBury: "Marcar e ocultar"
+        case .markAndSuspend: "Marcar e suspender"
+        case .rebuildFilteredDeck: "Recriar baralho"
+        case .studyOptions: "Opções de estudo"
+        case .unburyDeck: "Desocultar baralho"
+        case .scratchpad: "mobile.scratchpad.name"
+        case .scratchpadSize: "Tamanho do bloco de escrita"
+        case .scrollUp: "Rolar para cima"
+        case .scrollDown: "Rolar para baixo"
+        case .userAction1: "Ação do usuário 1"
+        case .userAction2: "Ação do usuário 2"
+        case .userAction3: "Ação do usuário 3"
+        case .userAction4: "Ação do usuário 4"
+        case .userAction5: "Ação do usuário 5"
+        case .userAction6: "Ação do usuário 6"
+        case .userAction7: "Ação do usuário 7"
+        case .userAction8: "Ação do usuário 8"
+        case .showAnswer: "Mostrar resposta"
+        case .again: "De novo"
+        case .hard: "Difícil"
+        case .good: "Bom"
+        case .easy: "Fácil"
+        case .contextMenu: "Ferramentas"
+        case .replayAudio: "Replay áudio"
+        case .buryNote: "Ocultar nota"
+        case .buryCard: "Ocultar cartão"
+        case .suspendNote: "Suspender nota"
+        case .suspendCard: "Suspender cartão"
+        case .mark: "Marcar nota"
+        case .setFlag1: "Bandeira vermelha"
+        case .setFlag2: "Bandeira laranja"
+        case .setFlag3: "Bandeira verde"
+        case .setFlag4: "Bandeira azul"
+        case .setFlag5: "Bandeira rosa"
+        case .setFlag6: "Bandeira turquesa"
+        case .setFlag7: "Bandeira roxa"
+        case .deleteNote: "Apagar nota"
+        case .createCopy: "Criar cópia"
+        case .setDueDate: "Definir data due"
+        case .forgetCard: "Repor cartão"
+        case .replayOwnVoice: "Replay voz própria"
+        case .recordOwnVoice: "Gravar própria voz"
+        case .deckOptions: "deck-options.action"
+        case .cardInfo: "Info do cartão"
+        case .previousCardInfo: "Info do cartão anterior"
+        case .undo: "Desfazer"
+        case .redo: "Refazer"
+        case .configureAutoAdvance: "Configurar avanço automático"
+        case .pauseAudio: "Pausar áudio"
+        case .seekBackward: "Áudio −5s"
+        case .seekForward: "Áudio +5s"
+        case .toggleAutoAdvance: "Avanço automático"
+        case .toggleTopBar: "Barra superior"
+        case .toggleBottomBar: "Barra inferior"
+        case .toggleNightMode: "Modo noturno"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .add: "plus"
+        case .edit: "pencil"
+        case .browse: "magnifyingglass"
+        case .cardTemplate: "doc.text"
+        case .customStudy, .filterCram: "sparkles"
+        case .deckStatistics: "chart.bar"
+        case .decks: "rectangle.stack"
+        case .emptyFilteredDeck: "arrow.uturn.backward"
+        case .markAndBury, .markAndSuspend: "star"
+        case .rebuildFilteredDeck: "arrow.clockwise"
+        case .studyOptions, .deckOptions: "gearshape"
+        case .unburyDeck: "eye"
+        case .scratchpad: "pencil.and.outline"
+        case .scratchpadSize: "arrow.up.left.and.arrow.down.right"
+        case .scrollUp: "arrow.up"
+        case .scrollDown: "arrow.down"
+        case .userAction1, .userAction2, .userAction3, .userAction4,
+             .userAction5, .userAction6, .userAction7, .userAction8: "bolt"
+        case .showAnswer: "eye"
+        case .again: "arrow.uturn.backward"
+        case .hard: "exclamationmark"
+        case .good: "checkmark"
+        case .easy: "bolt"
+        case .contextMenu: "ellipsis.circle"
+        case .replayAudio: "speaker.wave.2.fill"
+        case .buryNote: "eye.slash.circle"
+        case .buryCard: "eye.slash"
+        case .suspendNote: "pause.circle.fill"
+        case .suspendCard: "pause.circle"
+        case .mark: "star"
+        case .setFlag1, .setFlag2, .setFlag3, .setFlag4, .setFlag5, .setFlag6, .setFlag7: "flag.fill"
+        case .deleteNote: "trash"
+        case .createCopy: "plus.square.on.square"
+        case .setDueDate: "calendar"
+        case .forgetCard: "arrow.counterclockwise"
+        case .replayOwnVoice: "waveform"
+        case .recordOwnVoice: "mic.fill"
+        case .cardInfo, .previousCardInfo: "info.circle"
+        case .undo: "arrow.uturn.backward"
+        case .redo: "arrow.uturn.forward"
+        case .configureAutoAdvance: "gearshape"
+        case .pauseAudio: "pause.fill"
+        case .seekBackward: "gobackward.5"
+        case .seekForward: "goforward.5"
+        case .toggleAutoAdvance: "forward.end"
+        case .toggleTopBar: "rectangle.topthird.inset.filled"
+        case .toggleBottomBar: "rectangle.bottomthird.inset.filled"
+        case .toggleNightMode: "moon"
+        }
+    }
+
+    static let defaultFrequent: [StudyToolAction] = [.edit, .showAnswer, .undo]
+}
+
+enum StudyKeyboardShortcutModifiers: String, Sendable {
+    case none
+    case shift
+    case control
+    case controlShift
+    case controlOption
+}
+
+struct StudyKeyboardShortcutBinding: Identifiable, Sendable {
+    var key: String
+    var modifiers: StudyKeyboardShortcutModifiers
+    var action: StudyKeyboardShortcutAction
+
+    var id: String { "\(modifiers.rawValue):\(key)" }
+}
+
+enum StudyKeyboardShortcutResolver {
+    static let standard: [StudyKeyboardShortcutBinding] = {
+        var shortcuts = [
+            StudyKeyboardShortcutBinding(key: "e", modifiers: .none, action: .edit),
+            StudyKeyboardShortcutBinding(key: "space", modifiers: .none, action: .showAnswer),
+            StudyKeyboardShortcutBinding(key: "return", modifiers: .none, action: .showAnswer)
+        ]
+#if os(macOS)
+        shortcuts.append(StudyKeyboardShortcutBinding(key: "enter", modifiers: .none, action: .showAnswer))
+#endif
+        shortcuts += [
+            StudyKeyboardShortcutBinding(key: "m", modifiers: .none, action: .contextMenu),
+            StudyKeyboardShortcutBinding(key: "r", modifiers: .none, action: .replayAudio)
+        ]
+#if os(macOS)
+        shortcuts.append(StudyKeyboardShortcutBinding(key: "F5", modifiers: .none, action: .replayAudio))
+#endif
+        let flags = (1...7).map { flag in
+            let actions: [StudyKeyboardShortcutAction] = [
+                .setFlag1, .setFlag2, .setFlag3, .setFlag4, .setFlag5, .setFlag6, .setFlag7
+            ]
+            return StudyKeyboardShortcutBinding(key: String(flag), modifiers: .control, action: actions[flag - 1])
+        }
+        shortcuts += flags
+        shortcuts += [
+            StudyKeyboardShortcutBinding(key: "*", modifiers: .none, action: .mark),
+            StudyKeyboardShortcutBinding(key: "=", modifiers: .none, action: .buryNote),
+            StudyKeyboardShortcutBinding(key: "-", modifiers: .none, action: .buryCard),
+            StudyKeyboardShortcutBinding(key: "!", modifiers: .none, action: .suspendNote),
+            StudyKeyboardShortcutBinding(key: "@", modifiers: .none, action: .suspendCard),
+            StudyKeyboardShortcutBinding(key: "n", modifiers: .controlOption, action: .forgetCard),
+            StudyKeyboardShortcutBinding(key: "e", modifiers: .controlOption, action: .createCopy)
+        ]
+#if os(macOS)
+        shortcuts.append(StudyKeyboardShortcutBinding(key: "backspace", modifiers: .control, action: .deleteNote))
+#else
+        shortcuts.append(StudyKeyboardShortcutBinding(key: "delete", modifiers: .control, action: .deleteNote))
+#endif
+        shortcuts += [
+            StudyKeyboardShortcutBinding(key: "d", modifiers: .controlShift, action: .setDueDate),
+            StudyKeyboardShortcutBinding(key: "v", modifiers: .none, action: .replayOwnVoice),
+            StudyKeyboardShortcutBinding(key: "v", modifiers: .shift, action: .recordOwnVoice),
+            StudyKeyboardShortcutBinding(key: "o", modifiers: .none, action: .deckOptions),
+            StudyKeyboardShortcutBinding(key: "i", modifiers: .none, action: .cardInfo),
+            StudyKeyboardShortcutBinding(key: "i", modifiers: .controlOption, action: .previousCardInfo),
+            StudyKeyboardShortcutBinding(key: "u", modifiers: .none, action: .undo),
+            StudyKeyboardShortcutBinding(key: "5", modifiers: .none, action: .pauseAudio),
+            StudyKeyboardShortcutBinding(key: "6", modifiers: .none, action: .seekBackward),
+            StudyKeyboardShortcutBinding(key: "7", modifiers: .none, action: .seekForward),
+            StudyKeyboardShortcutBinding(key: "a", modifiers: .shift, action: .toggleAutoAdvance)
+        ]
+        return shortcuts
+    }()
+
+    static let korean = [
+        StudyKeyboardShortcutBinding(key: "ㄷ", modifiers: .none, action: .edit),
+        StudyKeyboardShortcutBinding(key: "ㅡ", modifiers: .none, action: .contextMenu),
+        StudyKeyboardShortcutBinding(key: "ㄱ", modifiers: .none, action: .replayAudio),
+        StudyKeyboardShortcutBinding(key: "ㅜ", modifiers: .controlOption, action: .forgetCard),
+        StudyKeyboardShortcutBinding(key: "ㅍ", modifiers: .none, action: .replayOwnVoice),
+        StudyKeyboardShortcutBinding(key: "ㅍ", modifiers: .shift, action: .recordOwnVoice),
+        StudyKeyboardShortcutBinding(key: "ㅐ", modifiers: .none, action: .deckOptions),
+        StudyKeyboardShortcutBinding(key: "ㅑ", modifiers: .none, action: .cardInfo),
+        StudyKeyboardShortcutBinding(key: "ㅑ", modifiers: .controlOption, action: .previousCardInfo),
+        StudyKeyboardShortcutBinding(key: "ㅕ", modifiers: .none, action: .undo)
+    ]
 }
 
 struct AnkiRevlog: Identifiable, Hashable, Sendable {

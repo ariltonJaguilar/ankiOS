@@ -615,7 +615,7 @@ extension CollectionStore {
         let nt = notetype(id: note.mid)?.name ?? "?"
         let typeName: String = {
             switch card.type {
-            case 0: return "Novo"
+            case 0: return String(localized: "browser.card-state.new")
             case 1: return "Aprendizagem"
             case 2: return "Revisão"
             case 3: return "Reaprendizagem"
@@ -624,7 +624,7 @@ extension CollectionStore {
         }()
         let queueName: String = {
             switch card.queue {
-            case 0: return "Novo"
+            case 0: return String(localized: "browser.card-state.new")
             case 1: return "Aprendizagem"
             case 2: return "Revisão"
             case 3: return "Aprend. dia"

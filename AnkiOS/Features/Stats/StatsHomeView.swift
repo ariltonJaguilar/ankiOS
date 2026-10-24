@@ -5,6 +5,7 @@ import CoreText
 import UniformTypeIdentifiers
 
 struct StatsHomeView: View {
+    var onClose: (() -> Void)? = nil
     @EnvironmentObject private var store: CollectionStore
     @State private var todayCount = 0
     @State private var todayTimeMS = 0
@@ -47,12 +48,13 @@ struct StatsHomeView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     GlassCard {
-                        Picker("Baralho", selection: $filterDeckID) {
+                        Picker("stats.deck.filter", selection: $filterDeckID) {
                             Text("Toda a coleção").tag(Int64?.none)
                             ForEach(store.decks) { deck in
                                 Text(deck.name).tag(Optional(deck.id))
                             }
                         }
+                        .accessibilityIdentifier("stats.deckFilter")
                         .onChange(of: filterDeckID) { _, _ in reload() }
                         Picker("Período", selection: $rangeDays) {
                             Text("1 mês").tag(31)
@@ -61,6 +63,7 @@ struct StatsHomeView: View {
                             Text("Todo o histórico").tag(0)
                         }
                         .pickerStyle(.segmented)
+                        .accessibilityIdentifier("stats.period")
                         .onChange(of: rangeDays) { _, _ in reload() }
                     }
 
@@ -73,6 +76,7 @@ struct StatsHomeView: View {
                                 .font(.system(size: 48, weight: .bold, design: .rounded))
                                 .foregroundStyle(AppTheme.accent)
                                 .ankiShadow(color: AppTheme.accent.opacity(0.4), radius: 8)
+                                .accessibilityIdentifier("stats.today.count")
                             Text("cartões estudados · \(formattedTime)")
                                 .foregroundStyle(AppTheme.secondaryText)
                             LabeledContent(
@@ -189,6 +193,7 @@ struct StatsHomeView: View {
                                     Text("\(category.again) · \(category.hard) · \(category.good) · \(category.easy) · \(String(format: "%.1f", category.correctPercent))% corretas")
                                         .font(.caption.monospacedDigit())
                                         .foregroundStyle(AppTheme.secondaryText)
+                                        .accessibilityIdentifier("stats.answerBreakdown.value.\(category.category)")
                                 }
                             }
                             Text("Respostas no período selecionado.")
@@ -205,13 +210,13 @@ struct StatsHomeView: View {
                                 ForEach(futureForecast.points) { point in
                                     BarMark(
                                         x: .value("Período", point.offset),
-                                        y: .value("Cartões", point.young)
+                                        y: .value(String(localized: "stats.cards.label"), point.young)
                                     )
                                     .position(by: .value("Tipo", "Jovens"))
                                     .foregroundStyle(AppTheme.accent.gradient)
                                     BarMark(
                                         x: .value("Período", point.offset),
-                                        y: .value("Cartões", point.mature)
+                                        y: .value(String(localized: "stats.cards.label"), point.mature)
                                     )
                                     .position(by: .value("Tipo", "Maduros"))
                                     .foregroundStyle(AppTheme.good.gradient)
@@ -229,12 +234,12 @@ struct StatsHomeView: View {
                                 ForEach(futureForecast.points) { point in
                                     AreaMark(
                                         x: .value("Período", point.offset),
-                                        y: .value("Cartões", point.cumulative)
+                                        y: .value(String(localized: "stats.cards.label"), point.cumulative)
                                     )
                                     .foregroundStyle(AppTheme.mist.opacity(0.18))
                                     LineMark(
                                         x: .value("Período", point.offset),
-                                        y: .value("Cartões", point.cumulative)
+                                        y: .value(String(localized: "stats.cards.label"), point.cumulative)
                                     )
                                     .foregroundStyle(AppTheme.secondaryText)
                                 }
@@ -254,16 +259,12 @@ struct StatsHomeView: View {
 
                     GlassCard {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Revisões")
+                            Text("stats.reviews.title")
                                 .font(AppTheme.deckFont)
                             Chart {
                                 ForEach(reviewSeries, id: \.name) { series in
                                     ForEach(reviewDays) { day in
-                                        BarMark(
-                                            x: .value("Dia", historyDays - 1 - day.offset),
-                                            y: .value("N", series.value(day))
-                                        )
-                                        .foregroundStyle(by: .value("Tipo", series.name))
+                                        reviewMark(series, day: day)
                                     }
                                 }
                             }
@@ -278,6 +279,8 @@ struct StatsHomeView: View {
                             Text("Aprender, jovem (<21d), maduro, reaprender e filtrado.")
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.secondaryText)
+                                .accessibilityIdentifier("stats.reviews.summary")
+                                .accessibilityLabel(reviewChartSummary)
                         }
                     }
 
@@ -338,7 +341,7 @@ struct StatsHomeView: View {
                                 ForEach(Array(easeBars.enumerated()), id: \.offset) { _, item in
                                     BarMark(
                                         x: .value("Fator", item.label),
-                                        y: .value("Cartões", item.count)
+                                        y: .value(String(localized: "stats.cards.label"), item.count)
                                     )
                                     .foregroundStyle(AppTheme.mist.gradient)
                                 }
@@ -394,7 +397,7 @@ struct StatsHomeView: View {
                                 ForEach(intervalStats.points) { item in
                                     BarMark(
                                         x: .value("Faixa", item.label),
-                                        y: .value("Cartões", item.count)
+                                        y: .value(String(localized: "stats.cards.label"), item.count)
                                     )
                                     .foregroundStyle(AppTheme.mist.gradient)
                                 }
@@ -465,7 +468,7 @@ struct StatsHomeView: View {
                             Chart {
                                 ForEach(cardDistributionItems.filter { $0.count > 0 }) { item in
                                     SectorMark(
-                                        angle: .value("Cartões", item.count),
+                                        angle: .value(String(localized: "stats.cards.label"), item.count),
                                         innerRadius: .ratio(0.55),
                                         angularInset: 2
                                     )
@@ -485,8 +488,10 @@ struct StatsHomeView: View {
                                     item.label,
                                     value: "\(item.count) · \(cardDistribution.total == 0 ? 0 : Int(Double(item.count) / Double(cardDistribution.total) * 100))%"
                                 )
+                                .accessibilityIdentifier("stats.distribution.\(item.key)")
                             }
                             LabeledContent("Total de cartões", value: "\(cardDistribution.total)")
+                                .accessibilityIdentifier("stats.distribution.total")
                         }
                     }
 
@@ -495,20 +500,27 @@ struct StatsHomeView: View {
                             Text("Estados dos cartões")
                                 .font(AppTheme.deckFont)
                             LabeledContent("Novos", value: "\(states.new)")
+                                .accessibilityIdentifier("stats.states.new")
                             LabeledContent("Aprendizagem", value: "\(states.learn)")
+                                .accessibilityIdentifier("stats.states.learning")
                             LabeledContent("Revisão", value: "\(states.review)")
+                                .accessibilityIdentifier("stats.states.review")
                             LabeledContent("Suspensos", value: "\(states.suspended)")
+                                .accessibilityIdentifier("stats.states.suspended")
                             LabeledContent("Ocultos", value: "\(states.buried)")
+                                .accessibilityIdentifier("stats.states.buried")
                         }
                     }
 
                     GlassCard {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Coleção")
+                            Text("stats.collection.range")
                                 .font(AppTheme.deckFont)
                             LabeledContent("Notas", value: "\(collectionNoteCount)")
-                            LabeledContent("Cartões", value: "\(collectionCardCount)")
-                            LabeledContent("Baralhos", value: "\(store.decks.count)")
+                                .accessibilityIdentifier("stats.collection.notes")
+                            LabeledContent("stats.cards.label", value: "\(collectionCardCount)")
+                                .accessibilityIdentifier("stats.collection.cards")
+                            LabeledContent("stats.decks.count", value: "\(store.decks.count)")
                             LabeledContent("Tipos de nota", value: "\(store.notetypes.count)")
                         }
                     }
@@ -518,6 +530,12 @@ struct StatsHomeView: View {
             .background(AppBackground())
             .navigationTitle("Estatísticas")
             .toolbar {
+                if let onClose {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Fechar", action: onClose)
+                            .accessibilityIdentifier("stats.close")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         do {
@@ -582,7 +600,7 @@ struct StatsHomeView: View {
                     ForEach(Array(values.enumerated()), id: \.offset) { _, item in
                         BarMark(
                             x: .value("Faixa", item.label),
-                            y: .value("Cartões", item.count)
+                            y: .value(String(localized: "stats.cards.label"), item.count)
                         )
                         .foregroundStyle(color.gradient)
                     }
@@ -684,7 +702,8 @@ struct StatsHomeView: View {
     }
 
     private struct DistributionItem: Identifiable {
-        var id: String { label }
+        var id: String { key }
+        var key: String
         var label: String
         var count: Int
     }
@@ -702,26 +721,46 @@ struct StatsHomeView: View {
 
     private var cardDistributionItems: [DistributionItem] {
         [
-            DistributionItem(label: "Maduros", count: cardDistribution.mature),
-            DistributionItem(label: "Jovens e aprendizagem", count: cardDistribution.youngAndLearning),
-            DistributionItem(label: "Não vistos", count: cardDistribution.unseen),
-            DistributionItem(label: "Suspensos e ocultos", count: cardDistribution.suspendedAndBuried)
+            DistributionItem(key: "mature", label: "Maduros", count: cardDistribution.mature),
+            DistributionItem(key: "youngAndLearning", label: "Jovens e aprendizagem", count: cardDistribution.youngAndLearning),
+            DistributionItem(key: "unseen", label: "Não vistos", count: cardDistribution.unseen),
+            DistributionItem(key: "suspendedAndBuried", label: "Suspensos e ocultos", count: cardDistribution.suspendedAndBuried)
         ]
     }
 
     private struct ReviewSeries {
+        var key: String
         var name: String
         var value: (CollectionStore.ReviewDayPoint) -> Int
     }
 
     private var reviewSeries: [ReviewSeries] {
         [
-            ReviewSeries(name: "Aprender", value: { $0.learn }),
-            ReviewSeries(name: "Jovem", value: { $0.young }),
-            ReviewSeries(name: "Maduro", value: { $0.mature }),
-            ReviewSeries(name: "Reaprender", value: { $0.relearn }),
-            ReviewSeries(name: "Filtrado", value: { $0.filtered })
+            ReviewSeries(key: "learn", name: "Aprender", value: { $0.learn }),
+            ReviewSeries(key: "young", name: "Jovem", value: { $0.young }),
+            ReviewSeries(key: "mature", name: "Maduro", value: { $0.mature }),
+            ReviewSeries(key: "relearn", name: "Reaprender", value: { $0.relearn }),
+            ReviewSeries(key: "filtered", name: "Filtrado", value: { $0.filtered })
         ]
+    }
+
+    private var reviewChartSummary: String {
+        reviewSeries.map { series in
+            "\(series.name): \(reviewDays.reduce(0) { $0 + series.value($1) })"
+        }.joined(separator: ", ")
+    }
+
+    private func reviewMark(_ series: ReviewSeries, day: CollectionStore.ReviewDayPoint) -> some ChartContent {
+        let count = series.value(day)
+        return BarMark(
+            x: .value("Dia", historyDays - 1 - day.offset),
+            y: .value("N", count)
+        )
+        .foregroundStyle(by: .value("Tipo", series.name))
+        .accessibilityHidden(count == 0)
+        .accessibilityLabel("\(series.name), \(calendarDateLabel(day.offset))")
+        .accessibilityValue("\(count) revisões")
+        .accessibilityIdentifier("stats.reviews.\(series.key).\(day.offset)")
     }
 
     private func retentionLabel(_ percent: Double, pass: Int, fail: Int) -> String {
@@ -750,7 +789,7 @@ struct StatsHomeView: View {
             "De novo: \(todaySummary.failed) · corretas: \(String(format: "%.1f", todaySummary.correctPercent))%",
             "Aprender: \(todaySummary.learning) · revisão: \(todaySummary.review) · reaprender: \(todaySummary.relearning) · filtradas: \(todaySummary.filtered)",
             "",
-            "Coleção",
+            String(localized: "stats.collection.range"),
             "Notas: \(collectionNoteCount)",
             "Cartões: \(collectionCardCount)",
             "Baralhos: \(store.decks.count)",

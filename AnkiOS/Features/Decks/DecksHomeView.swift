@@ -4,11 +4,13 @@ import UniformTypeIdentifiers
 struct DecksHomeView: View {
     @Binding var studyRequested: Bool
     @EnvironmentObject private var store: CollectionStore
+    @Environment(\.openURL) private var openURL
     @State private var path = NavigationPath()
     @State private var showImport = false
     @State private var showCSVImport = false
     @State private var pendingCSVName: String?
     @State private var pendingCSVText: String?
+    @State private var offerTutorialAfterCSVImport = false
     @State private var showNewDeck = false
     @State private var newDeckName = ""
     @State private var renameTarget: AnkiDeck?
@@ -69,33 +71,34 @@ struct DecksHomeView: View {
             .navigationBarTitleDisplayMode(.large)
             #endif
             .toolbar {
+                #if !ANKIOS_PARITY_HARNESS
                 #if os(macOS)
                 let syncPlacement: ToolbarItemPlacement = .navigation
                 #else
                 let syncPlacement: ToolbarItemPlacement = .topBarLeading
                 #endif
                 ToolbarItem(placement: syncPlacement) {
-                    Menu {
-                        #if !ANKIOS_PARITY_HARNESS
-                        Button("Sincronizar com AnkiWeb", systemImage: "arrow.triangle.2.circlepath") {
-                            Task { await store.syncWithAnkiWeb() }
-                        }
-                        Divider()
-                        #endif
-                        Button("Sincronizar com iCloud", systemImage: "icloud") {
-                            Task { await store.syncWithICloud() }
-                        }
+                    Button {
+                        Task { await store.syncWithAnkiWeb() }
                     } label: {
                         Image(systemName: "arrow.triangle.2.circlepath")
                     }
                     .disabled(store.collectionSyncing)
-                    .accessibilityLabel(store.collectionSyncing ? "Sincronizando" : "Opções de sincronização")
+                    .accessibilityLabel(store.collectionSyncing ? "Sincronizando" : "Sincronizar com AnkiWeb")
                 }
+                #endif
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button("Importar coleção…", systemImage: "square.and.arrow.down") { showImport = true }
                         Button("Importar CSV", systemImage: "tablecells") { showCSVImport = true }
+                        Button("Shared Deck List", systemImage: "books.vertical") {
+                            if let url = URL(string: "https://ankiweb.net/shared/decks/") {
+                                openURL(url)
+                            }
+                        }
+                        .accessibilityIdentifier("decks.sharedDeckList")
                         Button("Novo baralho", systemImage: "folder.badge.plus") {
+                            newDeckName = ""
                             newDeckParent = nil
                             showNewDeck = true
                         }
@@ -113,6 +116,7 @@ struct DecksHomeView: View {
                         Button("Tipos de nota", systemImage: "doc.badge.gearshape") {
                             path.append(EditorRoute.noteTypes)
                         }
+                        .accessibilityIdentifier("decks.noteTypes")
                         Divider()
                         Button("Recolher todos", systemImage: "rectangle.compress.vertical") {
                             collapseAll(true)
@@ -144,7 +148,8 @@ struct DecksHomeView: View {
         ) { result in
             do {
                 guard let url = try result.get().first else { return }
-                receivePackage(at: url)
+                let scoped = url.startAccessingSecurityScopedResource()
+                receivePackage(at: url, securityScopedAccess: scoped)
             } catch {
                 store.lastError = error.localizedDescription
             }
@@ -161,9 +166,18 @@ struct DecksHomeView: View {
                 store.lastError = error.localizedDescription
             }
         }
-        .sheet(isPresented: Binding(get: { pendingCSVText != nil }, set: { if !$0 { pendingCSVText = nil; pendingCSVName = nil } })) {
+        .sheet(isPresented: Binding(get: { pendingCSVText != nil }, set: { if !$0 { pendingCSVText = nil; pendingCSVName = nil } }), onDismiss: {
+            guard offerTutorialAfterCSVImport else { return }
+            offerTutorialAfterCSVImport = false
+            store.notifyDeckContentAdded()
+        }) {
             if let pendingCSVText {
-                CSVImportReviewView(fileName: pendingCSVName ?? "Texto", text: pendingCSVText, store: store)
+                CSVImportReviewView(
+                    fileName: pendingCSVName ?? "Texto",
+                    text: pendingCSVText,
+                    store: store,
+                    offerTutorialAfterDismissal: $offerTutorialAfterCSVImport
+                )
                     .environmentObject(store)
             }
         }
@@ -280,10 +294,12 @@ struct DecksHomeView: View {
         .onChange(of: studyRequested) { _, _ in consumeStudyRequest() }
         .onChange(of: store.isBootstrapping) { _, _ in consumeStudyRequest() }
         .onChange(of: store.collectionSyncing) { _, _ in consumeStudyRequest() }
-        .onChange(of: store.pendingPackageImport) { _, url in
-            guard let url else { return }
-            store.pendingPackageImport = nil
-            receivePackage(at: url)
+        .onChange(of: store.pendingPackageImport) { _, packageImport in
+            guard let packageImport else { return }
+            Task { @MainActor in
+                store.pendingPackageImport = nil
+                receivePackage(at: packageImport.url, securityScopedAccess: packageImport.securityScopedAccess)
+            }
         }
     }
 
@@ -296,17 +312,16 @@ struct DecksHomeView: View {
             ?? rootDecks.first
     }
 
-    private func receivePackage(at url: URL) {
-        let scoped = url.startAccessingSecurityScopedResource()
-        if url.pathExtension.lowercased() == "colpkg" {
+    private func receivePackage(at url: URL, securityScopedAccess: Bool) {
+        switch PackageImportRoute.route(for: url) {
+        case .collectionPackage:
             pendingCollectionPackage = url
-            pendingCollectionPackageScoped = scoped
+            pendingCollectionPackageScoped = securityScopedAccess
             showRestoreCollectionConfirm = true
             return
-        }
-        if url.pathExtension.lowercased() == "db" {
+        case .mnemosyneDatabase:
             Task {
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                defer { if securityScopedAccess { url.stopAccessingSecurityScopedResource() } }
                 do {
                     store.lastError = try MnemosyneImporter(store: store).importFile(at: url)
                 } catch {
@@ -314,10 +329,11 @@ struct DecksHomeView: View {
                 }
             }
             return
+        case .deckPackage:
+            pendingDeckPackage = url
+            pendingDeckPackageScoped = securityScopedAccess
+            showDeckImportOptions = true
         }
-        pendingDeckPackage = url
-        pendingDeckPackageScoped = scoped
-        showDeckImportOptions = true
     }
 
     private func importPendingDeckPackage(
@@ -328,8 +344,9 @@ struct DecksHomeView: View {
         updateNotetypes: PackageUpdateCondition
     ) async {
         guard let url = pendingDeckPackage else { return }
+        let result: String
         do {
-            store.lastError = try await ApkgImporter(store: store).importPackage(
+            result = try await ApkgImporter(store: store).importPackage(
                 at: url,
                 withScheduling: withScheduling,
                 withDeckConfigs: withDeckConfigs,
@@ -338,10 +355,12 @@ struct DecksHomeView: View {
                 updateNotetypes: updateNotetypes
             )
         } catch {
-            store.lastError = error.localizedDescription
+            result = error.localizedDescription
         }
         importingDeckPackage = false
         releasePendingDeckPackage()
+        try? await Task.sleep(for: .milliseconds(500))
+        store.lastError = result
     }
 
     private func releasePendingDeckPackage() {
@@ -355,7 +374,7 @@ struct DecksHomeView: View {
     private var header: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Baralhos")
+                Text("decks.page.title")
                     .font(AppTheme.titleFont)
                     .foregroundStyle(AppTheme.primaryText)
                 Text("Toque num baralho para ver o resumo e estudar.")
@@ -364,8 +383,8 @@ struct DecksHomeView: View {
                 let rootTotals = rootDecks.map { store.deckCounts[$0.id] ?? .init(new: 0, learn: 0, review: 0) }
                     .reduce(DeckCounts(new: 0, learn: 0, review: 0)) { DeckCounts(new: $0.new + $1.new, learn: $0.learn + $1.learn, review: $0.review + $1.review) }
                 HStack(spacing: 8) {
-                    CountChip(label: "Novo", count: rootTotals.new, color: AppTheme.easy)
-                    CountChip(label: "Aprender", count: rootTotals.learn, color: AppTheme.danger)
+                    CountChip(label: "stats.new-cards", count: rootTotals.new, color: AppTheme.easy)
+                    CountChip(label: "decks.learn-count", count: rootTotals.learn, color: AppTheme.danger)
                     CountChip(label: "Revisar", count: rootTotals.review, color: AppTheme.good)
                 }
                 .padding(.top, 2)

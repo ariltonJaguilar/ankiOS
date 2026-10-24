@@ -1,75 +1,66 @@
 # Validação de paridade
 
-Referência dos testes: Anki Desktop 26.9.3, biblioteca Python `anki==26.9.3`.
-Os testes usam coleções descartáveis em `/tmp/ankios-parity`, sem abrir os perfis pessoais.
+O avanço atual está em [STATUS.md](STATUS.md), com dados estruturados em
+[`coverage.json`](coverage.json). O painel mantém placares independentes para
+iOS e macOS; uma pendência em uma plataforma não reduz o avanço da outra.
 
-## Resultado em 17/10/2026
+## Contagem e critérios
 
-- Suíte completa: **22 grupos aprovados**, sem diferenças nas fixtures, saída 0.
-- Compilação Debug macOS arm64: aprovada, sem assinatura.
-- Compilação Debug iOS Simulator arm64 e x86_64: aprovada, sem assinatura.
-- Instalação e abertura da compilação iOS no simulador isolado: aprovadas.
-- A tela inicial de baralhos foi inspecionada visualmente no simulador.
+- Código: fluxos comparados com Anki Desktop 26.9.3 e `anki==26.9.3`.
+- UI: 12 macrofluxos nesta rodada. `coverage.json` mantém estados e evidências
+  independentes em `platforms.iOS` e `platforms.macOS`; o painel apresenta, para
+  cada plataforma quantos dos 12 grupos já têm teste aprovado, seguidos dos
+  completos, em andamento e não iniciados. “Iniciado” significa que ao menos
+  um teste interativo do grupo passou naquela plataforma; “completo” exige
+  evidência aprovada para todos os comportamentos listados. Uma pendência no
+  macOS não reduz o avanço iOS, nem o inverso.
+- XCTest iOS: 144 métodos únicos nesta rodada; reexecuções não aumentam o total.
+- XCTest exclusivos do macOS: 2 métodos únicos, contabilizados separadamente.
+- Evidência de UI macOS: 17 métodos únicos aprovados distribuídos em 7 grupos; o escopo continua fixo em 12 grupos e os métodos não mudam esse denominador. Uma tentativa de Estatísticas ficou bloqueada antes do primeiro caso por `LocalAuthentication -4`; ela não conta como falha funcional.
+- Idioma: no iOS, o AnkiMobile segue o idioma por app escolhido nos Ajustes do iOS; no macOS, o Anki Desktop mantém a escolha em Preferências. O app preserva essa separação. O [manual do AnkiMobile](https://docs.ankiweb.net/ankimobile/interface-language) descreve a configuração do iOS, e a [página oficial da App Store](https://apps.apple.com/us/app/ankimobile-flashcards/id373493387) lista 25 idiomas. Todos os 24 idiomas não ingleses dessa lista agora têm entrada no catálogo; Malayalam foi acrescentado.
+- A conferência textual usa os repositórios oficiais de traduções Mobile e Core, detalhados em [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Dos 336 textos ingleses estáticos do catálogo, 317 têm correspondência direta com contexto único nos repositórios oficiais Mobile/Core; as 7.319 traduções disponíveis coincidem exatamente nos 24 idiomas publicados. Os 289 fallbacks ingleses também coincidem com o comportamento do Anki, que acrescenta `en-US` como último bundle ([fonte](https://github.com/ankitects/anki/blob/main/rslib/i18n/src/lib.rs)). Não restam contextos ambíguos. As três mensagens plurais do Estudo Personalizado coincidem nas 432/432 variantes FTL. Os 19 rótulos restantes sem correspondência direta foram classificados por uso: texto auxiliar e notificações próprias, título genérico, ações de navegador presentes no Desktop e unidade compacta de gráfico. A lista e suas evidências ficam em `localization-comparison.json`; nenhum desses itens permanece como lacuna de fluxo interativo iOS. Os textos de permissão da câmera e do microfone usam um catálogo `InfoPlist.xcstrings` separado com as traduções oficiais disponíveis e fallback em inglês nos outros idiomas do app.
+- A verificação do catálogo localizado usa o bundle iOS compilado e compara cada
+  chave/idioma com `Localizable.xcstrings`; ela não substitui a comparação textual
+  com o AnkiMobile.
+- Um teste aprovado não é repetido sem mudança no app ou evidência contraditória.
+- Um fluxo verificado só reabre se surgir diferença reproduzível ou comportamento
+  distinto sem cobertura. Itens históricos permanecem em `history` no JSON.
+- Sincronização AnkiWeb é exercitada contra o servidor local de teste; o status
+  registra esse limite. A sincronização iCloud foi removida do app. O grupo de UI
+  correspondente acompanha a ausência da integração em iOS e macOS; o harness
+  diferencial antigo permanece fora dos targets do produto.
 
-Foram corrigidos o descarte de texto literal `{{...}}` nos campos, a reinterpretação
-de `FrontSide` e a exibição de campos que o template não solicitava quando a pergunta
-ficava vazia. Perguntas vazias e omissões Cloze ausentes agora exibem os avisos
-correspondentes ao Anki. Os testes de renderização incluem essas regressões.
+## Atualizar
 
-**Status de fechamento: pendente.** Não foram executados todos os fluxos interativos
-nas duas plataformas, nem sincronização real com AnkiWeb/iCloud, testes em aparelhos
-físicos ou uma distribuição Release assinada. Os critérios abaixo continuam necessários.
+1. Recompile o harness com `zsh Tools/Parity/build-harness.sh` para garantir que ele corresponde às fontes Swift atuais.
+2. Execute a comparação diferencial: `/tmp/ankios-parity/venv/bin/python -u Tools/Parity/oracle.py all`.
+3. Registre resultados e estado por plataforma em `coverage.json`.
+4. Gere o painel com `python3 Tools/Parity/report.py`.
+5. Execute as verificações relevantes e registre apenas lacunas funcionais concretas.
 
-## Execução
+Para comparar novamente o catálogo com os repositórios oficiais clonados em `/private/tmp`:
 
 ```sh
-python3 -m venv /tmp/ankios-parity/venv
-/tmp/ankios-parity/venv/bin/pip install anki==26.9.3
-zsh Tools/Parity/build-harness.sh
-/tmp/ankios-parity/venv/bin/python -u Tools/Parity/oracle.py all
+python3 Tools/Parity/compare-localization-catalog.py \
+  --catalog AnkiOS/Localization/Localizable.xcstrings \
+  --mobile-root /private/tmp/ankimobile-ftl/mobile \
+  --core-root /private/tmp/anki-core-i18n/core \
+  --json-output Tools/Parity/localization-comparison.json
 ```
 
-O harness compila sem otimização por padrão. Para testar uma compilação otimizada,
-use `ANKIOS_PARITY_OPTIMIZATION=-O zsh Tools/Parity/build-harness.sh`.
+Use `--apply` somente para importar as traduções estáticas com correspondência única. Para conferir que o bundle carrega as traduções esperadas nos 56 idiomas:
 
-## Cobertura automatizada
+```sh
+mkdir -p /private/tmp/ankios-localization-module-cache
+xcrun swiftc -swift-version 6 \
+  -DANKIOS_IOS_LOCALIZATION_CHECK \
+  -module-cache-path /private/tmp/ankios-localization-module-cache \
+  AnkiOS/Localization/AnkiLanguage.swift \
+  Tools/Parity/verify-localization-bundles.swift \
+  -o /private/tmp/ankios-localization-check
+/private/tmp/ankios-localization-check /path/to/AnkiOS.app \
+  AnkiOS/Localization/Localizable.xcstrings
+```
 
-| Área | Verificações |
-| --- | --- |
-| Estudo | Virada do dia, contagens, estados SM-2, FSRS, passos vazios, sessão, avaliar agora |
-| Navegador | Busca, operadores inválidos, suspensão, ocultação, reposicionamento, mover, esquecer, definir vencimento |
-| Coleção | Baralhos hierárquicos, exclusão, desfazer/refazer, etiquetas, tipos de nota, cartões vazios |
-| Templates | Filtros, entidades HTML, erros de sintaxe, conteúdo literal com chaves, perguntas vazias |
-| Estatísticas | Retenção e agregações cobertas pelas fixtures |
-| Intercâmbio | Pacotes Anki, baralho real, CSV, LaTeX, baralhos filtrados |
-| Sincronização | Metadados locais das operações cobertas; não comprova sincronização com servidor |
-
-Os horários de última revisão de “Avaliar agora” são validados dentro do intervalo
-da operação, pois as duas implementações executam em momentos distintos. Os demais
-dados do cartão e os estados de desfazer/refazer continuam sendo comparados.
-Vencimentos das filas de aprendizagem em segundos aceitam até dois segundos de
-diferença de relógio; vencimentos em dias continuam exigindo igualdade exata.
-
-## Critérios de fechamento
-
-Uma execução sem diferenças nas fixtures não certifica paridade integral.
-O fechamento também exige validação interativa dos fluxos abaixo em macOS e iOS:
-
-| Tela ou fluxo | Validação necessária nas duas plataformas |
-| --- | --- |
-| Baralhos e visão geral | Criar, renomear, mover, excluir, hierarquia, contagens e seleção |
-| Estudo | Responder, editar, desfazer, atalhos, áudio, gravação, digitação e avanço automático |
-| Opções e estudo personalizado | Presets, limites, FSRS, irmãos, filtros e reconstrução |
-| Adicionar e editar | Campos ricos, HTML, mídia, etiquetas, duplicatas, campos fixos e oclusão de imagem |
-| Tipos de nota | Campos, templates, CSS, prévia, alteração de tipo e preservação dos cartões |
-| Navegador | Seleção, edição, busca, ordenação, operações em lote, exportação e prévia |
-| Estatísticas | Períodos, escopo, gráficos e valores em coleções representativas |
-| Ferramentas | Importar/exportar, verificar banco e mídia, backups e restauração |
-| Preferências e perfis | Persistência, troca de perfil, aparência, idioma e acessibilidade |
-| AnkiWeb | Login, envio/recebimento completo, sincronização incremental, mídia, conflito e cancelamento |
-| iCloud | Conflito, recuperação e isolamento entre perfis |
-| Integrações do sistema | Abrir pacotes, permissões, segundo plano, widget e múltiplas janelas |
-
-Compatibilidade com extensões Python/Qt do Anki Desktop não é demonstrada por esta
-suíte. A interface SwiftUI também precisa de validação própria; compilar não valida
-interações, acessibilidade, reprodução de mídia ou comportamento em dispositivos.
+Referência: Anki Desktop 26.9.3. A compatibilidade com extensões Python/Qt do
+Anki Desktop não está incluída como paridade demonstrada.

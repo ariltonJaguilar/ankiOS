@@ -75,8 +75,11 @@ struct DeckRowView: View {
 
                     HStack(spacing: 10) {
                         CountDigit(value: counts.new, color: AppTheme.easy)
+                            .accessibilityIdentifier("deck.count.\(deck.name).new")
                         CountDigit(value: counts.learn, color: AppTheme.danger)
+                            .accessibilityIdentifier("deck.count.\(deck.name).learn")
                         CountDigit(value: counts.review, color: AppTheme.good)
+                            .accessibilityIdentifier("deck.count.\(deck.name).review")
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -96,7 +99,7 @@ struct DeckRowView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(GlassIconButtonStyle(tint: AppTheme.accent))
-            .accessibilityLabel("Opções do baralho")
+            .accessibilityLabel("deck-options.action")
             .accessibilityIdentifier("deck.options.\(deck.name)")
         }
         .padding(.leading, CGFloat(depth) * 14 + 14)

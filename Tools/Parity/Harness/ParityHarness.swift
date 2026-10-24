@@ -8,12 +8,22 @@ import SQLite3
 enum ParityHarness {
     static func run(_ args: [String]) async -> Int32 {
         guard let command = args.first else {
-            FileHandle.standardError.write(Data("usage: ankios-harness <timing|counts|states|answer|grade-now|session|retention|stats|import|export|backup|csv-import|csv-export|filtered-rebuild|cardgen-actions|deck-actions|delete-actions|empty-actions|notetype-schema-actions|queue-actions|sync-actions|tag-actions|notetype-actions|notetype-delete-actions|latex-extract|latex-generate|template-render|search> ...\n".utf8))
+            FileHandle.standardError.write(Data("usage: ankios-harness <timing|counts|states|answer|grade-now|study-undo|session|retention|stats|import|package-routing|export|export-deck|export-cards|backup|csv-import|csv-export|csv-export-notes|filtered-rebuild|filtered-options-actions|browser-sort-actions|browser-selection-actions|preferences-actions|language-catalog|cardgen-actions|deck-actions|deck-options|rich-media-edit|delete-actions|empty-actions|notetype-schema-actions|queue-actions|sync-actions|icloud-merge|icloud-sync|tag-actions|notetype-actions|notetype-delete-actions|latex-extract|latex-generate|template-render|type-answer-render-batch|render-cards|image-occlusion-roundtrip|search|auto-advance-actions|auto-advance-timers|media-check|database-check|profile-actions> ...\n".utf8))
             return 2
         }
         let store = CollectionStore.shared
         store.activeProfile = "User 1"
         do {
+            if command == "icloud-sync" {
+                let paths = Array(args.dropFirst())
+                guard paths.count == 1 else { throw SQLiteError.exec("icloud-sync <cloud-profiles-root>") }
+                let summary = try ICloudSync.sync(
+                    localProfiles: SharedProfiles.profilesRoot,
+                    cloudProfiles: URL(fileURLWithPath: paths[0], isDirectory: true)
+                )
+                print(json(["summary": summary]))
+                return 0
+            }
             try store.openOrCreate()
             try store.reloadMeta()
             try store.unburySiblingCardsIfNewDay()
@@ -23,24 +33,74 @@ enum ParityHarness {
             case "timing": output = timing(store)
             case "counts": output = counts(store)
             case "states": output = try states(store, ids: args.dropFirst().compactMap { Int64($0) })
+            case "states-load-balanced": output = try statesLoadBalanced(store, ids: args.dropFirst().compactMap { Int64($0) })
             case "answer": output = try answer(store, args: Array(args.dropFirst()))
             case "grade-now": output = try gradeNow(store, args: Array(args.dropFirst()))
+            case "study-undo": output = try studyUndo(store, args: Array(args.dropFirst()))
             case "session": output = try session(store, args: Array(args.dropFirst()))
             case "retention": output = try retention(store)
             case "stats": output = try stats(store)
             case "import": output = try await importPackage(store, args: Array(args.dropFirst()))
+            case "package-routing": output = packageRouting(args: Array(args.dropFirst()))
             case "export": output = try exportPackage(store, args: Array(args.dropFirst()))
+            case "export-deck": output = try exportDeckPackage(store, args: Array(args.dropFirst()))
+            case "export-cards": output = try exportSelectedCardsPackage(store, args: Array(args.dropFirst()))
             case "backup": output = try backup(store)
             case "csv-import": output = try csvImport(store, args: Array(args.dropFirst()))
             case "csv-export": output = try csvExport(store, args: Array(args.dropFirst()))
+            case "csv-export-notes": output = try csvExportNotes(store, args: Array(args.dropFirst()))
             case "filtered-rebuild": output = try filteredRebuild(store, args: Array(args.dropFirst()))
+            case "filtered-options-actions": output = try filteredOptionsActions(store)
+            case "browser-sort-actions": output = try browserSortActions(store)
+            case "browser-selection-actions": output = try browserSelectionActions(store)
+            case "preferences-actions": output = try preferencesActions(store)
+            case "preferences-snapshot": output = preferencesSnapshot(store)
+            case "language-catalog":
+                output = [
+                    "languages": AnkiLanguageCatalog.languages.map {
+                        ["name": $0.name, "code": $0.code, "rtl": $0.isRightToLeft]
+                    },
+                    "defaultLanguageCode": AnkiLanguageCatalog.defaultLanguageCode,
+                    "preferredLanguageMappings": [
+                        "pt-BR": AnkiLanguageCatalog.systemLanguageCode(for: "pt-BR") ?? "",
+                        "fr-CA": AnkiLanguageCatalog.systemLanguageCode(for: "fr-CA") ?? "",
+                        "zh-Hans-SG": AnkiLanguageCatalog.systemLanguageCode(for: "zh-Hans-SG") ?? "",
+                        "zh-Hant-HK": AnkiLanguageCatalog.systemLanguageCode(for: "zh-Hant-HK") ?? "",
+                        "nb-NO": AnkiLanguageCatalog.systemLanguageCode(for: "nb-NO") ?? "",
+                        "nb": AnkiLanguageCatalog.systemLanguageCode(for: "nb") ?? "",
+                        "unknown": AnkiLanguageCatalog.systemLanguageCode(for: "xx-ZZ") ?? ""
+                    ],
+                    "defaultFromPreferredLanguage": AnkiLanguageCatalog.defaultLanguageCode(
+                        environment: [:],
+                        preferredLanguages: ["fr-CA", "en-US"]
+                    ),
+                    "defaultFromNorwegianSystemLanguage": AnkiLanguageCatalog.defaultLanguageCode(
+                        environment: [:],
+                        preferredLanguages: ["nb-NO", "en-US"]
+                    ),
+                    "environmentOverridesPreferredLanguage": AnkiLanguageCatalog.defaultLanguageCode(
+                        environment: ["LC_ALL": "pt_BR.UTF-8"],
+                        preferredLanguages: ["en-US"]
+                    )
+                ]
             case "cardgen-actions": output = try cardgenActions(store)
             case "deck-actions": output = try deckActions(store, args: Array(args.dropFirst()))
+            case "deck-options": output = try deckOptions(store)
+            case "rich-media-edit": output = try richMediaEdit(store, args: Array(args.dropFirst()))
             case "delete-actions": output = try deleteActions(store)
             case "empty-actions": output = try emptyActions(store)
             case "notetype-schema-actions": output = try notetypeSchemaActions(store)
             case "queue-actions": output = try queueActions(store, args: Array(args.dropFirst()))
             case "sync-actions": output = try syncActions(store, args: Array(args.dropFirst()))
+            case "icloud-merge":
+                let paths = Array(args.dropFirst())
+                guard paths.count == 3 else { throw SQLiteError.exec("icloud-merge <local.anki2> <cloud.anki2> <output.anki2>") }
+                try ICloudSync.mergeCollectionFiles(
+                    local: URL(fileURLWithPath: paths[0]),
+                    cloud: URL(fileURLWithPath: paths[1]),
+                    output: URL(fileURLWithPath: paths[2])
+                )
+                output = ["merged": true]
             case "tag-actions": output = try tagActions(store, args: Array(args.dropFirst()))
             case "notetype-actions": output = try notetypeActions(store, args: Array(args.dropFirst()))
             case "notetype-delete-actions": output = try notetypeDeleteActions(store)
@@ -48,8 +108,23 @@ enum ParityHarness {
             case "latex-generate": output = try latexGenerate(args: Array(args.dropFirst()))
             case "template-render": output = try templateRender(args: Array(args.dropFirst()))
             case "template-render-batch": output = try templateRenderBatch(args: Array(args.dropFirst()))
+            case "speech-render-batch": output = try speechRenderBatch(store, args: Array(args.dropFirst()))
+            case "auto-advance-actions": output = try autoAdvanceActions(args: Array(args.dropFirst()))
+            case "auto-advance-timers": output = try autoAdvanceTimers(args: Array(args.dropFirst()))
+            case "study-shortcuts": output = studyShortcuts()
+            case "study-korean-shortcuts": output = studyKoreanShortcuts()
+            case "widget-grade": output = try await widgetGrade(store, args: Array(args.dropFirst()))
+            case "media-check": output = try mediaCheck(store)
+            case "database-check":
+                CollectionDatabaseChecker(store: store).run()
+                try store.reloadMeta()
+                output = try databaseCheckSnapshot(store)
+            case "profile-actions": output = try await profileActions(store)
+            case "type-answer-render-batch": output = try typeAnswerRenderBatch(args: Array(args.dropFirst()))
             case "card-render-batch": output = try cardRenderBatch(store, args: Array(args.dropFirst()))
             case "cloze-render-batch": output = try cardRenderBatch(store, args: Array(args.dropFirst()), modelName: "Cloze")
+            case "render-cards": output = try renderCards(store)
+            case "image-occlusion-roundtrip": output = try imageOcclusionRoundTrip(store, args: Array(args.dropFirst()))
             case "search": output = try search(store, args: Array(args.dropFirst()))
             case "search-batch": output = try searchBatch(store, args: Array(args.dropFirst()))
             default:
@@ -90,6 +165,17 @@ enum ParityHarness {
         ]
     }
 
+    static func packageRouting(args: [String]) -> [[String: Any]] {
+        args.map { path in
+            let url = URL(fileURLWithPath: path)
+            return [
+                "extension": url.pathExtension.lowercased(),
+                "route": PackageImportRoute.route(for: url).rawValue,
+                "systemOpen": PackageImportRoute.canOpenFromSystem(url)
+            ]
+        }
+    }
+
     static func exportPackage(_ store: CollectionStore, args: [String]) throws -> [String: Any] {
         guard let path = args.first, !path.isEmpty else {
             throw SQLiteError.exec("export <package.apkg>")
@@ -101,6 +187,40 @@ enum ParityHarness {
         ])
         let destination = URL(fileURLWithPath: path)
         try ApkgExporter(store: store).export(deckID: nil, to: destination, options: options)
+        let size = (try FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?.intValue ?? 0
+        return ["path": path, "bytes": size]
+    }
+
+    static func exportDeckPackage(_ store: CollectionStore, args: [String]) throws -> [String: Any] {
+        guard args.count >= 2, let deckID = Int64(args[0]), !args[1].isEmpty else {
+            throw SQLiteError.exec("export-deck <deck-id> <package.apkg>")
+        }
+        let options = ApkgExportOptions(configuration: [
+            "apkgIncludeScheduling": args.contains("--scheduling"),
+            "apkgIncludeDeckPresets": args.contains("--presets"),
+            "apkgIncludeMedia": !args.contains("--no-media"),
+        ])
+        let destination = URL(fileURLWithPath: args[1])
+        try ApkgExporter(store: store).export(deckID: deckID, to: destination, options: options)
+        let size = (try FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?.intValue ?? 0
+        return ["path": args[1], "bytes": size]
+    }
+
+    static func exportSelectedCardsPackage(_ store: CollectionStore, args: [String]) throws -> [String: Any] {
+        guard let path = args.first, !path.isEmpty else {
+            throw SQLiteError.exec("export-cards <package.apkg> <card-id> [card-id ...]")
+        }
+        let cardIDs = args.dropFirst().compactMap(Int64.init)
+        guard !cardIDs.isEmpty else {
+            throw SQLiteError.exec("export-cards <package.apkg> <card-id> [card-id ...]")
+        }
+        let options = ApkgExportOptions(configuration: [
+            "apkgIncludeScheduling": false,
+            "apkgIncludeDeckPresets": false,
+            "apkgIncludeMedia": true,
+        ])
+        let destination = URL(fileURLWithPath: path)
+        try ApkgExporter(store: store).export(cardIDs: cardIDs, to: destination, options: options)
         let size = (try FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?.intValue ?? 0
         return ["path": path, "bytes": size]
     }
@@ -146,6 +266,20 @@ enum ParityHarness {
         }
         let destination = URL(fileURLWithPath: path)
         try CSVExporter(store: store).exportNotes(to: destination)
+        let size = (try FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?.intValue ?? 0
+        return ["path": path, "bytes": size]
+    }
+
+    static func csvExportNotes(_ store: CollectionStore, args: [String]) throws -> [String: Any] {
+        guard let path = args.first, !path.isEmpty else {
+            throw SQLiteError.exec("csv-export-notes <file.tsv> <note-id> [note-id ...]")
+        }
+        let noteIDs = args.dropFirst().compactMap(Int64.init)
+        guard !noteIDs.isEmpty else {
+            throw SQLiteError.exec("csv-export-notes <file.tsv> <note-id> [note-id ...]")
+        }
+        let destination = URL(fileURLWithPath: path)
+        try CSVExporter(store: store).exportNotes(noteIDs: noteIDs, to: destination)
         let size = (try FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?.intValue ?? 0
         return ["path": path, "bytes": size]
     }
@@ -224,6 +358,118 @@ enum ParityHarness {
         return ["filled": filled, "emptied": emptied]
     }
 
+    static func filteredOptionsActions(_ store: CollectionStore) throws -> [String: Any] {
+        func options(_ deck: AnkiDeck) -> [String: Any] {
+            let terms = (store.deckToDict(deck)["terms"] as? [[Any]]) ?? []
+            return [
+                "name": deck.name,
+                "terms": terms,
+                "reschedule": deck.resched ?? true,
+                "previewDelay": deck.previewDelay ?? 0,
+                "previewAgainSecs": deck.previewAgain ?? FilteredDeckSupport.previewAgainSeconds,
+                "previewHardSecs": deck.previewHard ?? FilteredDeckSupport.previewHardSeconds,
+                "previewGoodSecs": deck.previewGood ?? FilteredDeckSupport.previewGoodSeconds
+            ]
+        }
+
+        func snapshot(_ deckID: Int64) throws -> [String: Any] {
+            guard let deck = store.deck(id: deckID) else {
+                throw SQLiteError.exec("Filtered deck was not saved")
+            }
+            var cards: [[String: Any]] = []
+            try store.db.query("""
+                SELECT id, type, queue, due, ivl, odue, did, odid, ord, usn
+                FROM cards WHERE odid != 0 ORDER BY due, id
+                """) { stmt in
+                let cardID = sqlite3_column_int64(stmt, 0)
+                let did = sqlite3_column_int64(stmt, 6)
+                let originalDeckID = sqlite3_column_int64(stmt, 7)
+                cards.append([
+                    "id": cardID,
+                    "type": Int(sqlite3_column_int(stmt, 1)),
+                    "queue": Int(sqlite3_column_int(stmt, 2)),
+                    "due": Int(sqlite3_column_int(stmt, 3)),
+                    "ivl": Int(sqlite3_column_int(stmt, 4)),
+                    "odue": Int(sqlite3_column_int(stmt, 5)),
+                    "deck": did == deckID ? "filtered" : (store.deck(id: did)?.name ?? ""),
+                    "templateDeck": store.deck(id: originalDeckID)?.name ?? "",
+                    "ord": Int(sqlite3_column_int(stmt, 8)),
+                    "usn": Int(sqlite3_column_int(stmt, 9))
+                ])
+            }
+            return [
+                "options": options(deck),
+                "cards": cards,
+                "isCurrentDeck": store.currentDeckID() == deckID
+            ]
+        }
+
+        var defaults = options(try store.createFilteredDeck())
+        defaults.removeValue(forKey: "name")
+        let first = try store.saveFilteredDeck(
+            try store.createFilteredDeck(),
+            name: "Parity Filtered",
+            search: "deck:Lang is:review",
+            limit: 5,
+            order: "oldest",
+            reschedule: false,
+            again: 75,
+            hard: 480,
+            good: 0,
+            search2: "deck:Math is:new",
+            limit2: 4,
+            order2: "due"
+        )
+        let created = try snapshot(first.id)
+        let second = try store.saveFilteredDeck(
+            first,
+            name: "  Parity Filtered Updated  ",
+            search: "deck:Math is:new",
+            limit: 3,
+            order: "latest",
+            reschedule: true,
+            again: 30,
+            hard: 90,
+            good: 120
+        )
+        let updated = try snapshot(second.id)
+        var emptyUpdateRejected = false
+        do {
+            _ = try store.saveFilteredDeck(
+                second,
+                search: "cid:9999999999999999",
+                limit: 1,
+                order: "due",
+                reschedule: true,
+                again: 30,
+                hard: 90,
+                good: 120
+            )
+        } catch {
+            emptyUpdateRejected = true
+        }
+        let afterRejectedUpdate = try snapshot(second.id)
+        let emptied = try store.saveFilteredDeck(
+            second,
+            search: "cid:9999999999999999",
+            limit: 1,
+            order: "due",
+            reschedule: true,
+            again: 30,
+            hard: 90,
+            good: 120,
+            allowEmpty: true
+        )
+        return [
+            "defaults": defaults,
+            "created": created,
+            "updated": updated,
+            "emptyUpdateRejected": emptyUpdateRejected,
+            "afterRejectedUpdate": afterRejectedUpdate,
+            "emptyAllowed": try snapshot(emptied.id)
+        ]
+    }
+
     static func queueActions(_ store: CollectionStore, args: [String]) throws -> [[String: Any]] {
         guard let action = args.first else { throw SQLiteError.exec("queue-actions <suspend|bury|unbury|unsuspend>") }
         var ids: [Int64] = []
@@ -257,6 +503,189 @@ enum ParityHarness {
             ])
         }
         return result
+    }
+
+    static func browserSortActions(_ store: CollectionStore) throws -> [String: Any] {
+        let browserSorts = BrowserSort.allCases
+        var cardOrders: [String: [String: [Int64]]] = [:]
+        for sortKey in browserSorts {
+            let column = sortKey.ankiColumn(notesMode: false)
+            let ascending = try store.search(
+                query: "",
+                limit: 10_000,
+                sortType: sortKey.sortValue(notesMode: false),
+                sortDescending: false
+            ).map(\.id)
+            let descending = try store.search(
+                query: "",
+                limit: 10_000,
+                sortType: sortKey.sortValue(notesMode: false),
+                sortDescending: true
+            ).map(\.id)
+            cardOrders[column] = ["ascending": ascending, "descending": descending]
+        }
+
+        var noteOrders: [String: [String: [Int64]]] = [:]
+        for sortKey in browserSorts where sortKey.supportsNotesMode {
+            let column = sortKey.ankiColumn(notesMode: true)
+            var directions: [String: [Int64]] = [:]
+            for descending in [false, true] {
+                let rows = try store.search(
+                    query: "",
+                    limit: 10_000,
+                    sortType: sortKey.sortValue(notesMode: true),
+                    sortDescending: descending,
+                    notesMode: true
+                )
+                var seen = Set<Int64>()
+                let ordered = rows.compactMap { seen.insert($0.note.id).inserted ? $0.note.id : nil }
+                directions[descending ? "descending" : "ascending"] = ordered
+            }
+            noteOrders[column] = directions
+        }
+
+        var preferenceRoundTrips: [[String: Any]] = []
+        for notesMode in [false, true] {
+            for sortKey in browserSorts where !notesMode || sortKey.supportsNotesMode {
+                for descending in [false, true] {
+                    var conf: [String: Any] = [:]
+                    BrowserSort.savePreference(sortKey, descending: descending, notesMode: notesMode, into: &conf)
+                    let loaded = BrowserSort.preference(from: conf, notesMode: notesMode)
+                    preferenceRoundTrips.append([
+                        "notesMode": notesMode,
+                        "column": sortKey.ankiColumn(notesMode: notesMode),
+                        "descending": descending,
+                        "persistedSortType": conf[notesMode ? "noteSortType" : "sortType"] as? String ?? "",
+                        "persistedDirection": conf[notesMode ? "browserNoteSortBackwards" : "sortBackwards"] as? Bool ?? false,
+                        "loadedColumn": loaded.sortKey.ankiColumn(notesMode: notesMode),
+                        "loadedDescending": loaded.descending
+                    ])
+                }
+            }
+        }
+
+        let legacy = BrowserSort.preference(from: ["sortType": 3, "browserSortDescending": true], notesMode: false)
+        let imported = BrowserSort.preference(from: ["sortType": "noteCrt", "sortBackwards": false], notesMode: false)
+        var persistedConf = store.conf
+        BrowserSort.savePreference(.sortField, descending: false, notesMode: false, into: &persistedConf)
+        BrowserSort.savePreference(.modified, descending: true, notesMode: true, into: &persistedConf)
+        try store.saveConf(persistedConf)
+
+        return [
+            "cardOrders": cardOrders,
+            "noteOrders": noteOrders,
+            "preferenceRoundTrips": preferenceRoundTrips,
+            "legacyPreference": ["column": legacy.sortKey.ankiColumn(notesMode: false), "descending": legacy.descending],
+            "importedPreference": ["column": imported.sortKey.ankiColumn(notesMode: false), "descending": imported.descending]
+        ]
+    }
+
+    static func browserSelectionActions(_ store: CollectionStore) throws -> [String: Any] {
+        func result(query: String, notesMode: Bool) throws -> [String: Any] {
+            let rows = try BrowserSelection.allRowIDs(
+                query: query,
+                sortType: BrowserSort.sortField.sortValue(notesMode: notesMode),
+                sortDescending: false,
+                notesMode: notesMode,
+                store: store
+            )
+            let indices = Array(Set([0, 2, 499, 500, rows.count - 1])).filter { $0 >= 0 && $0 < rows.count }.sorted()
+            let selectedIDs = Set(indices.reversed().map { rows[$0] })
+            let selected = try BrowserSelection.orderedRowIDs(
+                selectedIDs: selectedIDs,
+                query: query,
+                sortType: BrowserSort.sortField.sortValue(notesMode: notesMode),
+                sortDescending: false,
+                notesMode: notesMode,
+                store: store
+            )
+            let inverted = rows.filter { !selectedIDs.contains($0) }
+            let selectedCards = try BrowserSelection.targetCardIDs(selected, notesMode: notesMode, store: store).sorted()
+            let invertedCards = try BrowserSelection.targetCardIDs(inverted, notesMode: notesMode, store: store).sorted()
+            try store.setCardsQueue(selectedCards, queue: -1)
+            try store.buryCards(invertedCards)
+            var states: [[Int64]] = []
+            let allCards = (selectedCards + invertedCards).sorted()
+            let placeholders = allCards.map { _ in "?" }.joined(separator: ",")
+            try store.db.query("SELECT id, queue, due, usn FROM cards WHERE id IN (\(placeholders)) ORDER BY id", bind: { statement in
+                for (index, cardID) in allCards.enumerated() {
+                    SQLiteDatabase.bindInt64(statement, Int32(index + 1), cardID)
+                }
+            }) { statement in
+                states.append([
+                    sqlite3_column_int64(statement, 0),
+                    Int64(sqlite3_column_int(statement, 1)),
+                    Int64(sqlite3_column_int(statement, 2)),
+                    Int64(sqlite3_column_int(statement, 3))
+                ])
+            }
+            return [
+                "rowCount": rows.count,
+                "selectedRows": selected,
+                "invertedRows": inverted,
+                "selectedCards": selectedCards,
+                "invertedCards": invertedCards,
+                "states": states
+            ]
+        }
+        return [
+            "cardsMode": try result(query: "tag:parity-card-selection", notesMode: false),
+            "notesMode": try result(query: "tag:parity-note-selection", notesMode: true)
+        ]
+    }
+
+    static func preferencesSnapshot(_ store: CollectionStore) -> [String: Any] {
+        let keys = [
+            "rollover", "collapseTime", "newSpread", "hideAudioPlayButtons", "interruptAudioWhenAnswering",
+            "dueCounts", "estTimes", "timeLim", "addToCur", "applyAllParentLimits", "fsrs",
+            "fsrsShortTermWithStepsEnabled", "pasteImagesAsPng", "pasteStripsFormatting",
+            "defaultSearchText", "ignoreAccentsInSearch", "renderLatex", "backups", "dayLearnFirst",
+            "loadBalancerEnabled"
+        ]
+        var values = Dictionary(uniqueKeysWithValues: keys.map { ($0, store.conf[$0] ?? NSNull()) })
+        values["newTimezone"] = CollectionStore.newTimezoneEnabled(in: store.conf)
+        values["creationOffset"] = store.conf["creationOffset"] ?? NSNull()
+        return values
+    }
+
+    static func preferencesActions(_ store: CollectionStore) throws -> [String: Any] {
+        let loaded = preferencesSnapshot(store)
+        var updated = store.conf
+        updated["rollover"] = 9
+        updated["collapseTime"] = 900
+        updated["newSpread"] = 2
+        updated["hideAudioPlayButtons"] = false
+        updated["interruptAudioWhenAnswering"] = true
+        updated.removeValue(forKey: "interruptAudio")
+        updated["dueCounts"] = true
+        updated["estTimes"] = false
+        updated["timeLim"] = 900
+        updated["addToCur"] = false
+        updated["applyAllParentLimits"] = false
+        updated["fsrs"] = false
+        updated["fsrsShortTermWithStepsEnabled"] = false
+        updated.removeValue(forKey: "fsrsShortTermWithSteps")
+        updated["pasteImagesAsPng"] = false
+        updated["pasteStripsFormatting"] = false
+        updated["defaultSearchText"] = "deck:Math"
+        updated.removeValue(forKey: "browserDefaultSearch")
+        updated["ignoreAccentsInSearch"] = false
+        updated["renderLatex"] = false
+        updated["backups"] = [
+            "minimum_interval_mins": 23,
+            "daily": 7,
+            "weekly": 5,
+            "monthly": 3
+        ]
+        updated["loadBalancerEnabled"] = false
+        CollectionStore.setNewTimezone(
+            false,
+            collectionCreatedAt: store.collectionCreation(),
+            configuration: &updated
+        )
+        try store.saveConf(updated)
+        try store.reloadMeta()
+        return ["loaded": loaded, "saved": preferencesSnapshot(store)]
     }
 
     static func deleteActions(_ store: CollectionStore) throws -> [String: Any] {
@@ -608,6 +1037,119 @@ enum ParityHarness {
         try store.redoMostRecentCollectionAction()
         let redone = try snapshot()
         return ["before": before, "after": deleted, "undone": undone, "redone": redone]
+    }
+
+    static func deckOptions(_ store: CollectionStore) throws -> [String: Any] {
+        guard var deck = store.decks.first(where: { $0.name == "Lang::ES" }),
+              var config = store.deckConfigs.first(where: { $0.id == deck.conf }) else {
+            throw SQLiteError.exec("Deck options fixture is incomplete")
+        }
+        let configID = store.timestampID()
+        config.id = configID
+        config.name = "Parity preset"
+        config.mod = Int64(Date().timeIntervalSince1970)
+        config.usn = -1
+        config.new.delays = [1, 3, 7]
+        config.new.perDay = 37
+        config.newPerDayMinimum = 4
+        config.new.order = 1
+        config.new.bury = true
+        config.rev.perDay = 123
+        config.rev.ease4 = 1.45
+        config.rev.bury = true
+        config.lapse.delays = [5, 60]
+        config.lapse.leechFails = 6
+        config.lapse.leechAction = 1
+        config.autoplay = false
+        config.timer = 1
+        config.stopTimerOnAnswer = true
+        config.waitForAudio = false
+        config.buryInterdayLearning = true
+        config.desiredRetention = 0.91
+        config.easyDayPercents = [1, 0.5, 1, 1, 1, 0, 1]
+
+        deck.conf = configID
+        deck.newLimit = 37
+        deck.newLimitToday = AnkiDayLimit(limit: 11, today: store.schedDay())
+        deck.reviewLimitToday = AnkiDayLimit(limit: 12, today: store.schedDay())
+        var configs = store.deckConfigs
+        configs.append(config)
+        var decks = store.decks
+        if let index = decks.firstIndex(where: { $0.id == deck.id }) { decks[index] = deck }
+        try store.saveDeckConfigs(configs, updatedDecks: decks)
+        var collectionConf = store.conf
+        collectionConf["newCardsIgnoreReviewLimit"] = true
+        try store.saveConf(collectionConf)
+
+        var storedConfig: [String: Any] = [:]
+        var storedDeck: [String: Any] = [:]
+        try store.db.query("SELECT dconf, decks FROM col WHERE id = 1") { stmt in
+            let dconfText = String(cString: sqlite3_column_text(stmt, 0))
+            let decksText = String(cString: sqlite3_column_text(stmt, 1))
+            if let dconf = try JSONSerialization.jsonObject(with: Data(dconfText.utf8)) as? [String: [String: Any]] {
+                storedConfig = dconf[String(configID)] ?? [:]
+            }
+            if let deckDict = try JSONSerialization.jsonObject(with: Data(decksText.utf8)) as? [String: [String: Any]] {
+                storedDeck = deckDict[String(deck.id)] ?? [:]
+            }
+        }
+        var cards: [[String: Any]] = []
+        try store.db.query("SELECT id, type, queue, left, usn FROM cards WHERE (did = ? OR (odid != 0 AND odid = ?)) AND type IN (1, 3) ORDER BY id", bind: { stmt in
+            SQLiteDatabase.bindInt64(stmt, 1, deck.id)
+            SQLiteDatabase.bindInt64(stmt, 2, deck.id)
+        }) { stmt in
+            cards.append([
+                "id": sqlite3_column_int64(stmt, 0),
+                "type": sqlite3_column_int(stmt, 1),
+                "queue": sqlite3_column_int(stmt, 2),
+                "left": sqlite3_column_int(stmt, 3),
+                "usn": sqlite3_column_int(stmt, 4)
+            ])
+        }
+        return [
+            "preset": storedConfig,
+            "deck": storedDeck,
+            "cards": cards,
+            "newCardsIgnoreReviewLimit": store.conf["newCardsIgnoreReviewLimit"] as? Bool ?? false
+        ]
+    }
+
+    static func richMediaEdit(_ store: CollectionStore, args: [String]) throws -> [String: Any] {
+        guard args.count >= 3,
+              let note = try store.fetchNote(guid: args[0]),
+              note.fields.count >= 2 else {
+            throw SQLiteError.exec("rich-media-edit <note-guid> <image-path> <audio-path>")
+        }
+        let imageName = try store.mediaStore.importFile(from: URL(fileURLWithPath: args[1]))
+        let audioName = try store.mediaStore.importFile(from: URL(fileURLWithPath: args[2]))
+        var fields = note.fields
+        fields[0] = "<p class=\"clip\">A&nbsp; &amp; <strong>árvore</strong></p><img src=\"\(imageName)\" alt=\"diagrama\">[sound:\(audioName)]"
+        fields[1] = "<div data-kind=\"note\">Resposta<br>rica &lt;ok&gt;</div><img src=\"\(imageName)\" alt=\"diagrama\">[sound:\(audioName)]"
+        try store.updateNote(note, fields: fields, tags: note.tags)
+        guard let savedNote = try store.fetchNote(guid: args[0]) else {
+            throw SQLiteError.exec("rich-media-edit could not reload the note")
+        }
+        var cards: [[String: Int64]] = []
+        try store.db.query("SELECT id, ord, queue, due, usn FROM cards WHERE nid = ? ORDER BY ord", bind: {
+            SQLiteDatabase.bindInt64($0, 1, savedNote.id)
+        }) { stmt in
+            cards.append([
+                "id": sqlite3_column_int64(stmt, 0),
+                "ord": Int64(sqlite3_column_int(stmt, 1)),
+                "queue": Int64(sqlite3_column_int(stmt, 2)),
+                "due": sqlite3_column_int64(stmt, 3),
+                "usn": Int64(sqlite3_column_int(stmt, 4))
+            ])
+        }
+        return [
+            "fields": savedNote.fields,
+            "sfld": savedNote.sfld,
+            "csum": savedNote.csum,
+            "tags": savedNote.tags,
+            "usn": savedNote.usn,
+            "mediaNames": [imageName, audioName],
+            "cards": cards
+        ]
     }
 
     static func filteredDeckDeleteActions(_ store: CollectionStore) throws -> [String: Any] {
@@ -1122,6 +1664,172 @@ enum ParityHarness {
         }
     }
 
+    static func speechRenderBatch(_ store: CollectionStore, args: [String]) throws -> [[String: Any]] {
+        guard let input = args.first?.data(using: .utf8),
+              var model = store.notetypes.first(where: { $0.name == "Basic" }),
+              let row = try store.search(query: "note:Basic", limit: 1).first,
+              var note = try store.fetchNote(id: row.card.nid) else {
+            throw SQLiteError.exec("speech-render-batch <json-cases>")
+        }
+        let cases = try JSONDecoder().decode([[String]].self, from: input)
+        func speechRows(_ requests: [CardHTMLRenderer.SpeechRequest]) -> [[String: Any]] {
+            requests.map { request in
+                [
+                    "language": request.language,
+                    "speed": Double(request.speed),
+                    "voices": request.voices,
+                    "text": request.text
+                ]
+            }
+        }
+        func playbackRows(_ items: [CardHTMLRenderer.PlaybackItem]) -> [[String: Any]] {
+            items.map { item in
+                switch item {
+                case .file(let filename):
+                    ["kind": "file", "filename": filename]
+                case .speech(let request):
+                    [
+                        "kind": "speech",
+                        "language": request.language,
+                        "speed": Double(request.speed),
+                        "voices": request.voices,
+                        "text": request.text
+                    ]
+                }
+            }
+        }
+        return try cases.map { item in
+            guard item.count == 4, !model.tmpls.isEmpty, note.fields.count >= 2 else {
+                throw SQLiteError.exec("Expected question template, answer template, front, and back")
+            }
+            model.tmpls[0].qfmt = item[0]
+            model.tmpls[0].afmt = item[1]
+            note.flds = [item[2], item[3]].joined(separator: "\u{1f}")
+            var card = row.card
+            card.ord = 0
+            let deckName = store.deck(id: card.odid != 0 ? card.odid : card.did)?.name ?? ""
+            let question = CardHTMLRenderer.renderCard(
+                note: note, card: card, notetype: model, side: .question,
+                mediaBase: store.mediaRoot, deckName: deckName
+            )
+            let answer = CardHTMLRenderer.renderCard(
+                note: note, card: card, notetype: model, side: .answer,
+                mediaBase: store.mediaRoot, deckName: deckName
+            )
+            return [
+                "question": speechRows(question.questionSpeech),
+                "answer": speechRows(answer.answerSpeech),
+                "questionPlayback": playbackRows(question.questionPlayback),
+                "answerPlayback": playbackRows(answer.answerPlayback)
+            ]
+        }
+    }
+
+    static func autoAdvanceActions(args: [String]) throws -> [[String: Any]] {
+        guard let input = args.first?.data(using: .utf8) else {
+            throw SQLiteError.exec("auto-advance-actions <json-values>")
+        }
+        let values = try JSONDecoder().decode([Int].self, from: input)
+        return values.map { value in
+            [
+                "raw": value,
+                "question": AutoAdvanceActionResolver.question(value).rawValue,
+                "answer": AutoAdvanceActionResolver.answer(value).rawValue
+            ]
+        }
+    }
+
+    static func autoAdvanceTimers(args: [String]) throws -> [String: Any] {
+        guard let input = args.first?.data(using: .utf8) else {
+            throw SQLiteError.exec("auto-advance-timers <json-seconds>")
+        }
+        let values = try JSONDecoder().decode([Double].self, from: input)
+        let delays = values.map { value -> [String: Any] in
+            var row: [String: Any] = ["seconds": value]
+            if let milliseconds = AutoAdvanceActionResolver.delayMilliseconds(value) {
+                row["milliseconds"] = milliseconds
+            } else {
+                row["milliseconds"] = NSNull()
+            }
+            return row
+        }
+        let focus = [false, true].flatMap { enabled in
+            [false, true].map { focused in
+                [
+                    "enabled": enabled,
+                    "focused": focused,
+                    "advance": AutoAdvanceActionResolver.shouldAdvance(autoAdvanceEnabled: enabled, isWindowFocused: focused)
+                ]
+            }
+        }
+        let audioWait = [false, true].flatMap { waitForAudio in
+            [false, true].map { unfinished in
+                [
+                    "waitForAudio": waitForAudio,
+                    "unfinished": unfinished,
+                    "skip": AutoAdvanceActionResolver.shouldSkipAutoAdvanceForAudio(
+                        waitForAudio: waitForAudio,
+                        hasUnfinishedPlayback: unfinished
+                    )
+                ]
+            }
+        }
+        return ["delays": delays, "focus": focus, "audioWait": audioWait]
+    }
+
+    static func studyKoreanShortcuts() -> [[String: String]] {
+        StudyKeyboardShortcutResolver.korean.map {
+            ["key": $0.key, "modifiers": $0.modifiers.rawValue, "action": $0.action.rawValue]
+        }
+    }
+
+    static func studyShortcuts() -> [[String: String]] {
+        StudyKeyboardShortcutResolver.standard.map {
+            ["key": $0.key, "modifiers": $0.modifiers.rawValue, "action": $0.action.rawValue]
+        }
+    }
+
+    static func mediaCheck(_ store: CollectionStore) throws -> [String: Any] {
+        let report = try SettingsView.makeMediaCheckReport(store: store)
+        return [
+            "unused": report.unused,
+            "missing": report.missing,
+            "missingNoteIDs": report.missingNoteIDs
+        ]
+    }
+
+    static func typeAnswerRenderBatch(args: [String]) throws -> [[String: Any]] {
+        guard let input = args.first?.data(using: .utf8) else {
+            throw SQLiteError.exec("type-answer-render-batch <json-cases>")
+        }
+        let cases = try JSONDecoder().decode([[String]].self, from: input)
+        return try cases.map { item in
+            guard item.count == 3 else { throw SQLiteError.exec("Expected a template expression, expected answer, and typed answer") }
+            let expression = item[0]
+            let expected = item[1]
+            let typed = item[2]
+            let template = "{{\(expression)}}"
+            let config = TemplateEngine.typeAnswerConfig(in: template)
+            let expectedForMatch = config.map {
+                TemplateEngine.typeAnswerText(expected, config: $0, clozeOrd: $0.cloze ? 0 : nil)
+            } ?? expected
+            return [
+                "html": TemplateEngine.render(
+                    template: template,
+                    fields: ["Back": expected],
+                    clozeOrd: 0,
+                    questionSide: false,
+                    typedAnswer: typed
+                ),
+                "matches": TemplateEngine.typeAnswerMatches(
+                    typed: typed,
+                    expected: expectedForMatch,
+                    config: config
+                )
+            ]
+        }
+    }
+
     static func cardRenderBatch(_ store: CollectionStore, args: [String], modelName: String = "Basic") throws -> [String] {
         guard let input = args.first?.data(using: .utf8),
               var model = store.notetypes.first(where: { $0.name == modelName }),
@@ -1146,6 +1854,101 @@ enum ParityHarness {
             }
             return String(rendered.html[start.upperBound..<end.lowerBound])
         }
+    }
+
+    static func renderCards(_ store: CollectionStore) throws -> [[String: Any]] {
+        func speechRows(_ requests: [CardHTMLRenderer.SpeechRequest]) -> [[String: Any]] {
+            requests.map { request in
+                [
+                    "language": request.language,
+                    "speed": Double(request.speed),
+                    "voices": request.voices,
+                    "text": request.text
+                ]
+            }
+        }
+
+        var cardIDs: [Int64] = []
+        try store.db.query("SELECT id FROM cards ORDER BY id") { stmt in
+            cardIDs.append(sqlite3_column_int64(stmt, 0))
+        }
+        var result: [[String: Any]] = []
+        result.reserveCapacity(cardIDs.count)
+        for cardID in cardIDs {
+            guard let card = try store.fetchCard(id: cardID),
+                  let note = try store.fetchNote(id: card.nid),
+                  let notetype = store.notetype(id: note.mid) else { continue }
+            let deckName = store.deck(id: card.odid != 0 ? card.odid : card.did)?.name ?? ""
+            let question = CardHTMLRenderer.renderCard(
+                note: note, card: card, notetype: notetype, side: .question,
+                mediaBase: store.mediaRoot, deckName: deckName
+            )
+            let answer = CardHTMLRenderer.renderCard(
+                note: note, card: card, notetype: notetype, side: .answer,
+                mediaBase: store.mediaRoot, deckName: deckName
+            )
+            result.append([
+                "guid": note.guid,
+                "ordinal": card.ord,
+                "questionText": question.questionText,
+                "answerText": answer.answerText,
+                "questionSounds": question.questionSounds,
+                "answerSounds": answer.answerSounds,
+                "questionSpeech": speechRows(question.questionSpeech),
+                "answerSpeech": speechRows(answer.answerSpeech),
+                "questionHTML": cardBody(question.html),
+                "answerHTML": cardBody(answer.html),
+                "questionImageOcclusionBridge": question.html.contains("window.anki.imageOcclusion.setup = window.anki.imageOcclusion.setup || function(){};"),
+                "answerImageOcclusionBridge": answer.html.contains("window.anki.imageOcclusion.setup = window.anki.imageOcclusion.setup || function(){};"),
+                "answerImageOcclusionToggleBound": answer.html.contains("document.getElementById('toggle')"),
+                "questionImageOcclusionContainer": question.html.contains("id=\"image-occlusion-container\""),
+                "answerImageOcclusionTogglePresent": answer.html.contains("id=\"toggle\"")
+            ])
+        }
+        return result
+    }
+
+    static func imageOcclusionRoundTrip(_ store: CollectionStore, args: [String]) throws -> [String: Any] {
+        guard let guid = args.first,
+              let note = try store.fetchNote(guid: guid),
+              let notetype = store.notetype(id: note.mid),
+              let fieldIndex = ImageOcclusionNotetype.fieldIndex(notetype, names: ["Oclusão", "Occlusion", "Occlusions"]),
+              fieldIndex < note.fields.count else {
+            throw SQLiteError.exec("image-occlusion-roundtrip <note-guid>")
+        }
+
+        let parsed = ImageOcclusionNotetype.parseMasks(note.fields[fieldIndex])
+        var masks = parsed.masks
+        if !masks.isEmpty {
+            masks[0].rect.origin.x += 0.01
+        }
+        masks.append(OcclusionMask(rect: CGRect(x: 0.25, y: 0.4, width: 0.12, height: 0.18)))
+        masks.append(OcclusionMask(rect: CGRect(x: 0.62, y: 0.1, width: 0.14, height: 0.08), shape: "ellipse"))
+        let occlusion = ImageOcclusionNotetype.clozeText(
+            masks: masks,
+            hideAll: parsed.hideAll,
+            preserved: parsed.preserved
+        )
+        var fields = note.fields
+        fields[fieldIndex] = occlusion
+        try store.updateNote(note, fields: fields, tags: note.tags)
+        guard let savedNote = try store.fetchNote(id: note.id), fieldIndex < savedNote.fields.count else {
+            throw SQLiteError.exec("image-occlusion-roundtrip failed to reload saved note")
+        }
+        return [
+            "editableMaskCount": parsed.masks.count,
+            "preservedMaskCount": parsed.preserved.count,
+            "occlusion": savedNote.fields[fieldIndex]
+        ]
+    }
+
+    private static func cardBody(_ html: String) -> String {
+        let opening = "<div class=\"card\">\n"
+        guard let start = html.range(of: opening),
+              let end = html.range(of: "\n</div>", range: start.upperBound..<html.endIndex) else {
+            return html
+        }
+        return String(html[start.upperBound..<end.lowerBound])
     }
 
     static func latexExtract(args: [String]) throws -> [String: Any] {
@@ -1295,7 +2098,7 @@ enum ParityHarness {
         ]
     }
 
-    static func states(_ store: CollectionStore, ids: [Int64]) throws -> [String: Any] {
+    static func states(_ store: CollectionStore, ids: [Int64], loadBalancerActive: Bool = false) throws -> [String: Any] {
         let scheduler = Scheduler(store: store)
         var cardIDs = ids
         if cardIDs.isEmpty {
@@ -1307,7 +2110,7 @@ enum ParityHarness {
         var out: [String: Any] = [:]
         for id in cardIDs {
             guard let card = try store.fetchCard(id: id), let deck = store.deck(id: card.did) else { continue }
-            let results = scheduler.harnessResults(card: card, deck: deck)
+            let results = scheduler.harnessResults(card: card, deck: deck, loadBalancerActive: loadBalancerActive)
             var entry: [String: Any] = [:]
             entry["labels"] = Rating.allCases.map { results[$0]?.intervalLabel ?? "" }
             for rating in Rating.allCases {
@@ -1321,6 +2124,14 @@ enum ParityHarness {
             out[String(id)] = entry
         }
         return out
+    }
+
+    static func statesLoadBalanced(_ store: CollectionStore, ids: [Int64]) throws -> [String: Any] {
+        for id in ids {
+            guard let card = try store.fetchCard(id: id) else { continue }
+            _ = try store.queuedStudyCards(for: card.did, limit: 0)
+        }
+        return try states(store, ids: ids, loadBalancerActive: true)
     }
 
     /// `session [deckName] [limit]`: study the named deck (default Lang) and answer
@@ -1354,6 +2165,97 @@ enum ParityHarness {
         ]
     }
 
+    static func studyUndo(_ store: CollectionStore, args: [String]) throws -> [String: Any] {
+        guard args.count >= 2,
+              let sessionDeckID = Int64(args[0]),
+              let sessionDeck = store.deck(id: sessionDeckID),
+              let cardID = Int64(args[1]),
+              let card = try store.fetchCard(id: cardID) else {
+            throw SQLiteError.exec("study-undo <session-deck-id> <card-id>")
+        }
+        let cardDeck = store.deck(id: card.did) ?? sessionDeck
+        var siblingIDs: [Int64] = []
+        try store.db.query("SELECT id FROM cards WHERE nid = ? ORDER BY id", bind: { stmt in
+            SQLiteDatabase.bindInt64(stmt, 1, card.nid)
+        }) { stmt in
+            siblingIDs.append(sqlite3_column_int64(stmt, 0))
+        }
+        let scheduler = store.schedulerForStudySession()
+
+        func snapshot() throws -> [String: Any] {
+            var cards: [[String: Any]] = []
+            var revlogs: [[String: Any]] = []
+            var noteIDs = Set<Int64>()
+            for id in siblingIDs {
+                guard let current = try store.fetchCard(id: id) else { continue }
+                noteIDs.insert(current.nid)
+                cards.append([
+                    "id": current.id,
+                    "type": current.type,
+                    "queue": current.queue,
+                    "due": current.due,
+                    "ivl": current.ivl,
+                    "factor": current.factor,
+                    "reps": current.reps,
+                    "lapses": current.lapses,
+                    "left": current.left,
+                    "odue": current.odue,
+                    "odid": current.odid,
+                    "did": current.did,
+                    "flags": current.flags,
+                    "data": current.data
+                ])
+                try store.db.query("SELECT ease, ivl, lastIvl, factor, time, type FROM revlog WHERE cid = ? ORDER BY id DESC LIMIT 1", bind: {
+                    SQLiteDatabase.bindInt64($0, 1, id)
+                }) { stmt in
+                    revlogs.append([
+                        "cid": id,
+                        "ease": sqlite3_column_int(stmt, 0),
+                        "ivl": sqlite3_column_int(stmt, 1),
+                        "lastIvl": sqlite3_column_int(stmt, 2),
+                        "factor": sqlite3_column_int(stmt, 3),
+                        "time": sqlite3_column_int(stmt, 4),
+                        "type": sqlite3_column_int(stmt, 5)
+                    ])
+                }
+            }
+            var notes: [[String: Any]] = []
+            for id in noteIDs.sorted() {
+                if let note = try store.fetchNote(id: id) {
+                    notes.append(["id": note.id, "tags": note.tags])
+                }
+            }
+            let decks = store.decks.sorted { $0.id < $1.id }.map { current in
+                [
+                    "id": current.id,
+                    "newToday": current.newToday,
+                    "revToday": current.revToday,
+                    "lrnToday": current.lrnToday,
+                    "timeToday": current.timeToday
+                ] as [String: Any]
+            }
+            let queue = try store.queuedStudyCards(for: store.currentDeckID() ?? sessionDeck.id)
+            return [
+                "cards": cards,
+                "revlogs": revlogs,
+                "notes": notes,
+                "decks": decks,
+                "queueCounts": [queue.counts.new, queue.counts.learning, queue.counts.review],
+                "nextCardID": queue.cards.first?.id ?? 0
+            ]
+        }
+
+        store.setCurrentDeck(sessionDeck.id)
+        _ = try store.queuedStudyCards(for: sessionDeck.id)
+        try scheduler.answer(card: card, deck: cardDeck, rating: .good, timeTakenMS: 5_000)
+        let after = try snapshot()
+        try store.undoMostRecentCollectionAction()
+        let undone = try snapshot()
+        try store.redoMostRecentCollectionAction()
+        let redone = try snapshot()
+        return ["after": after, "undone": undone, "redone": redone]
+    }
+
     /// `answer <cid> <rating>`: answers one card and prints the stored result.
     static func answer(_ store: CollectionStore, args: [String]) throws -> [String: Any] {
         guard args.count >= 2, let id = Int64(args[0]), let raw = Int(args[1]), let rating = Rating(rawValue: raw),
@@ -1365,6 +2267,42 @@ enum ParityHarness {
         let now = Int(Date().timeIntervalSince1970)
         guard let after = try store.fetchCard(id: id) else { return [:] }
         return cardState(after, now: now)
+    }
+
+    static func widgetGrade(_ store: CollectionStore, args: [String]) async throws -> [String: Any] {
+        guard args.count >= 2,
+              let cardID = Int64(args[0]),
+              let rating = Int(args[1]),
+              let card = try store.fetchCard(id: cardID) else {
+            throw SQLiteError.exec("widget-grade <cid> <rating> [study-deck-id]")
+        }
+        let studyDeckID = args.dropFirst(2).first.flatMap(Int64.init) ?? card.did
+        guard let deck = store.deck(id: studyDeckID) else {
+            throw SQLiteError.exec("Widget study deck was not found")
+        }
+        store.setCurrentDeck(studyDeckID)
+        WidgetSnapshotPublisher.publish(store)
+        let before = WidgetStudyStore.load()?.snapshot
+        guard let before, before.cardID == cardID else {
+            throw SQLiteError.exec("Widget snapshot did not select the requested card")
+        }
+        WidgetStudyStore.reveal(cardID: cardID)
+        let revealedBefore = WidgetStudyStore.isRevealed(before)
+        await WidgetSnapshotPublisher.grade(cardID: cardID, rating: rating)
+        try store.openOrCreate()
+        try store.reloadMeta()
+        try store.refreshCounts()
+        let after = WidgetStudyStore.load()?.snapshot ?? .empty
+        let next = try store.queuedStudyCards(for: deck.id).cards.first?.id ?? 0
+        return [
+            "beforeCardID": before.cardID,
+            "revealedBeforeGrade": revealedBefore,
+            "revealedAfterGrade": WidgetStudyStore.isRevealed(after),
+            "afterCardID": after.cardID,
+            "hasCard": after.hasCard,
+            "queueHeadID": next,
+            "counts": [after.newCount, after.learnCount, after.reviewCount]
+        ]
     }
 
     static func gradeNow(_ store: CollectionStore, args: [String]) throws -> [String: Any] {
@@ -1444,5 +2382,150 @@ enum ParityHarness {
     static func json(_ value: Any) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else { return "null" }
         return String(decoding: data, as: UTF8.self)
+    }
+
+    static func databaseCheckSnapshot(_ store: CollectionStore) throws -> [String: Any] {
+        func rows(_ query: String) throws -> [[Any]] {
+            var result: [[Any]] = []
+            try store.db.query(query) { statement in
+                let count = sqlite3_column_count(statement)
+                var row: [Any] = []
+                for column in 0..<count {
+                    switch sqlite3_column_type(statement, column) {
+                    case SQLITE_INTEGER:
+                        row.append(sqlite3_column_int64(statement, column))
+                    case SQLITE_FLOAT:
+                        row.append(sqlite3_column_double(statement, column))
+                    case SQLITE_TEXT:
+                        row.append(SQLiteDatabase.text(statement, column))
+                    case SQLITE_NULL:
+                        row.append(NSNull())
+                    default:
+                        row.append("")
+                    }
+                }
+                result.append(row)
+            }
+            return result
+        }
+
+        var notes = try rows("SELECT id, guid, mid, tags, flds, sfld, csum, flags, data FROM notes ORDER BY id")
+        let notetypeNames = Dictionary(uniqueKeysWithValues: store.notetypes.map { ($0.id, $0.name) })
+        for index in notes.indices {
+            if let id = notes[index][2] as? Int64 {
+                notes[index][2] = notetypeNames[id] ?? "missing-\(id)"
+            }
+        }
+        let cutoff = Int64(Date().timeIntervalSince1970 * 1000) + 86_400_000
+        let invalidIDs = try store.db.scalarInt("""
+            SELECT
+                (SELECT COUNT(*) FROM notes WHERE id > \(cutoff)) +
+                (SELECT COUNT(*) FROM cards WHERE id > \(cutoff)) +
+                (SELECT COUNT(*) FROM revlog WHERE id > \(cutoff))
+        """)
+
+        return [
+            "deckNames": store.decks.map(\.name).sorted(),
+            "notetypeNames": store.notetypes.map(\.name).sorted(),
+            "nextPosition": store.conf["nextPos"] as? Int ?? 0,
+            "invalidIDs": invalidIDs,
+            "conf": try store.db.scalarText("SELECT conf FROM col") ?? "",
+            "decks": try store.db.scalarText("SELECT decks FROM col") ?? "",
+            "dconf": try store.db.scalarText("SELECT dconf FROM col") ?? "",
+            "models": try store.db.scalarText("SELECT models FROM col") ?? "",
+            "tags": try store.db.scalarText("SELECT tags FROM col") ?? "",
+            "notes": notes,
+            "cards": try rows("SELECT id, nid, did, ord, usn, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data FROM cards ORDER BY id"),
+            "revlog": try rows("SELECT id, cid, ease, ivl, lastIvl, factor, time, type FROM revlog ORDER BY id"),
+            "graves": try rows("SELECT usn, oid, type FROM graves ORDER BY oid, type"),
+        ]
+    }
+
+    static func profileActions(_ store: CollectionStore) async throws -> [String: Any] {
+        let originalProfile = store.activeProfile
+        let originalPath = store.collectionPath.standardizedFileURL.path
+        let originalPreferences = store.reviewKeyboardPreferences
+        let primaryNotesBefore = try store.db.scalarInt("SELECT COUNT(*) FROM notes")
+        let primaryCardsBefore = try store.db.scalarInt("SELECT COUNT(*) FROM cards")
+        let profileName = "Parity Profile \(UUID().uuidString)"
+        let renamedProfile = profileName.lowercased()
+        try store.createProfile(profileName)
+        let appearedAfterCreate = store.listProfiles().contains(profileName)
+        var duplicateCreationRejected = false
+        do {
+            try store.createProfile(profileName.lowercased())
+        } catch {
+            duplicateCreationRejected = true
+        }
+        var reservedNameRejected = false
+        do {
+            try store.createProfile("addons21")
+        } catch {
+            reservedNameRejected = true
+        }
+
+        await store.switchProfile(to: profileName)
+        let secondaryPath = store.collectionPath.standardizedFileURL.path
+        let secondaryWasEmpty = try store.db.scalarInt("SELECT COUNT(*) FROM notes") == 0
+            && store.db.scalarInt("SELECT COUNT(*) FROM cards") == 0
+        let initialSecondaryPreferencesMatchPrimary = store.reviewKeyboardPreferences.spacebarRatesCard == originalPreferences.spacebarRatesCard
+            && store.reviewKeyboardPreferences.answerKeys == originalPreferences.answerKeys
+        guard let basic = store.notetypes.first(where: { $0.name == "Basic" }) else {
+            throw SQLiteError.exec("Basic notetype was not created for the new profile")
+        }
+        try store.addNote(mid: basic.id, did: 1, fields: ["Profile sentinel", "isolated"], tags: "profile-parity")
+        var secondaryPreferences = ReviewKeyboardPreferences()
+        secondaryPreferences.spacebarRatesCard = false
+        secondaryPreferences.answerKeys = [1: "q", 2: "w", 3: "e", 4: "r"]
+        store.saveReviewKeyboardPreferences(secondaryPreferences)
+        let secondaryNotesAfterAdd = try store.db.scalarInt("SELECT COUNT(*) FROM notes")
+        let secondaryCardsAfterAdd = try store.db.scalarInt("SELECT COUNT(*) FROM cards")
+        let renamedPath = store.profilesRoot.appendingPathComponent(renamedProfile, isDirectory: true)
+
+        try await store.renameProfile(profileName, to: renamedProfile)
+        let renamePreservedCollection = try store.activeProfile == renamedProfile
+            && store.collectionPath.standardizedFileURL.path == renamedPath.appendingPathComponent("collection.anki2").standardizedFileURL.path
+            && store.db.scalarInt("SELECT COUNT(*) FROM notes") == 1
+        let renamedPreferencesPersist = store.reviewKeyboardPreferences.spacebarRatesCard == false
+            && store.reviewKeyboardPreferences.answerKeys == [1: "q", 2: "w", 3: "e", 4: "r"]
+
+        await store.switchProfile(to: originalProfile)
+        let primaryNotesAfter = try store.db.scalarInt("SELECT COUNT(*) FROM notes")
+        let primaryCardsAfter = try store.db.scalarInt("SELECT COUNT(*) FROM cards")
+        let keyboardPreferencesAreGlobal = store.reviewKeyboardPreferences.spacebarRatesCard == false
+            && store.reviewKeyboardPreferences.answerKeys == [1: "q", 2: "w", 3: "e", 4: "r"]
+
+        await store.switchProfile(to: renamedProfile)
+        let renamedNoteFields = try store.db.scalarText("SELECT flds FROM notes ORDER BY id LIMIT 1") ?? ""
+        let renamedCardsAfterSwitch = try store.db.scalarInt("SELECT COUNT(*) FROM cards")
+        let renamedPreferencesAfterSwitch = store.reviewKeyboardPreferences.spacebarRatesCard == false
+            && store.reviewKeyboardPreferences.answerKeys == [1: "q", 2: "w", 3: "e", 4: "r"]
+        await store.switchProfile(to: originalProfile)
+        try store.deleteProfile(renamedProfile)
+        store.saveReviewKeyboardPreferences(originalPreferences)
+
+        return [
+            "appearedAfterCreate": appearedAfterCreate,
+            "duplicateCreationRejected": duplicateCreationRejected,
+            "reservedNameRejected": reservedNameRejected,
+            "secondaryWasEmpty": secondaryWasEmpty,
+            "separateCollectionPath": originalPath != secondaryPath,
+            "initialSecondaryPreferencesMatchPrimary": initialSecondaryPreferencesMatchPrimary,
+            "secondaryNotesAfterAdd": secondaryNotesAfterAdd,
+            "secondaryCardsAfterAdd": secondaryCardsAfterAdd,
+            "renamePreservedCollection": renamePreservedCollection,
+            "renamedPreferencesPersist": renamedPreferencesPersist,
+            "primaryNotesBefore": primaryNotesBefore,
+            "primaryCardsBefore": primaryCardsBefore,
+            "primaryNotesAfter": primaryNotesAfter,
+            "primaryCardsAfter": primaryCardsAfter,
+            "keyboardPreferencesAreGlobal": keyboardPreferencesAreGlobal,
+            "renamedNoteFields": renamedNoteFields,
+            "renamedCardsAfterSwitch": renamedCardsAfterSwitch,
+            "renamedPreferencesAfterSwitch": renamedPreferencesAfterSwitch,
+            "deletedProfileDirectory": !FileManager.default.fileExists(atPath: renamedPath.path),
+            "activeProfileRestored": store.activeProfile == originalProfile,
+            "remainingProfiles": store.listProfiles(),
+        ]
     }
 }

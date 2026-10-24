@@ -42,8 +42,8 @@ struct NoteEditorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     if !isEditing {
-                        GlassFormSection(title: "Baralho") {
-                            GlassOptionRow(title: "Baralho") {
+                        GlassFormSection(title: "decks.deck.label") {
+                            GlassOptionRow(title: "decks.deck.label") {
                                 Picker("", selection: $selectedDeckID) {
                                     ForEach(store.decks.filter { !$0.isFiltered }) { d in
                                         Text(d.name).tag(d.id)
@@ -68,9 +68,10 @@ struct NoteEditorView: View {
                     }
                     if let nt = store.notetype(id: selectedTypeID), ImageOcclusionNotetype.isImageOcclusion(nt) {
                         Button("Editar máscaras") { showOcclusion = true }
+                            .accessibilityIdentifier("imageOcclusion.editMasks")
                             .buttonStyle(GlassButtonStyle(tint: .white, tintStrength: 0.16, expands: true))
                     }
-                    GlassFormSection(title: "Campos") {
+                    GlassFormSection(title: "editor.fields.section") {
                         if let nt = store.notetype(id: selectedTypeID) {
                             ForEach(Array(nt.flds.enumerated()), id: \.offset) { idx, field in
                                 GlassInset {
@@ -99,8 +100,10 @@ struct NoteEditorView: View {
             }
             HStack(spacing: 12) {
                 Button("Fechar") { dismiss() }
+                    .accessibilityIdentifier("noteEditor.close")
                     .buttonStyle(GlassButtonStyle(tint: .white, tintStrength: 0.18, expands: true))
                 Button("Salvar") { save() }
+                    .accessibilityIdentifier("noteEditor.save")
                     .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
             }
             .padding(.horizontal, 20)

@@ -5,6 +5,10 @@ struct CSVImportReviewView: View {
     @Environment(\.dismiss) private var dismiss
     let fileName: String
     let text: String
+    @Binding var offerTutorialAfterDismissal: Bool
+
+    @State private var importSummary: String?
+    @State private var importFailed = false
 
     @State private var deckID: Int64?
     @State private var notetypeID: Int64?
@@ -18,9 +22,17 @@ struct CSVImportReviewView: View {
     @State private var columnMappings: [CSVImporter.ColumnMapping] = []
     @State private var preview: CSVImporter.Preview?
 
-    init(fileName: String, text: String, store: CollectionStore, deckID: Int64? = nil, notetypeID: Int64? = nil) {
+    init(
+        fileName: String,
+        text: String,
+        store: CollectionStore,
+        offerTutorialAfterDismissal: Binding<Bool>,
+        deckID: Int64? = nil,
+        notetypeID: Int64? = nil
+    ) {
         self.fileName = fileName
         self.text = text
+        _offerTutorialAfterDismissal = offerTutorialAfterDismissal
         let preferredDeck = (store.conf["csvDeckID"] as? NSNumber)?.int64Value
         let defaultDeck = store.decks.first(where: { !$0.isFiltered && $0.name != "Default" })?.id
             ?? store.decks.first(where: { !$0.isFiltered })?.id
@@ -39,8 +51,24 @@ struct CSVImportReviewView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+            Group {
+                if let importSummary {
+                    VStack(alignment: .leading, spacing: 18) {
+                        GlassFormSection(title: importFailed ? "Falha na importação" : "Importação concluída") {
+                            Text(importSummary)
+                                .font(.body)
+                                .foregroundStyle(AppTheme.primaryText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .accessibilityIdentifier("csv.import.summary")
+                        }
+                        Button("OK") { dismiss() }
+                            .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
+                    }
+                    .padding(20)
+                    .frame(maxWidth: 760, maxHeight: .infinity, alignment: .top)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 22) {
                     GlassFormSection(title: "Arquivo") {
                         GlassOptionRow(title: "Nome") {
                             Text(fileName).foregroundStyle(AppTheme.secondaryText)
@@ -57,23 +85,26 @@ struct CSVImportReviewView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
+                            .accessibilityIdentifier("csv.separator")
                             .onChange(of: separatorChoice) { _, _ in refreshPreview(resetMappings: true) }
                         }
                         GlassOptionRow(title: "A primeira linha contém nomes de coluna") {
                             Toggle("", isOn: $skipFirstRow)
                                 .labelsHidden()
                                 .tint(AppTheme.accent)
+                                .accessibilityIdentifier("csv.skipFirstRow")
                                 .onChange(of: skipFirstRow) { _, _ in refreshPreview(resetMappings: false) }
                         }
                         GlassOptionRow(title: "Permitir HTML nos campos") {
                             Toggle("", isOn: $allowHTML)
                                 .labelsHidden()
                                 .tint(AppTheme.accent)
+                                .accessibilityIdentifier("csv.allowHTML")
                         }
                     }
 
                     GlassFormSection(title: "Destino e duplicatas") {
-                        GlassOptionRow(title: "Baralho") {
+                        GlassOptionRow(title: "decks.deck.label") {
                             Picker("", selection: $deckID) {
                                 Text("Padrão da importação").tag(Optional<Int64>.none)
                                 ForEach(store.decks.filter { !$0.isFiltered }) { deck in
@@ -82,6 +113,7 @@ struct CSVImportReviewView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
+                            .accessibilityIdentifier("csv.deck")
                         }
                         GlassOptionRow(title: "Tipo de nota") {
                             Picker("", selection: $notetypeID) {
@@ -101,11 +133,13 @@ struct CSVImportReviewView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
+                            .accessibilityIdentifier("csv.existingNotePolicy")
                         }
                         GlassOptionRow(title: "Comparar duplicatas apenas neste baralho") {
                             Toggle("", isOn: $matchWithinDeck)
                                 .labelsHidden()
                                 .tint(AppTheme.accent)
+                                .accessibilityIdentifier("csv.matchWithinDeck")
                         }
                     }
 
@@ -114,8 +148,10 @@ struct CSVImportReviewView: View {
                             VStack(alignment: .leading, spacing: 10) {
                                 TextField("Adicionar a todas as notas", text: $tagsForAllNotes)
                                     .textFieldStyle(.plain)
+                                    .accessibilityIdentifier("csv.tagsForAllNotes")
                                 TextField("Adicionar às notas atualizadas", text: $tagsForUpdatedNotes)
                                     .textFieldStyle(.plain)
+                                    .accessibilityIdentifier("csv.tagsForUpdatedNotes")
                             }
                         }
                     }
@@ -123,7 +159,7 @@ struct CSVImportReviewView: View {
                     if let preview {
                         GlassFormSection(title: "Mapeamento de colunas") {
                             ForEach(preview.columnNames.indices, id: \.self) { index in
-                                GlassOptionRow(title: preview.columnNames[index]) {
+                                GlassOptionRow(verbatimTitle: preview.columnNames[index]) {
                                     Picker("", selection: mappingBinding(at: index)) {
                                         ForEach(availableMappings, id: \.self) { mapping in
                                             Text(mappingTitle(mapping)).tag(mapping)
@@ -159,24 +195,29 @@ struct CSVImportReviewView: View {
                             .scrollIndicators(.visible)
                         }
                     }
+                        }
+                        .padding(20)
+                        .frame(maxWidth: 760)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .scrollIndicators(.visible)
                 }
-                .padding(20)
-                .frame(maxWidth: 760)
-                .frame(maxWidth: .infinity)
             }
             .background(AppBackground())
-            .navigationTitle("Importar texto")
+            .navigationTitle(importSummary == nil ? "Importar texto" : (importFailed ? "Falha na importação" : "Importação concluída"))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancelar") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Importar") { importFile() }
-                        .buttonStyle(GlassChipButtonStyle(tint: AppTheme.accent.opacity(0.32)))
-                        .disabled(preview == nil || columnMappings.isEmpty)
+                if importSummary == nil {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancelar") { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Importar") { importFile() }
+                            .buttonStyle(GlassChipButtonStyle(tint: AppTheme.accent.opacity(0.32)))
+                            .disabled(preview == nil || columnMappings.isEmpty)
+                    }
                 }
             }
             .onAppear {
@@ -266,8 +307,10 @@ struct CSVImportReviewView: View {
                 tagsForAllNotes: tagsForAllNotes,
                 tagsForUpdatedNotes: tagsForUpdatedNotes,
                 columnMappings: columnMappings,
-                skipFirstRow: skipFirstRow
+                skipFirstRow: skipFirstRow,
+                offerTutorial: false
             )
+            offerTutorialAfterDismissal = true
             var conf = store.conf
             conf["csvDeckID"] = deckID
             conf["csvNotetypeID"] = notetypeID
@@ -279,13 +322,14 @@ struct CSVImportReviewView: View {
             conf["csvTagsForUpdatedNotes"] = tagsForUpdatedNotes
             do {
                 try store.saveConf(conf)
-                store.lastError = result.summary
+                importSummary = result.summary
             } catch {
-                store.lastError = "\(result.summary) As opções de importação não foram salvas: \(error.localizedDescription)"
+                importFailed = true
+                importSummary = "\(result.summary) As opções de importação não foram salvas: \(error.localizedDescription)"
             }
-            dismiss()
         } catch {
-            store.lastError = error.localizedDescription
+            importFailed = true
+            importSummary = error.localizedDescription
         }
     }
 }

@@ -362,6 +362,62 @@ enum ReviewGestureAction: String, CaseIterable, Identifiable, Sendable {
     case undo
     case openTools
     case backToDecks
+    case add
+    case edit
+    case browse
+    case cardTemplate
+    case customStudy
+    case deckStatistics
+    case decks
+    case emptyFilteredDeck
+    case filterCram
+    case markAndBury
+    case markAndSuspend
+    case rebuildFilteredDeck
+    case studyOptions
+    case unburyDeck
+    case scratchpad
+    case scratchpadSize
+    case scrollUp
+    case scrollDown
+    case userAction1
+    case userAction2
+    case userAction3
+    case userAction4
+    case userAction5
+    case userAction6
+    case userAction7
+    case userAction8
+    case buryNote
+    case buryCard
+    case suspendNote
+    case suspendCard
+    case mark
+    case setFlag1
+    case setFlag2
+    case setFlag3
+    case setFlag4
+    case setFlag5
+    case setFlag6
+    case setFlag7
+    case deleteNote
+    case createCopy
+    case setDueDate
+    case forgetCard
+    case replayOwnVoice
+    case recordOwnVoice
+    case deckOptions
+    case cardInfo
+    case previousCardInfo
+    case redo
+    case configureAutoAdvance
+    case pauseAudio
+    case seekBackward
+    case seekForward
+    case toggleAutoAdvance
+    case toggleTopBar
+    case toggleBottomBar
+    case toggleNightMode
 
     var id: String { rawValue }
 
@@ -377,6 +433,16 @@ enum ReviewGestureAction: String, CaseIterable, Identifiable, Sendable {
         case .undo: "Desfazer"
         case .openTools: "Abrir ferramentas"
         case .backToDecks: "Voltar aos baralhos"
+        default: StudyToolAction(rawValue: rawValue)?.title ?? rawValue
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .none: "circle.slash"
+        case .openTools: "gearshape"
+        case .backToDecks: "rectangle.stack"
+        default: StudyToolAction(rawValue: rawValue)?.systemImage ?? "ellipsis.circle"
         }
     }
 }
@@ -395,6 +461,8 @@ struct ReviewGesturePreferences: Sendable {
     var questionActions: [String: String] = [:]
     var answerActions: [String: String] = [:]
     var swipeActions: [String: String] = [:]
+    var topBarAction: ReviewGestureAction = .openTools
+    var shakeAction: ReviewGestureAction = .undo
 
     func action(isAnswerShown: Bool, zone: String) -> ReviewGestureAction {
         let actions = isAnswerShown ? answerActions : questionActions
@@ -427,9 +495,57 @@ struct ReviewGesturePreferences: Sendable {
     }
 }
 
+struct ReviewGamepadControl: Identifiable, Sendable {
+    let id: String
+    let title: String
+
+    static let all: [ReviewGamepadControl] = [
+        .init(id: "buttonA", title: "A"),
+        .init(id: "buttonB", title: "B"),
+        .init(id: "buttonX", title: "X"),
+        .init(id: "buttonY", title: "Y"),
+        .init(id: "leftShoulder", title: "L1"),
+        .init(id: "rightShoulder", title: "R1"),
+        .init(id: "leftTrigger", title: "L2"),
+        .init(id: "rightTrigger", title: "R2"),
+        .init(id: "leftThumbstickButton", title: "L3"),
+        .init(id: "rightThumbstickButton", title: "R3"),
+        .init(id: "dpadUp", title: "Direcional ↑"),
+        .init(id: "dpadDown", title: "Direcional ↓"),
+        .init(id: "dpadLeft", title: "Direcional ←"),
+        .init(id: "dpadRight", title: "Direcional →"),
+        .init(id: "menu", title: "Menu"),
+        .init(id: "options", title: "Opções")
+    ]
+}
+
+struct ReviewGamepadPreferences: Sendable {
+    var actions: [String: String] = [:]
+    var thumbpadDeadZone = 0.25
+
+    func action(for controlID: String) -> ReviewGestureAction {
+        actions[controlID].flatMap(ReviewGestureAction.init(rawValue:)) ?? .none
+    }
+
+    mutating func set(_ action: ReviewGestureAction, for controlID: String) {
+        actions[controlID] = action.rawValue
+    }
+}
+
+struct ReviewScratchpadPreferences: Sendable {
+    var ignoreFingers = false
+    var undoClearsAll = false
+    var belowButtons = false
+}
+
 struct BrowserSearchRequest: Equatable, Sendable {
     let id = UUID()
     let query: String
+}
+
+struct PendingPackageImport: Equatable {
+    let url: URL
+    let securityScopedAccess: Bool
 }
 
 @MainActor
@@ -447,16 +563,16 @@ final class CollectionStore: ObservableObject {
     /// Set after the first deck/import lands, until the tutorial is dismissed.
     @Published var shouldShowTutorial = false
     @Published var collectionSyncing = false
-    @Published var iCloudStatus: String?
     @Published var collectionSyncMessage: String?
     #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
     @Published var collectionSyncCanCancel = false
     @Published var pendingAnkiWebFullSync: AnkiWebFullSyncPrompt?
     @Published var ankiWebStatus: String?
+    @Published var pendingAnkiWebLoginPanel = false
     private var activeAnkiWebSyncControl: AnkiWebSyncControl?
     #endif
     private var widgetReloadPendingDuringSync = false
-    @Published var pendingPackageImport: URL?
+    @Published var pendingPackageImport: PendingPackageImport?
     @Published private(set) var browserSearchRequest: BrowserSearchRequest?
     @Published private(set) var undoMessage: String?
     @Published private(set) var undoRevision = 0
@@ -466,6 +582,7 @@ final class CollectionStore: ObservableObject {
     @Published private(set) var collectionRedoMessage: String?
     @Published private(set) var automaticBackupRevision = 0
     @Published private(set) var reviewKeyboardRevision = 0
+    @Published private(set) var reviewGamepadRevision = 0
     @Published private(set) var ankiWebSyncSettingsRevision = 0
     /// Called after due counts change so the study widget can refresh.
     var onWidgetRefresh: (() -> Void)?
@@ -657,7 +774,18 @@ final class CollectionStore: ObservableObject {
     }
 
     var reviewKeyboardPreferences: ReviewKeyboardPreferences {
-        let stored = SharedProfiles.defaults.dictionary(forKey: reviewKeyboardPreferencesKey) ?? [:]
+        let defaults = SharedProfiles.defaults
+        let stored: [String: Any]
+        if let global = defaults.dictionary(forKey: Self.reviewKeyboardPreferencesKey) {
+            stored = global
+        } else {
+            let legacyPrefix = "ankios.reviewKeyboardPreferences."
+            let legacyKeys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(legacyPrefix) }
+            let legacy = defaults.dictionary(forKey: Self.legacyReviewKeyboardPreferencesKey(for: activeProfile))
+            if let legacy { defaults.set(legacy, forKey: Self.reviewKeyboardPreferencesKey) }
+            for key in legacyKeys { defaults.removeObject(forKey: key) }
+            stored = legacy ?? [:]
+        }
         var preferences = ReviewKeyboardPreferences()
         preferences.spacebarRatesCard = stored["spacebarRatesCard"] as? Bool ?? true
         if let answerKeys = stored["answerKeys"] as? [String: String] {
@@ -669,13 +797,18 @@ final class CollectionStore: ObservableObject {
     }
 
     func saveReviewKeyboardPreferences(_ preferences: ReviewKeyboardPreferences) {
+        let defaults = SharedProfiles.defaults
         let answerKeys = Dictionary(uniqueKeysWithValues: (1...4).map { rating in
             (String(rating), preferences.answerKeys[rating] ?? "")
         })
-        SharedProfiles.defaults.set([
+        defaults.set([
             "spacebarRatesCard": preferences.spacebarRatesCard,
             "answerKeys": answerKeys
-        ], forKey: reviewKeyboardPreferencesKey)
+        ], forKey: Self.reviewKeyboardPreferencesKey)
+        let legacyPrefix = "ankios.reviewKeyboardPreferences."
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(legacyPrefix) {
+            defaults.removeObject(forKey: key)
+        }
         reviewKeyboardRevision += 1
     }
 
@@ -684,7 +817,11 @@ final class CollectionStore: ObservableObject {
         return ReviewGesturePreferences(
             questionActions: stored["questionActions"] as? [String: String] ?? [:],
             answerActions: stored["answerActions"] as? [String: String] ?? [:],
-            swipeActions: stored["swipeActions"] as? [String: String] ?? [:]
+            swipeActions: stored["swipeActions"] as? [String: String] ?? [:],
+            topBarAction: (stored["topBarAction"] as? String)
+                .flatMap(ReviewGestureAction.init(rawValue:)) ?? .openTools,
+            shakeAction: (stored["shakeAction"] as? String)
+                .flatMap(ReviewGestureAction.init(rawValue:)) ?? .undo
         )
     }
 
@@ -692,15 +829,71 @@ final class CollectionStore: ObservableObject {
         SharedProfiles.defaults.set([
             "questionActions": preferences.questionActions,
             "answerActions": preferences.answerActions,
-            "swipeActions": preferences.swipeActions
+            "swipeActions": preferences.swipeActions,
+            "topBarAction": preferences.topBarAction.rawValue,
+            "shakeAction": preferences.shakeAction.rawValue
         ], forKey: reviewGesturePreferencesKey)
     }
 
-    private var reviewKeyboardPreferencesKey: String {
-        Self.reviewKeyboardPreferencesKey(for: activeProfile)
+    var reviewGamepadPreferences: ReviewGamepadPreferences {
+        let stored = SharedProfiles.defaults.dictionary(forKey: reviewGamepadPreferencesKey) ?? [:]
+        return ReviewGamepadPreferences(
+            actions: stored["actions"] as? [String: String] ?? [:],
+            thumbpadDeadZone: stored["thumbpadDeadZone"] as? Double ?? 0.25
+        )
     }
 
-    private static func reviewKeyboardPreferencesKey(for profile: String) -> String {
+    func saveReviewGamepadPreferences(_ preferences: ReviewGamepadPreferences) {
+        SharedProfiles.defaults.set([
+            "actions": preferences.actions,
+            "thumbpadDeadZone": min(max(preferences.thumbpadDeadZone, 0.1), 0.9)
+        ], forKey: reviewGamepadPreferencesKey)
+        reviewGamepadRevision += 1
+    }
+
+    var reviewScratchpadPreferences: ReviewScratchpadPreferences {
+        let stored = SharedProfiles.defaults.dictionary(forKey: reviewScratchpadPreferencesKey) ?? [:]
+        return ReviewScratchpadPreferences(
+            ignoreFingers: stored["ignoreFingers"] as? Bool ?? false,
+            undoClearsAll: stored["undoClearsAll"] as? Bool ?? false,
+            belowButtons: stored["belowButtons"] as? Bool ?? false
+        )
+    }
+
+    func saveReviewScratchpadPreferences(_ preferences: ReviewScratchpadPreferences) {
+        SharedProfiles.defaults.set([
+            "ignoreFingers": preferences.ignoreFingers,
+            "undoClearsAll": preferences.undoClearsAll,
+            "belowButtons": preferences.belowButtons
+        ], forKey: reviewScratchpadPreferencesKey)
+    }
+
+    var frequentStudyActions: [StudyToolAction] {
+        guard let rawActions = SharedProfiles.defaults.array(forKey: frequentStudyActionsKey) as? [String] else {
+            return StudyToolAction.defaultFrequent
+        }
+        var seen = Set<StudyToolAction>()
+        return rawActions.compactMap(StudyToolAction.init(rawValue:)).filter { seen.insert($0).inserted }
+    }
+
+    func saveFrequentStudyActions(_ actions: [StudyToolAction]) {
+        var seen = Set<StudyToolAction>()
+        let uniqueActions = actions.filter { seen.insert($0).inserted }
+        SharedProfiles.defaults.set(uniqueActions.map(\.rawValue), forKey: frequentStudyActionsKey)
+    }
+
+    var studyUserActionScripts: [String] {
+        let stored = SharedProfiles.defaults.stringArray(forKey: studyUserActionScriptsKey) ?? []
+        return (0..<8).map { stored.indices.contains($0) ? stored[$0] : "" }
+    }
+
+    func saveStudyUserActionScripts(_ scripts: [String]) {
+        SharedProfiles.defaults.set((0..<8).map { scripts.indices.contains($0) ? scripts[$0] : "" }, forKey: studyUserActionScriptsKey)
+    }
+
+    private static let reviewKeyboardPreferencesKey = "ankios.reviewKeyboardPreferences"
+
+    private static func legacyReviewKeyboardPreferencesKey(for profile: String) -> String {
         "ankios.reviewKeyboardPreferences.\(profile)"
     }
 
@@ -708,21 +901,89 @@ final class CollectionStore: ObservableObject {
         Self.reviewGesturePreferencesKey(for: activeProfile)
     }
 
+    private var frequentStudyActionsKey: String {
+        Self.frequentStudyActionsKey(for: activeProfile)
+    }
+
+    private var studyUserActionScriptsKey: String {
+        Self.studyUserActionScriptsKey(for: activeProfile)
+    }
+
+    private var reviewGamepadPreferencesKey: String {
+        Self.reviewGamepadPreferencesKey(for: activeProfile)
+    }
+
+    private var reviewScratchpadPreferencesKey: String {
+        Self.reviewScratchpadPreferencesKey(for: activeProfile)
+    }
+
     private static func reviewGesturePreferencesKey(for profile: String) -> String {
         "ankios.reviewGesturePreferences.\(profile)"
     }
 
-    private func migrateReviewKeyboardPreferences(from oldName: String, to newName: String) {
+    private static func frequentStudyActionsKey(for profile: String) -> String {
+        "ankios.frequentStudyActions.\(profile)"
+    }
+
+    private static func studyUserActionScriptsKey(for profile: String) -> String {
+        "ankios.studyUserActionScripts.\(profile)"
+    }
+
+    private static func reviewGamepadPreferencesKey(for profile: String) -> String {
+        "ankios.reviewGamepadPreferences.\(profile)"
+    }
+
+    private static func reviewScratchpadPreferencesKey(for profile: String) -> String {
+        "ankios.study.scratchpad.\(profile).preferences"
+    }
+
+    private func migrateReviewGesturePreferences(from oldName: String, to newName: String) {
         let defaults = SharedProfiles.defaults
-        let oldKey = Self.reviewKeyboardPreferencesKey(for: oldName)
-        if let stored = defaults.dictionary(forKey: oldKey) {
-            defaults.set(stored, forKey: Self.reviewKeyboardPreferencesKey(for: newName))
-            defaults.removeObject(forKey: oldKey)
-        }
         let oldGestureKey = Self.reviewGesturePreferencesKey(for: oldName)
         if let stored = defaults.dictionary(forKey: oldGestureKey) {
             defaults.set(stored, forKey: Self.reviewGesturePreferencesKey(for: newName))
             defaults.removeObject(forKey: oldGestureKey)
+        }
+    }
+
+    private func migrateFrequentStudyActions(from oldName: String, to newName: String) {
+        let defaults = SharedProfiles.defaults
+        let oldKey = Self.frequentStudyActionsKey(for: oldName)
+        if let stored = defaults.array(forKey: oldKey) {
+            defaults.set(stored, forKey: Self.frequentStudyActionsKey(for: newName))
+            defaults.removeObject(forKey: oldKey)
+        }
+    }
+
+    private func migrateStudyUserActionScripts(from oldName: String, to newName: String) {
+        let defaults = SharedProfiles.defaults
+        let oldKey = Self.studyUserActionScriptsKey(for: oldName)
+        if let stored = defaults.stringArray(forKey: oldKey) {
+            defaults.set(stored, forKey: Self.studyUserActionScriptsKey(for: newName))
+            defaults.removeObject(forKey: oldKey)
+        }
+    }
+
+    private func migrateReviewGamepadPreferences(from oldName: String, to newName: String) {
+        let defaults = SharedProfiles.defaults
+        let oldKey = Self.reviewGamepadPreferencesKey(for: oldName)
+        if let stored = defaults.dictionary(forKey: oldKey) {
+            defaults.set(stored, forKey: Self.reviewGamepadPreferencesKey(for: newName))
+            defaults.removeObject(forKey: oldKey)
+        }
+    }
+
+    private func migrateStudyScratchpadPreferences(from oldName: String, to newName: String) {
+        let defaults = SharedProfiles.defaults
+        let enabledPrefix = "ankios.study.scratchpad.\(oldName)."
+        let oldSizeKey = "ankios.study.scratchpadSize.\(oldName)"
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(enabledPrefix) || key == oldSizeKey {
+            guard let value = defaults.object(forKey: key) else { continue }
+            let newKey = key == oldSizeKey
+                ? "ankios.study.scratchpadSize.\(newName)"
+                : key.replacingOccurrences(of: enabledPrefix, with: "ankios.study.scratchpad.\(newName).")
+            defaults.set(value, forKey: newKey)
+            defaults.removeObject(forKey: key)
         }
     }
 
@@ -783,11 +1044,12 @@ final class CollectionStore: ObservableObject {
     func createProfile(_ name: String) throws {
         let trimmed = try validatedProfileName(name)
         let dir = profilesRoot.appendingPathComponent(trimmed, isDirectory: true)
-        guard !fileManager.fileExists(atPath: dir.path) else {
+        guard !listProfiles().contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }),
+              !fileManager.fileExists(atPath: dir.path) else {
             throw SQLiteError.exec("Já existe um perfil com esse nome.")
         }
         try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
-        try ICloudSync.recordProfileCreation(at: dir)
+        try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
     func renameProfile(_ oldName: String, to newName: String) async throws {
@@ -795,10 +1057,14 @@ final class CollectionStore: ObservableObject {
         guard oldName != trimmed else { return }
         let source = profilesRoot.appendingPathComponent(oldName, isDirectory: true)
         let destination = profilesRoot.appendingPathComponent(trimmed, isDirectory: true)
+        let caseOnlyRename = oldName.caseInsensitiveCompare(trimmed) == .orderedSame
         guard fileManager.fileExists(atPath: source.path) else {
             throw SQLiteError.exec("Perfil não encontrado.")
         }
-        guard !fileManager.fileExists(atPath: destination.path) else {
+        let duplicateProfile = listProfiles().contains {
+            $0 != oldName && $0.caseInsensitiveCompare(trimmed) == .orderedSame
+        }
+        guard !duplicateProfile, caseOnlyRename || !fileManager.fileExists(atPath: destination.path) else {
             throw SQLiteError.exec("Já existe um perfil com esse nome.")
         }
         let isActive = oldName == activeProfile
@@ -808,10 +1074,23 @@ final class CollectionStore: ObservableObject {
             db = nil
         }
         do {
-            try fileManager.moveItem(at: source, to: destination)
-            try ICloudSync.recordProfileDeletion(oldName, localProfiles: profilesRoot)
-            try ICloudSync.recordProfileCreation(at: destination)
-            migrateReviewKeyboardPreferences(from: oldName, to: trimmed)
+            if caseOnlyRename {
+                let temporary = profilesRoot.appendingPathComponent(".profile-rename-\(UUID().uuidString)", isDirectory: true)
+                try fileManager.moveItem(at: source, to: temporary)
+                do {
+                    try fileManager.moveItem(at: temporary, to: destination)
+                } catch {
+                    try? fileManager.moveItem(at: temporary, to: source)
+                    throw error
+                }
+            } else {
+                try fileManager.moveItem(at: source, to: destination)
+            }
+            migrateReviewGesturePreferences(from: oldName, to: trimmed)
+            migrateFrequentStudyActions(from: oldName, to: trimmed)
+            migrateStudyUserActionScripts(from: oldName, to: trimmed)
+            migrateReviewGamepadPreferences(from: oldName, to: trimmed)
+            migrateStudyScratchpadPreferences(from: oldName, to: trimmed)
             migrateAnkiWebSyncSettings(from: oldName, to: trimmed)
             #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
             if let auth = AnkiWebCredentialStore.load(profile: oldName) {
@@ -847,10 +1126,21 @@ final class CollectionStore: ObservableObject {
         guard fileManager.fileExists(atPath: directory.path) else {
             throw SQLiteError.exec("Perfil não encontrado.")
         }
-        try ICloudSync.recordProfileDeletion(name, localProfiles: profilesRoot)
+        #if os(macOS) && !ANKIOS_PARITY_HARNESS
+        try fileManager.trashItem(at: directory, resultingItemURL: nil)
+        #else
         try fileManager.removeItem(at: directory)
-        SharedProfiles.defaults.removeObject(forKey: Self.reviewKeyboardPreferencesKey(for: name))
+        #endif
+        SharedProfiles.defaults.removeObject(forKey: Self.legacyReviewKeyboardPreferencesKey(for: name))
         SharedProfiles.defaults.removeObject(forKey: Self.reviewGesturePreferencesKey(for: name))
+        SharedProfiles.defaults.removeObject(forKey: Self.reviewGamepadPreferencesKey(for: name))
+        SharedProfiles.defaults.removeObject(forKey: Self.frequentStudyActionsKey(for: name))
+        SharedProfiles.defaults.removeObject(forKey: Self.studyUserActionScriptsKey(for: name))
+        let scratchpadPrefix = "ankios.study.scratchpad.\(name)."
+        let scratchpadSizeKey = "ankios.study.scratchpadSize.\(name)"
+        for key in SharedProfiles.defaults.dictionaryRepresentation().keys where key.hasPrefix(scratchpadPrefix) || key == scratchpadSizeKey {
+            SharedProfiles.defaults.removeObject(forKey: key)
+        }
         SharedProfiles.defaults.removeObject(forKey: Self.ankiWebAutoSyncKey(for: name))
         SharedProfiles.defaults.removeObject(forKey: Self.ankiWebMediaSyncKey(for: name))
         SharedProfiles.defaults.removeObject(forKey: Self.ankiWebForceOneWayKey(for: name))
@@ -865,6 +1155,7 @@ final class CollectionStore: ObservableObject {
         guard !trimmed.isEmpty,
               trimmed != ".",
               trimmed != "..",
+              trimmed.caseInsensitiveCompare("addons21") != .orderedSame,
               !trimmed.contains("/"),
               !trimmed.contains(":"),
               !trimmed.contains("\\") else {
@@ -925,47 +1216,6 @@ final class CollectionStore: ObservableObject {
         ankiWebSyncSettingsRevision += 1
     }
 
-    /// Uploads or downloads the newer collection and merges media through iCloud Drive.
-    func syncWithICloud() async {
-        guard !collectionSyncing else { return }
-        collectionSyncing = true
-        collectionSyncMessage = "Sincronizando coleção e mídia com iCloud…"
-        defer {
-            collectionSyncing = false
-            collectionSyncMessage = nil
-            if widgetReloadPendingDuringSync {
-                widgetReloadPendingDuringSync = false
-                Task { await reloadAfterExternalEdit() }
-            }
-        }
-        let profiles = profilesRoot
-        do {
-            let syncLock = try SharedCollectionFileLock.acquire(profilesRoot: profiles)
-            defer { syncLock.release() }
-            if db != nil {
-                try db.exec("PRAGMA wal_checkpoint(TRUNCATE);")
-                db.closeConnection()
-                db = nil
-            }
-            let summary = try await Task.detached(priority: .userInitiated) {
-                try ICloudSync.sync(localProfiles: profiles, lock: syncLock)
-            }.value
-            try openOrCreate()
-            try reloadMeta()
-            try refreshCounts()
-            clearNoteDeletionUndoHistory()
-            iCloudStatus = summary
-        } catch {
-            if db == nil {
-                try? openOrCreate()
-                try? reloadMeta()
-                try? refreshCounts()
-                clearCollectionUndoHistory()
-            }
-            lastError = error.localizedDescription
-        }
-    }
-
     #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
     var ankiWebConfigured: Bool {
         AnkiWebCredentialStore.load(profile: activeProfile) != nil
@@ -975,14 +1225,9 @@ final class CollectionStore: ObservableObject {
         AnkiWebCredentialStore.username(profile: activeProfile) ?? ""
     }
 
-    var ankiWebEndpoint: String {
-        AnkiWebCredentialStore.endpoint(profile: activeProfile)
-    }
-
-    func loginAnkiWeb(username: String, password: String, endpoint: String) async {
+    func loginAnkiWeb(username: String, password: String) async {
         guard !collectionSyncing else { return }
         let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        let endpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !username.isEmpty, !password.isEmpty else {
             lastError = "Informe o usuário e a senha do AnkiWeb."
             return
@@ -1011,10 +1256,15 @@ final class CollectionStore: ObservableObject {
                     try? backend.close()
                     control.finish()
                 }
+                #if DEBUG
+                let testEndpoint = ProcessInfo.processInfo.environment["ANKIOS_UI_SYNC_ENDPOINT"]
+                #else
+                let testEndpoint: String? = nil
+                #endif
                 let auth = try backend.login(
                     username: username,
                     password: password,
-                    endpoint: endpoint.isEmpty ? nil : endpoint
+                    endpoint: testEndpoint
                 )
                 control.finish()
                 try backend.close()
@@ -1051,7 +1301,8 @@ final class CollectionStore: ObservableObject {
     func syncWithAnkiWeb() async {
         guard !collectionSyncing else { return }
         guard let auth = AnkiWebCredentialStore.load(profile: activeProfile) else {
-            lastError = AnkiWebSyncError.credentialsUnavailable.localizedDescription
+            pendingAnkiWebLoginPanel = true
+            lastError = nil
             return
         }
         if ankiWebForceOneWaySyncNext {
@@ -1142,11 +1393,12 @@ final class CollectionStore: ObservableObject {
         syncLock?.release()
     }
 
-    func completeAnkiWebFullSync(upload: Bool) async {
-        guard !collectionSyncing, let prompt = pendingAnkiWebFullSync else { return }
+    func completeAnkiWebFullSync(upload: Bool, prompt requestedPrompt: AnkiWebFullSyncPrompt? = nil) async {
+        guard !collectionSyncing, let prompt = requestedPrompt ?? pendingAnkiWebFullSync else { return }
         guard let auth = AnkiWebCredentialStore.load(profile: activeProfile) else {
             pendingAnkiWebFullSync = nil
-            lastError = AnkiWebSyncError.credentialsUnavailable.localizedDescription
+            pendingAnkiWebLoginPanel = true
+            lastError = nil
             return
         }
         pendingAnkiWebFullSync = nil
@@ -1401,6 +1653,17 @@ final class CollectionStore: ObservableObject {
         try CollectionSchema.migrateSortFieldAffinity(in: db)
         try db.exec(CollectionSchema.createSQL)
         try reloadMeta()
+        if Self.int(conf["schedVer"]) == 2,
+           conf["sched2021"] as? Bool == true,
+           !Self.newTimezoneEnabled(in: conf) {
+            var updated = conf
+            Self.setNewTimezone(
+                true,
+                collectionCreatedAt: collectionCreation(),
+                configuration: &updated
+            )
+            try saveConf(updated)
+        }
         try migrateNoteTextMetadataIfNeeded()
     }
 
@@ -1627,12 +1890,11 @@ final class CollectionStore: ObservableObject {
         guard let decksJSON = try db.scalarText("SELECT decks FROM col"),
               let modelsJSON = try db.scalarText("SELECT models FROM col"),
               let dconfJSON = try db.scalarText("SELECT dconf FROM col"),
-              let confJSON = try db.scalarText("SELECT conf FROM col"),
               let tagsJSON = try db.scalarText("SELECT tags FROM col") else {
             throw SQLiteError.exec("Missing col row")
         }
 
-        conf = (try JSONSerialization.jsonObject(with: Data(confJSON.utf8)) as? [String: Any]) ?? [:]
+        conf = try CollectionSchema.collectionConfig(from: db)
         tags = (try JSONSerialization.jsonObject(with: Data(tagsJSON.utf8)) as? [String: Int]) ?? [:]
 
         let decksObj = try JSONSerialization.jsonObject(with: Data(decksJSON.utf8)) as? [String: [String: Any]] ?? [:]
@@ -1721,15 +1983,15 @@ final class CollectionStore: ObservableObject {
                 ?? (dict["terms"] as? [[Any]])?.first.flatMap { Self.filteredDeckOrder(int($0.dropFirst(2).first)) },
             includeTags: dict["ankiosIncludeTags"] as? String,
             excludeTags: dict["ankiosExcludeTags"] as? String,
-            previewAgain: int(dict["previewAgain"]),
-            previewHard: int(dict["previewHard"]),
-            previewGood: int(dict["previewGood"]),
+            previewAgain: int(dict["previewAgainSecs"]) ?? int(dict["previewAgain"]),
+            previewHard: int(dict["previewHardSecs"]) ?? int(dict["previewHard"]),
+            previewGood: int(dict["previewGoodSecs"]) ?? int(dict["previewGood"]),
             searchTerms2: (dict["terms"] as? [[Any]])?.dropFirst().first.flatMap { $0.first as? String },
             termLimit2: (dict["terms"] as? [[Any]])?.dropFirst().first.flatMap { CollectionStore.int($0.dropFirst().first) },
             searchOrder2: (dict["ankiosSearchOrder2"] as? String)
                 ?? (dict["terms"] as? [[Any]])?.dropFirst().first.flatMap { Self.filteredDeckOrder(int($0.dropFirst(2).first)) },
             other: Dictionary(uniqueKeysWithValues: dict.filter {
-                !["id", "name", "mod", "usn", "collapsed", "browserCollapsed", "desc", "md", "dyn", "conf", "desiredRetention", "newLimit", "reviewLimit", "newLimitToday", "reviewLimitToday", "extendNew", "extendRev", "newToday", "revToday", "lrnToday", "timeToday", "terms", "resched", "previewDelay", "ankiosSearchOrder", "ankiosIncludeTags", "ankiosExcludeTags", "previewAgain", "previewHard", "previewGood", "ankiosSearchOrder2"].contains($0.key)
+                !["id", "name", "mod", "usn", "collapsed", "browserCollapsed", "desc", "md", "dyn", "conf", "desiredRetention", "newLimit", "reviewLimit", "newLimitToday", "reviewLimitToday", "extendNew", "extendRev", "newToday", "revToday", "lrnToday", "timeToday", "terms", "resched", "previewDelay", "ankiosSearchOrder", "ankiosIncludeTags", "ankiosExcludeTags", "previewAgain", "previewHard", "previewGood", "previewAgainSecs", "previewHardSecs", "previewGoodSecs", "ankiosSearchOrder2"].contains($0.key)
             }.map { ($0.key, AnyCodable($0.value)) })
         )
     }
@@ -1787,6 +2049,12 @@ final class CollectionStore: ObservableObject {
         onWidgetRefresh?()
     }
 
+    var totalDueCardCount: Int {
+        decks.filter { $0.parentName == nil }.reduce(0) { total, deck in
+            total + (deckCounts[deck.id]?.total ?? 0)
+        }
+    }
+
     func deckTreeIDs(including rootID: Int64) -> [Int64] {
         guard let root = decks.first(where: { $0.id == rootID }) else { return [rootID] }
         let prefix = root.name + "::"
@@ -1818,6 +2086,25 @@ final class CollectionStore: ObservableObject {
         updated["rollover"] = min(max(hour, 0), 23)
         updated.removeValue(forKey: "rollday")
         try saveConf(updated)
+    }
+
+    static func newTimezoneEnabled(in configuration: [String: Any]) -> Bool {
+        int(configuration["creationOffset"]) != nil
+    }
+
+    static func setNewTimezone(
+        _ enabled: Bool,
+        collectionCreatedAt: Int64,
+        timeZone: TimeZone = .current,
+        configuration: inout [String: Any]
+    ) {
+        guard enabled else {
+            configuration.removeValue(forKey: "creationOffset")
+            return
+        }
+        guard int(configuration["creationOffset"]) == nil else { return }
+        let createdAt = Date(timeIntervalSince1970: TimeInterval(collectionCreatedAt))
+        configuration["creationOffset"] = -timeZone.secondsFromGMT(for: createdAt) / 60
     }
 
     /// Anki `timing_for_timestamp` / `sched_timing_today`.
@@ -2612,7 +2899,20 @@ final class CollectionStore: ObservableObject {
         includeTags: String? = nil,
         excludeTags: String? = nil
     ) throws -> AnkiDeck {
+        #if WIDGET_EXTENSION
         let sessionName = "Sessão de Estudo Personalizado"
+        #else
+        #if os(iOS)
+        let languageCode = AnkiLanguageCatalog.appLanguageCode
+        #else
+        let languageCode = SharedProfiles.defaults.string(forKey: "ankios.language")
+            ?? AnkiLanguageCatalog.defaultLanguageCode
+        #endif
+        let sessionName = AnkiLanguageCatalog.localizedString(
+            "Sessão de Estudo Personalizado",
+            for: languageCode
+        )
+        #endif
         if let existing = decks.first(where: { $0.name == sessionName }), !existing.isFiltered {
             throw CustomStudyFailure.renameExisting
         }
@@ -3053,14 +3353,13 @@ final class CollectionStore: ObservableObject {
             let remaining = Int(sqlite3_column_int(statement, 1)) % 1000
             guard !oldSteps.isEmpty else { return }
             let lastPassedStep = oldSteps.count > remaining ? oldSteps.count - remaining - 1 : nil
-            let newRemaining: Int
-            if let lastPassedStep {
-                newRemaining = max(newSteps.indices.reversed().first(where: { newSteps[$0] <= oldSteps[lastPassedStep] }).map { newSteps.count - $0 } ?? newSteps.count, 1)
-            } else {
-                newRemaining = max(newSteps.count, 1)
-            }
-            if remaining != newRemaining {
-                updates.append((cardID, newRemaining))
+            let newRemaining = lastPassedStep.flatMap { passedIndex in
+                newSteps.indices.reversed().first(where: { newSteps[$0] <= oldSteps[passedIndex] })
+                    .map { newSteps.count - $0 - 1 }
+            } ?? newSteps.count
+            let boundedRemaining = max(newRemaining, 1)
+            if remaining != boundedRemaining {
+                updates.append((cardID, boundedRemaining))
             }
         }
         guard !updates.isEmpty else { return }
@@ -3077,16 +3376,17 @@ final class CollectionStore: ObservableObject {
     func saveConf(_ conf: [String: Any]) throws {
         let json = CollectionSchema.encodeJSON(conf)
         try db.run("UPDATE col SET conf = ?", bind: { try SQLiteDatabase.bindText($0, 1, json) })
+        try CollectionSchema.saveCollectionConfig(conf, to: db)
+        try touchCol()
         if Self.studyConfigKeys.contains(where: { !Self.confValuesEqual(self.conf[$0], conf[$0]) }) {
             studyQueueCache = nil
         }
         self.conf = conf
-        try touchCol()
     }
 
     private static let studyConfigKeys = [
         "curDeck", "rollover", "collapseTime", "newCardsIgnoreReviewLimit", "applyAllParentLimits",
-        "fsrs", "schedVer", "creationOffset", "localOffset", "fsrsShortTermWithSteps", "loadBalancerEnabled"
+        "fsrs", "schedVer", "creationOffset", "localOffset", "fsrsShortTermWithStepsEnabled", "loadBalancerEnabled"
     ]
 
     private static func confValuesEqual(_ a: Any?, _ b: Any?) -> Bool {
@@ -3185,9 +3485,9 @@ final class CollectionStore: ObservableObject {
         if let searchOrder = d.searchOrder { dict["ankiosSearchOrder"] = searchOrder }
         if let includeTags = d.includeTags { dict["ankiosIncludeTags"] = includeTags }
         if let excludeTags = d.excludeTags { dict["ankiosExcludeTags"] = excludeTags }
-        if let previewAgain = d.previewAgain { dict["previewAgain"] = previewAgain }
-        if let previewHard = d.previewHard { dict["previewHard"] = previewHard }
-        if let previewGood = d.previewGood { dict["previewGood"] = previewGood }
+        if let previewAgain = d.previewAgain { dict["previewAgainSecs"] = previewAgain }
+        if let previewHard = d.previewHard { dict["previewHardSecs"] = previewHard }
+        if let previewGood = d.previewGood { dict["previewGoodSecs"] = previewGood }
         if let searchOrder2 = d.searchOrder2 { dict["ankiosSearchOrder2"] = searchOrder2 }
         return dict
     }
@@ -3294,13 +3594,15 @@ final class CollectionStore: ObservableObject {
                 .replacingOccurrences(of: "*", with: "\\*")
                 .replacingOccurrences(of: "_", with: "\\_")
                 .replacingOccurrences(of: "\"", with: "\\\"")
-            return "deck:\"\(escaped)\""
+            let needsQuotes = deck.name.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
+                || deck.name.contains("\"")
+            return needsQuotes ? "deck:\"\(escaped)\"" : "deck:\(escaped)"
         }
         let deck = AnkiDeck(
             id: 0, name: nextFilteredDeckName(), mod: 0, usn: -1,
             collapsed: false, browserCollapsed: false, desc: "", dyn: 1, conf: 1,
             extendNew: 0, extendRev: 0, newToday: [0, 0], revToday: [0, 0], lrnToday: [0, 0], timeToday: [0, 0],
-            searchTerms: deckSearch.map { "\($0) is:due" } ?? "", termLimit: 100, resched: true, previewDelay: 10, searchOrder: "random",
+            searchTerms: deckSearch.map { "\($0) is:due" } ?? "", termLimit: 100, resched: true, previewDelay: 0, searchOrder: "random",
             previewAgain: FilteredDeckSupport.previewAgainSeconds,
             previewHard: FilteredDeckSupport.previewHardSeconds,
             previewGood: FilteredDeckSupport.previewGoodSeconds,
@@ -4908,7 +5210,7 @@ final class CollectionStore: ObservableObject {
         }
     }
 
-    func search(query: String, limit: Int = 500, offset: Int = 0, sortType: Int = 0, sortDescending: Bool = false) throws -> [BrowserRow] {
+    func search(query: String, limit: Int = 500, offset: Int = 0, sortType: Int = 0, sortDescending: Bool = false, notesMode: Bool = false) throws -> [BrowserRow] {
         let clauses = try searchExpressionClauses(query)
         let ignoreAccents = conf["ignoreAccentsInSearch"] as? Bool ?? false
         if clauses.count > 1 {
@@ -4916,7 +5218,7 @@ final class CollectionStore: ObservableObject {
             var rows: [BrowserRow] = []
             for clause in clauses {
                 let part = clause.joined(separator: " ")
-                for row in try search(query: part, limit: limit + offset, sortType: sortType, sortDescending: sortDescending) where seen.insert(row.id).inserted {
+                for row in try search(query: part, limit: limit + offset, sortType: sortType, sortDescending: sortDescending, notesMode: notesMode) where seen.insert(row.id).inserted {
                     rows.append(row)
                 }
             }
@@ -4967,13 +5269,13 @@ final class CollectionStore: ObservableObject {
                     let order = leftTags.localizedCaseInsensitiveCompare(rightTags)
                     return order == .orderedSame ? left.id < right.id : order == .orderedAscending
                 case 13:
-                    let leftPosition = FSRSCardData.originalPosition(in: left.card.data) ?? (left.card.type == 0 ? left.card.due : Int.max)
-                    let rightPosition = FSRSCardData.originalPosition(in: right.card.data) ?? (right.card.type == 0 ? right.card.due : Int.max)
+                    let leftPosition = FSRSCardData.originalPosition(in: left.card.data) ?? (left.card.type == 0 ? left.card.due : Int.min)
+                    let rightPosition = FSRSCardData.originalPosition(in: right.card.data) ?? (right.card.type == 0 ? right.card.due : Int.min)
                     return leftPosition == rightPosition ? left.id < right.id : leftPosition < rightPosition
                 case 15:
-                    return (left.nextDueTimestamp ?? .max) == (right.nextDueTimestamp ?? .max)
+                    return (left.nextDueTimestamp ?? .min) == (right.nextDueTimestamp ?? .min)
                         ? left.id < right.id
-                        : (left.nextDueTimestamp ?? .max) < (right.nextDueTimestamp ?? .max)
+                        : (left.nextDueTimestamp ?? .min) < (right.nextDueTimestamp ?? .min)
                 case 16:
                     let leftValue = left.averageInterval ?? -.infinity
                     let rightValue = right.averageInterval ?? -.infinity
@@ -5008,9 +5310,7 @@ final class CollectionStore: ObservableObject {
         }
 
         // Simplified Anki-like search
-        var sql = """
-        SELECT c.id FROM cards c JOIN notes n ON n.id = c.nid WHERE 1=1
-        """
+        var sql = "SELECT c.id FROM cards c JOIN notes n ON n.id = c.nid WHERE 1=1"
         let binds: [(OpaquePointer) -> Void] = []
         let tokens = clauses.first ?? []
         try validateSearchOperators(tokens)
@@ -5247,53 +5547,158 @@ final class CollectionStore: ObservableObject {
                 || isNamedFieldSearchToken(normalized) || regexSearchFilter(token) != nil
                 || (hasExcludedSearchFields && hasUnqualifiedTextSearch)
         }
+        let distinctNotesQuery = notesMode && !hasFieldFilter
+        let usesNoteSortOrder = distinctNotesQuery && [13, 14, 15, 16, 17, 18, 19, 23].contains(sortType)
+        if distinctNotesQuery {
+            sql = sql.replacingOccurrences(
+                of: "SELECT c.id FROM cards c JOIN notes n ON n.id = c.nid WHERE 1=1",
+                with: "SELECT DISTINCT n.id FROM cards c, notes n WHERE c.nid = n.id"
+            )
+        }
+        if usesNoteSortOrder {
+            try db.exec("DROP TABLE IF EXISTS temp.ankios_browser_sort_order; CREATE TEMP TABLE ankios_browser_sort_order(pos INTEGER PRIMARY KEY, key_id INTEGER NOT NULL UNIQUE)")
+            if sortType == 23 {
+                try db.exec("DROP TABLE IF EXISTS temp.ankios_browser_deck_order; CREATE TEMP TABLE ankios_browser_deck_order(id INTEGER PRIMARY KEY, pos INTEGER NOT NULL)")
+                let values = decks.sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
+                    .enumerated()
+                    .map { "(\($0.element.id), \($0.offset + 1))" }
+                    .joined(separator: ", ")
+                if !values.isEmpty {
+                    try db.exec("INSERT INTO ankios_browser_deck_order(id, pos) VALUES \(values)")
+                }
+            }
+            let insertSQL: String
+            let today = schedDay()
+            let now = Int(Date().timeIntervalSince1970)
+            switch sortType {
+            case 13:
+                insertSQL = "INSERT INTO ankios_browser_sort_order(key_id) SELECT nid FROM cards GROUP BY nid ORDER BY COALESCE(CAST(json_extract(data, '$.pos') AS INTEGER), CASE WHEN type = 0 THEN due ELSE 0 END)"
+            case 14:
+                insertSQL = "INSERT INTO ankios_browser_sort_order(key_id) SELECT nid FROM cards GROUP BY nid ORDER BY COUNT(*)"
+            case 15:
+                insertSQL = "INSERT INTO ankios_browser_sort_order(key_id) SELECT nid FROM cards WHERE odid = 0 AND type != 0 AND queue > 0 GROUP BY nid ORDER BY MIN(CASE WHEN due > 1000000000 OR type = 0 THEN due ELSE (due - \(today)) * 86400 + \(now) END)"
+            case 16:
+                insertSQL = "INSERT INTO ankios_browser_sort_order(key_id) SELECT nid FROM cards WHERE type IN (2, 3) GROUP BY nid ORDER BY AVG(ivl)"
+            case 17:
+                insertSQL = "INSERT INTO ankios_browser_sort_order(key_id) SELECT nid FROM cards WHERE type != 0 GROUP BY nid ORDER BY AVG(factor)"
+            case 18:
+                insertSQL = "INSERT INTO ankios_browser_sort_order(key_id) SELECT nid FROM cards GROUP BY nid ORDER BY SUM(reps)"
+            case 19:
+                insertSQL = "INSERT INTO ankios_browser_sort_order(key_id) SELECT nid FROM cards GROUP BY nid ORDER BY SUM(lapses)"
+            default:
+                insertSQL = "INSERT INTO ankios_browser_sort_order(key_id) SELECT cards.nid FROM cards JOIN ankios_browser_deck_order decks ON cards.did = decks.id GROUP BY cards.nid ORDER BY COUNT(DISTINCT cards.did), decks.pos"
+            }
+            try db.exec(insertSQL)
+        }
+        defer {
+            if usesNoteSortOrder {
+                try? db.exec("DROP TABLE IF EXISTS temp.ankios_browser_sort_order")
+                try? db.exec("DROP TABLE IF EXISTS temp.ankios_browser_deck_order")
+            }
+        }
         let direction = sortDescending ? "DESC" : "ASC"
         let orderBy: String
         switch sortType {
-        case 0: orderBy = "n.sfld COLLATE NOCASE \(direction), c.ord \(direction)"
+        case 0: orderBy = notesMode ? "n.sfld COLLATE NOCASE \(direction)" : "n.sfld COLLATE NOCASE \(direction), c.ord \(direction)"
         case 1:
             let today = schedDay()
             let now = Int64(Date().timeIntervalSince1970)
             orderBy = "CASE WHEN c.due > 1000000000 OR c.type = 0 THEN c.due ELSE (c.due - \(today)) * 86400 + \(now) END"
-        case 2: orderBy = "n.id \(direction), c.ord \(direction)"
-        case 3: orderBy = "n.mod \(direction), c.ord \(direction)"
+        case 2: orderBy = notesMode ? "n.id \(direction)" : "n.id \(direction), c.ord \(direction)"
+        case 3: orderBy = notesMode ? "n.mod \(direction)" : "n.mod \(direction), c.ord \(direction)"
         case 4: orderBy = "c.ivl"
         case 5:
-            let deckExpression = "c.did"
-            let cases = decks.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-                .map { "WHEN \($0.id) THEN '\($0.name.replacingOccurrences(of: "'", with: "''"))'" }
+            let cases = decks.sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
+                .enumerated()
+                .map { "WHEN \($0.element.id) THEN \($0.offset + 1)" }
                 .joined(separator: " ")
-            orderBy = "CASE \(deckExpression) \(cases) ELSE '' END COLLATE NOCASE"
+            orderBy = "CASE c.did \(cases) ELSE 0 END \(direction), c.queue ASC, c.due ASC"
         case 6: orderBy = "(c.type = 0) \(direction), c.factor \(direction)"
         case 7: orderBy = "c.reps"
         case 8: orderBy = "c.lapses"
         case 9: orderBy = "c.mod"
-        case 10: orderBy = "c.ord"
-        case 11:
-            let cases = notetypes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-                .map { "WHEN \($0.id) THEN '\($0.name.replacingOccurrences(of: "'", with: "''"))'" }
+        case 10:
+            let templates = notetypes.flatMap { notetype in
+                notetype.tmpls.map { (notetypeID: notetype.id, order: $0.ord, name: $0.name) }
+            }.sorted {
+                if $0.name != $1.name { return $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
+                if $0.notetypeID != $1.notetypeID { return $0.notetypeID < $1.notetypeID }
+                return $0.order < $1.order
+            }
+            let templatePositions = templates.enumerated()
+                .map { "WHEN n.mid = \($0.element.notetypeID) AND c.ord = \($0.element.order) THEN \($0.offset + 1)" }
                 .joined(separator: " ")
-            orderBy = "CASE n.mid \(cases) ELSE '' END COLLATE NOCASE"
-        case 12: orderBy = "n.tags COLLATE NOCASE"
-        case 13: orderBy = "COALESCE(CAST(json_extract(c.data, '$.pos') AS INTEGER), CASE WHEN c.type = 0 THEN c.due END, 2147483647)"
-        case 14: orderBy = "(SELECT COUNT(*) FROM cards cc WHERE cc.nid = n.id)"
+            let firstTemplatePositions = templates.enumerated().filter { $0.element.order == 0 }
+                .map { "WHEN n.mid = \($0.element.notetypeID) THEN \($0.offset + 1)" }
+                .joined(separator: " ")
+            orderBy = "COALESCE((CASE \(templatePositions) END), (CASE \(firstTemplatePositions) END)) \(direction), c.ord \(direction)"
+        case 11:
+            let cases = notetypes.sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
+                .enumerated()
+                .map { "WHEN \($0.element.id) THEN \($0.offset + 1)" }
+                .joined(separator: " ")
+            orderBy = "CASE n.mid \(cases) ELSE 0 END"
+        case 12: orderBy = "n.tags"
+        case 13:
+            orderBy = usesNoteSortOrder
+                ? "(SELECT pos FROM ankios_browser_sort_order WHERE key_id = n.id)"
+                : "(SELECT COALESCE(CAST(json_extract(oc.data, '$.pos') AS INTEGER), CASE WHEN oc.type = 0 THEN oc.due ELSE 0 END) FROM cards oc WHERE oc.nid = c.nid ORDER BY oc.id LIMIT 1)"
+        case 14: orderBy = usesNoteSortOrder ? "(SELECT pos FROM ankios_browser_sort_order WHERE key_id = n.id)" : "(SELECT COUNT(*) FROM cards cc WHERE cc.nid = n.id)"
         case 15:
-            let dueEpochBase = schedDayStartTimestamp() - Int64(schedDay()) * 86_400
-            orderBy = "(SELECT MIN(CASE WHEN cc.odid = 0 AND cc.queue IN (1, 4) THEN cc.due WHEN cc.odid = 0 AND cc.queue IN (2, 3) THEN cc.due * 86400 + \(dueEpochBase) END) FROM cards cc WHERE cc.nid = n.id)"
-        case 16: orderBy = "(SELECT AVG(CASE WHEN cc.type IN (2, 3) THEN cc.ivl END) FROM cards cc WHERE cc.nid = n.id)"
-        case 17: orderBy = "(SELECT AVG(CASE WHEN cc.type != 0 THEN cc.factor END) FROM cards cc WHERE cc.nid = n.id)"
-        case 18: orderBy = "(SELECT SUM(cc.reps) FROM cards cc WHERE cc.nid = n.id)"
-        case 19: orderBy = "(SELECT SUM(cc.lapses) FROM cards cc WHERE cc.nid = n.id)"
+            if usesNoteSortOrder { orderBy = "(SELECT pos FROM ankios_browser_sort_order WHERE key_id = n.id)" }
+            else {
+                let today = schedDay()
+                let now = Int(Date().timeIntervalSince1970)
+                orderBy = "(SELECT MIN(CASE WHEN cc.due > 1000000000 OR cc.type = 0 THEN cc.due ELSE (cc.due - \(today)) * 86400 + \(now) END) FROM cards cc WHERE cc.nid = n.id AND cc.odid = 0 AND cc.type != 0 AND cc.queue > 0)"
+            }
+        case 16, 17, 18, 19:
+            if usesNoteSortOrder {
+                orderBy = "(SELECT pos FROM ankios_browser_sort_order WHERE key_id = n.id)"
+            } else if sortType == 16 {
+                orderBy = "(SELECT AVG(CASE WHEN cc.type IN (2, 3) THEN cc.ivl END) FROM cards cc WHERE cc.nid = n.id)"
+            } else if sortType == 17 {
+                orderBy = "(SELECT AVG(CASE WHEN cc.type != 0 THEN cc.factor END) FROM cards cc WHERE cc.nid = n.id)"
+            } else if sortType == 18 {
+                orderBy = "(SELECT SUM(cc.reps) FROM cards cc WHERE cc.nid = n.id)"
+            } else {
+                orderBy = "(SELECT SUM(cc.lapses) FROM cards cc WHERE cc.nid = n.id)"
+            }
         case 20: orderBy = "anki_fsrs_stability(c.data)"
         case 21: orderBy = "anki_fsrs_difficulty(c.data)"
         case 22:
             let today = schedDay()
             let now = Int(Date().timeIntervalSince1970)
             orderBy = "anki_fsrs_retrievability(c.data, CASE WHEN c.odue != 0 THEN c.odue ELSE c.due END, c.ivl, \(today), \(now))"
+        case 23:
+            if usesNoteSortOrder {
+                orderBy = "(SELECT pos FROM ankios_browser_sort_order WHERE key_id = n.id)"
+            } else {
+                let deckRanks = decks.sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
+                    .enumerated()
+                    .map { "WHEN cc.did = \($0.element.id) THEN \($0.offset + 1)" }
+                    .joined(separator: " ")
+                orderBy = "(SELECT COUNT(DISTINCT cc.did) FROM cards cc WHERE cc.nid = n.id) \(direction), (SELECT CASE \(deckRanks) ELSE 0 END FROM cards cc WHERE cc.nid = n.id ORDER BY cc.id LIMIT 1) \(direction)"
+            }
         default: orderBy = "n.sfld COLLATE NOCASE \(direction), c.ord \(direction)"
         }
-        let directionAlreadyApplied = [0, 2, 3, 6].contains(sortType)
-        sql += " ORDER BY \(orderBy)\(directionAlreadyApplied ? "" : " \(direction)"), c.id"
+        let directionAlreadyApplied = [0, 2, 3, 5, 6, 10].contains(sortType)
+        let tieOrder: String
+        if distinctNotesQuery && [15, 16].contains(sortType) {
+            tieOrder = "CASE WHEN \(orderBy) IS NULL THEN (SELECT COUNT(*) FROM cards cc WHERE cc.nid = n.id) END ASC, CASE WHEN \(orderBy) IS NULL THEN n.id END ASC"
+        } else if distinctNotesQuery {
+            tieOrder = ""
+        } else if sortType == 13 {
+            tieOrder = "n.id \(direction), c.id ASC"
+        } else if notesMode && [15, 16, 17].contains(sortType) {
+            tieOrder = "CASE WHEN \(orderBy) IS NULL THEN n.id END ASC, CASE WHEN \(orderBy) IS NOT NULL THEN n.id END \(direction), c.id ASC"
+        } else if notesMode && [14, 18, 19, 23].contains(sortType) {
+            tieOrder = "n.id \(direction), c.id ASC"
+        } else if notesMode {
+            tieOrder = "n.id ASC, c.id ASC"
+        } else {
+            tieOrder = "c.id ASC"
+        }
+        sql += " ORDER BY \(orderBy)\(directionAlreadyApplied ? "" : " \(direction)")\(tieOrder.isEmpty ? "" : ", \(tieOrder)")"
         if !hasFieldFilter {
             sql += " LIMIT \(max(limit, 1)) OFFSET \(max(offset, 0))"
         }
@@ -5365,6 +5770,23 @@ final class CollectionStore: ObservableObject {
             cardIDs.append(sqlite3_column_int64(stmt, 0))
         }
 
+        if distinctNotesQuery {
+            let noteIDs = cardIDs
+            var representativeCards: [Int64: Int64] = [:]
+            for batchStart in stride(from: 0, to: noteIDs.count, by: 900) {
+                let batch = Array(noteIDs[batchStart..<min(batchStart + 900, noteIDs.count)])
+                let placeholders = batch.map { _ in "?" }.joined(separator: ",")
+                try db.query("SELECT nid, MIN(id) FROM cards WHERE nid IN (\(placeholders)) GROUP BY nid", bind: { stmt in
+                    for (index, noteID) in batch.enumerated() {
+                        SQLiteDatabase.bindInt64(stmt, Int32(index + 1), noteID)
+                    }
+                }) { stmt in
+                    representativeCards[sqlite3_column_int64(stmt, 0)] = sqlite3_column_int64(stmt, 1)
+                }
+            }
+            cardIDs = noteIDs.compactMap { representativeCards[$0] }
+        }
+
         var rows: [BrowserRow] = []
         for cid in cardIDs {
             guard let card = try fetchCard(id: cid),
@@ -5391,7 +5813,7 @@ final class CollectionStore: ObservableObject {
             SELECT nid, COUNT(*), MAX(mod), COUNT(DISTINCT did),
                    AVG(CASE WHEN type != 0 THEN factor END),
                    AVG(CASE WHEN type IN (2, 3) THEN ivl END), SUM(reps), SUM(lapses)
-                   , MIN(CASE WHEN odid = 0 AND queue IN (1, 4) THEN due WHEN odid = 0 AND queue IN (2, 3) THEN due * 86400 + \(dueEpochBase) END)
+                   , MIN(CASE WHEN odid = 0 AND type != 0 AND queue IN (1, 4) THEN due WHEN odid = 0 AND type != 0 AND queue IN (2, 3) THEN due * 86400 + \(dueEpochBase) END)
             FROM cards WHERE nid IN (\(placeholders)) GROUP BY nid
             """, bind: { stmt in
                 for (index, nid) in batch.enumerated() {
@@ -6730,6 +7152,25 @@ final class CollectionStore: ObservableObject {
         return counts
     }
 
+    func loadBalancerDueCards(today: Int, days: Int = 99) -> [LoadBalancerDueCard] {
+        let configByDeck = Dictionary(uniqueKeysWithValues: decks.filter { !$0.isFiltered }.map { ($0.id, $0.conf) })
+        guard !configByDeck.isEmpty else { return [] }
+        var cards: [LoadBalancerDueCard] = []
+        try? db.query("SELECT id, nid, did, due FROM cards WHERE due >= ? AND due < ?", bind: { stmt in
+            SQLiteDatabase.bindInt(stmt, 1, today)
+            SQLiteDatabase.bindInt(stmt, 2, today + days)
+        }) { stmt in
+            let deckID = sqlite3_column_int64(stmt, 2)
+            guard let configID = configByDeck[deckID] else { return }
+            cards.append(LoadBalancerDueCard(
+                noteID: sqlite3_column_int64(stmt, 1),
+                deckConfigID: configID,
+                dayOffset: Int(sqlite3_column_int(stmt, 3)) - today
+            ))
+        }
+        return cards
+    }
+
     struct ReviewDayPoint: Identifiable, Sendable {
         var id: Int { offset }
         var offset: Int
@@ -7154,11 +7595,12 @@ private enum AnkiFieldText {
             range: range,
             withTemplate: " $1$2$3 "
         )
-        return html.stringByReplacingMatches(
+        let stripped = html.stringByReplacingMatches(
             in: withMediaNames,
             range: NSRange(withMediaNames.startIndex..., in: withMediaNames),
             withTemplate: ""
         )
+        return TemplateEngine.decodeHTMLEntities(stripped) ?? stripped
     }
 }
 

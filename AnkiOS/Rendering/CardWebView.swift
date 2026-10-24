@@ -12,12 +12,23 @@ struct CardWebView: UIViewRepresentable {
     let baseURL: URL
     var onSoundTap: ((String) -> Void)?
     var onSpeechTap: ((CardHTMLRenderer.SpeechRequest) -> Void)?
+    var onVideoFramesChanged: (([CGRect]) -> Void)?
+    var scrollRequest = 0
+    var scrollDirection = 0
+    var userActionRequest = 0
+    var userActionNumber: Int?
+    var userActionScript = ""
 
-    func makeCoordinator() -> Coordinator { Coordinator(onSoundTap: onSoundTap, onSpeechTap: onSpeechTap) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onSoundTap: onSoundTap, onSpeechTap: onSpeechTap, onVideoFramesChanged: onVideoFramesChanged)
+    }
 
     func makeUIView(context: Context) -> WKWebView {
         let web = makeWebView(handler: context.coordinator)
+        context.coordinator.webView = web
         context.coordinator.lastHTML = html
+        context.coordinator.lastScrollRequest = scrollRequest
+        context.coordinator.lastUserActionRequest = userActionRequest
         web.loadHTMLString(html, baseURL: baseURL)
         return web
     }
@@ -25,6 +36,16 @@ struct CardWebView: UIViewRepresentable {
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.onSoundTap = onSoundTap
         context.coordinator.onSpeechTap = onSpeechTap
+        context.coordinator.onVideoFramesChanged = onVideoFramesChanged
+        context.coordinator.webView = webView
+        context.coordinator.updateRequests(
+            scrollRequest: scrollRequest,
+            scrollDirection: scrollDirection,
+            userActionRequest: userActionRequest,
+            userActionNumber: userActionNumber,
+            userActionScript: userActionScript,
+            webView: webView
+        )
         guard context.coordinator.lastHTML != html else { return }
         context.coordinator.lastHTML = html
         webView.loadHTMLString(html, baseURL: baseURL)
@@ -34,14 +55,77 @@ struct CardWebView: UIViewRepresentable {
         var lastHTML: String?
         var onSoundTap: ((String) -> Void)?
         var onSpeechTap: ((CardHTMLRenderer.SpeechRequest) -> Void)?
+        var onVideoFramesChanged: (([CGRect]) -> Void)?
+        weak var webView: WKWebView?
+        var lastScrollRequest = 0
+        var pendingScrollDirection = 0
+        var lastUserActionRequest = 0
+        var pendingUserAction: (number: Int, script: String)?
 
-        init(onSoundTap: ((String) -> Void)?, onSpeechTap: ((CardHTMLRenderer.SpeechRequest) -> Void)?) {
+        init(
+            onSoundTap: ((String) -> Void)?,
+            onSpeechTap: ((CardHTMLRenderer.SpeechRequest) -> Void)?,
+            onVideoFramesChanged: (([CGRect]) -> Void)?
+        ) {
             self.onSoundTap = onSoundTap
             self.onSpeechTap = onSpeechTap
+            self.onVideoFramesChanged = onVideoFramesChanged
+        }
+
+        func updateRequests(
+            scrollRequest: Int,
+            scrollDirection: Int,
+            userActionRequest: Int,
+            userActionNumber: Int?,
+            userActionScript: String,
+            webView: WKWebView
+        ) {
+            if scrollRequest != lastScrollRequest {
+                lastScrollRequest = scrollRequest
+                pendingScrollDirection = scrollDirection
+            }
+            if userActionRequest != lastUserActionRequest {
+                lastUserActionRequest = userActionRequest
+                if let userActionNumber {
+                    pendingUserAction = (userActionNumber, userActionScript)
+                }
+            }
+            flushRequests(in: webView)
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            flushRequests(in: webView)
+        }
+
+        private func flushRequests(in webView: WKWebView) {
+            guard !webView.isLoading else { return }
+            if pendingScrollDirection != 0 {
+                let distance = max(webView.scrollView.bounds.height * 0.8, 120)
+                let offset = Int(distance * CGFloat(pendingScrollDirection))
+                webView.evaluateJavaScript("window.scrollBy({top:\(offset), behavior:'smooth'});")
+                pendingScrollDirection = 0
+            }
+            if let request = pendingUserAction {
+                pendingUserAction = nil
+                let actionName = "userJs\(request.number)"
+                let setup = request.script.contains(actionName)
+                    ? request.script
+                    : "window.\(actionName) = \(request.script);"
+                webView.evaluateJavaScript("\(setup)\nif (typeof window.\(actionName) === 'function') window.\(actionName)();")
+            }
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            if message.name == "ankiSound", let file = message.body as? String {
+            if message.name == "ankiVideoFrames", let rawFrames = message.body as? [[String: Any]], let webView {
+                let frames = rawFrames.compactMap { frame -> CGRect? in
+                    guard let x = (frame["x"] as? NSNumber)?.doubleValue,
+                          let y = (frame["y"] as? NSNumber)?.doubleValue,
+                          let width = (frame["width"] as? NSNumber)?.doubleValue,
+                          let height = (frame["height"] as? NSNumber)?.doubleValue else { return nil }
+                    return webView.convert(CGRect(x: x, y: y, width: width, height: height), to: nil)
+                }
+                onVideoFramesChanged?(frames)
+            } else if message.name == "ankiSound", let file = message.body as? String {
                 onSoundTap?(file)
             } else if message.name == "ankiSpeech", let request = speechRequest(from: message.body) {
                 onSpeechTap?(request)
@@ -73,6 +157,12 @@ struct CardWebView: NSViewRepresentable {
     let baseURL: URL
     var onSoundTap: ((String) -> Void)?
     var onSpeechTap: ((CardHTMLRenderer.SpeechRequest) -> Void)?
+    var onVideoFramesChanged: (([CGRect]) -> Void)?
+    var scrollRequest = 0
+    var scrollDirection = 0
+    var userActionRequest = 0
+    var userActionNumber: Int?
+    var userActionScript = ""
     @Environment(\.colorScheme) private var colorScheme
 
     func makeCoordinator() -> Coordinator { Coordinator(onSoundTap: onSoundTap, onSpeechTap: onSpeechTap) }
@@ -81,6 +171,8 @@ struct CardWebView: NSViewRepresentable {
         let web = makeWebView(handler: context.coordinator)
         web.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
         context.coordinator.lastHTML = html
+        context.coordinator.lastScrollRequest = scrollRequest
+        context.coordinator.lastUserActionRequest = userActionRequest
         web.loadHTMLString(html, baseURL: baseURL)
         return web
     }
@@ -89,6 +181,14 @@ struct CardWebView: NSViewRepresentable {
         context.coordinator.onSoundTap = onSoundTap
         context.coordinator.onSpeechTap = onSpeechTap
         webView.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
+        context.coordinator.updateRequests(
+            scrollRequest: scrollRequest,
+            scrollDirection: scrollDirection,
+            userActionRequest: userActionRequest,
+            userActionNumber: userActionNumber,
+            userActionScript: userActionScript,
+            webView: webView
+        )
         guard context.coordinator.lastHTML != html else { return }
         context.coordinator.lastHTML = html
         webView.loadHTMLString(html, baseURL: baseURL)
@@ -98,10 +198,57 @@ struct CardWebView: NSViewRepresentable {
         var lastHTML: String?
         var onSoundTap: ((String) -> Void)?
         var onSpeechTap: ((CardHTMLRenderer.SpeechRequest) -> Void)?
+        var lastScrollRequest = 0
+        var pendingScrollDirection = 0
+        var lastUserActionRequest = 0
+        var pendingUserAction: (number: Int, script: String)?
 
         init(onSoundTap: ((String) -> Void)?, onSpeechTap: ((CardHTMLRenderer.SpeechRequest) -> Void)?) {
             self.onSoundTap = onSoundTap
             self.onSpeechTap = onSpeechTap
+        }
+
+        func updateRequests(
+            scrollRequest: Int,
+            scrollDirection: Int,
+            userActionRequest: Int,
+            userActionNumber: Int?,
+            userActionScript: String,
+            webView: WKWebView
+        ) {
+            if scrollRequest != lastScrollRequest {
+                lastScrollRequest = scrollRequest
+                pendingScrollDirection = scrollDirection
+            }
+            if userActionRequest != lastUserActionRequest {
+                lastUserActionRequest = userActionRequest
+                if let userActionNumber {
+                    pendingUserAction = (userActionNumber, userActionScript)
+                }
+            }
+            flushRequests(in: webView)
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            flushRequests(in: webView)
+        }
+
+        private func flushRequests(in webView: WKWebView) {
+            guard !webView.isLoading else { return }
+            if pendingScrollDirection != 0 {
+                let distance = max(webView.frame.height * 0.8, 120)
+                let offset = Int(distance * CGFloat(pendingScrollDirection))
+                webView.evaluateJavaScript("window.scrollBy({top:\(offset), behavior:'smooth'});")
+                pendingScrollDirection = 0
+            }
+            if let request = pendingUserAction {
+                pendingUserAction = nil
+                let actionName = "userJs\(request.number)"
+                let setup = request.script.contains(actionName)
+                    ? request.script
+                    : "window.\(actionName) = \(request.script);"
+                webView.evaluateJavaScript("\(setup)\nif (typeof window.\(actionName) === 'function') window.\(actionName)();")
+            }
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -165,6 +312,32 @@ private func isSameDocumentAnchor(_ url: URL, currentURL: URL?) -> Bool {
     uc.removeScriptMessageHandler(forName: "ankiSpeech")
     uc.add(handler, name: "ankiSound")
     uc.add(handler, name: "ankiSpeech")
+    #if os(iOS)
+    uc.add(handler, name: "ankiVideoFrames")
+    let videoFrameScript = """
+    (function(){
+      let pending = false;
+      function report(){
+        pending = false;
+        const frames = Array.from(document.querySelectorAll('video')).map(video => {
+          const rect = video.getBoundingClientRect();
+          return {x:rect.x,y:rect.y,width:rect.width,height:rect.height};
+        }).filter(rect => rect.width > 0 && rect.height > 0);
+        window.webkit.messageHandlers.ankiVideoFrames.postMessage(frames);
+      }
+      function schedule(){
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(report);
+      }
+      window.addEventListener('scroll', schedule, {passive:true});
+      window.addEventListener('resize', schedule);
+      new MutationObserver(schedule).observe(document.documentElement, {childList:true,subtree:true,attributes:true});
+      schedule();
+    })();
+    """
+    uc.addUserScript(WKUserScript(source: videoFrameScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+    #endif
     let ankiTemplateBootstrap = """
     window.anki = window.anki || {};
     if (typeof window.anki.qFade === 'undefined') window.anki.qFade = 100;

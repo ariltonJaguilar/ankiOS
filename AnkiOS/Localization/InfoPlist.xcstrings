@@ -1,0 +1,718 @@
+{
+  "sourceLanguage" : "pt-BR",
+  "strings" : {
+    "Anki Collection Package" : {
+
+    },
+    "Anki Deck Package" : {
+
+    },
+    "CFBundleDisplayName" : {
+      "comment" : "Bundle display name",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "AnkiOS"
+          }
+        }
+      }
+    },
+    "CFBundleName" : {
+      "comment" : "Bundle name",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "AnkiOS"
+          }
+        }
+      }
+    },
+    "NSCameraUsageDescription" : {
+      "comment" : "Privacy - Camera Usage Description",
+      "localizations" : {
+        "af-ZA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "ar-SA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يسمح هذا لأنكي بتضمين الصور التي تلتقطها في بطاقاتك."
+          }
+        },
+        "be-BY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Гэта дазваляе Anki устаўляць вашыя здымкі ў вашы карткі."
+          }
+        },
+        "bg-BG" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "ca-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permet que Anki insereixi les fotos que facis en les targetes."
+          }
+        },
+        "cs-CZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "da-DK" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "de-DE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dadurch kön­nen Bil­der aus Ihrer Ga­le­rie in die Kar­ten ein­ge­fügt wer­den."
+          }
+        },
+        "el-GR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "en-US" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "eo-UY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esto permite a Anki insertar las imágenes que capturas en tus tarjetas."
+          }
+        },
+        "et-EE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "eu-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "fa-IR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "این گزینه به آنکی اجازه می‌دهد تصاویری که می‌گیرید را به کارت‌هایتان اضافه کند."
+          }
+        },
+        "fi-FI" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämän avulla Anki voi lisätä ottamiasi kuvia kortteihin."
+          }
+        },
+        "fil" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "fr-FR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permettre à Anki d'insérer les images que vous capturez sur vos cartes."
+          }
+        },
+        "ga-IE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tugann sé seo cead do Anki na grianghraif a ghlactar a chur díreach ar na cártaí."
+          }
+        },
+        "gl-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "he-IL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "זה מאפשר לאנקי להכניס את התמונות שאתם מצטלמים לכרטיסים שלכם."
+          }
+        },
+        "hr-HR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "hu-HU" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "hy-AM" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "it-IT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo permette ad Anki di inserire le immagini della fotocamera nelle tue carte."
+          }
+        },
+        "ja-JP" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "許可をすることで、カメラで撮影した画像をカードに取り込めるようになります。"
+          }
+        },
+        "jbo-EN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "kk-KZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "ko-KR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이는 Anki가 캡처한 이미지를 카드에 삽입할 수 있게 해 줍니다."
+          }
+        },
+        "la-LA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "ml-IN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "mn-MN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "ms-MY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "nb-NO" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "nl-NL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "oc-FR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "or-OR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "pl-PL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dzięki temu możesz dodawać zdjęcia do twoich kart."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Isso permite que o Anki insira as imagens que você captura nos seus cartões."
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "ro-RO" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Acest lucru îi permite lui Anki să insereze imaginile pe care le capturați pe cardurile dvs."
+          }
+        },
+        "ru-RU" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это позволит Anki вставлять изображения в карточки."
+          }
+        },
+        "sk-SK" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "sl-SI" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "sr-SP" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "sv-SE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "th-TH" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "tr-TR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu, Anki'nin çektiğiniz resimleri kartlarınıza eklemesini sağlar."
+          }
+        },
+        "ug" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "uk-UA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "uz-UZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "vi-VN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cho phép Anki chèn hình ảnh bạn chụp vào thẻ của bạn"
+          }
+        },
+        "yi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This allows Anki to insert the images you capture onto your cards."
+          }
+        },
+        "zh-CN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这将允许 Anki 插入您捕获的图片。"
+          }
+        },
+        "zh-TW" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "啟用後，Anki才能將你擷取的影像加入卡片。"
+          }
+        }
+      }
+    },
+    "NSMicrophoneUsageDescription" : {
+      "comment" : "Privacy - Microphone Usage Description",
+      "localizations" : {
+        "af-ZA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "ar-SA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيُستخدم الميكروفون فقط عندما تضغط زر التسجيل."
+          }
+        },
+        "be-BY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мікрафон будзе выкарыстоўвацца толькі калі вы націснеце на кнопку запісу."
+          }
+        },
+        "bg-BG" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "ca-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El micròfon només s’activarà quan toquis el botó d’enregistrament."
+          }
+        },
+        "cs-CZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "da-DK" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "de-DE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Mi­kro­fon wird nur verwendet, wenn der Aufnahmeknopf ge­drückt wird."
+          }
+        },
+        "el-GR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "en-US" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "eo-UY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El micrófono sólo se utilizará cuando toques el botón de grabación."
+          }
+        },
+        "et-EE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "eu-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "fa-IR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "میکروفون فقط هنگامی که دکمه ضبط را فشار دهید مورد استفاده قرار می‌گیرد."
+          }
+        },
+        "fi-FI" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mikrofonia käytetään vain, kun napautat äänityspainiketta."
+          }
+        },
+        "fil" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "fr-FR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le microphone ne sera utilisé que lorsque vous appuyez sur le bouton enregistrement."
+          }
+        },
+        "ga-IE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ní bheifear ag obair leis an micreafón ach amháin nuair a bheidh an cnaipe taifeadta brúite agat."
+          }
+        },
+        "gl-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "he-IL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "המיקרופון ישמש רק כשתלחצו על כפתור ההקלטה."
+          }
+        },
+        "hr-HR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "hu-HU" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "hy-AM" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "it-IT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il microfono verrà usato solo quando si clicca sul pulsante di registrazione."
+          }
+        },
+        "ja-JP" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マイク機能は録音ボタンをタップしたときのみ使用されます。"
+          }
+        },
+        "jbo-EN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "kk-KZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "ko-KR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "마이크는 녹음 버튼을 눌렀을 때만 사용됩니다."
+          }
+        },
+        "la-LA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "ml-IN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "mn-MN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "ms-MY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "nb-NO" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "nl-NL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "oc-FR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "or-OR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "pl-PL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mikrofon będzie używany tylko wtedy gdy naciśniesz przycisk do nagrywania."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O microfone somente será usado quando você tocar no botão gravar."
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "ro-RO" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Microfonul va fi folosit doar când apăsați butonul de înregistrare."
+          }
+        },
+        "ru-RU" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Микрофон будет использован только после касания кнопки записи."
+          }
+        },
+        "sk-SK" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "sl-SI" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "sr-SP" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "sv-SE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "th-TH" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "tr-TR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mikrofon yalnızca kayıt düğmesine dokunduğunuzda kullanılır."
+          }
+        },
+        "ug" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "uk-UA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "uz-UZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "vi-VN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Micro sẽ chỉ được sử dụng khi bạn bấm nút ghi âm."
+          }
+        },
+        "yi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone will only be used when you tap the record button."
+          }
+        },
+        "zh-CN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只有当您点击录制按钮时麦克风才会启动。"
+          }
+        },
+        "zh-TW" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只有當你按下錄製按鈕時，麥克風才會啟用。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

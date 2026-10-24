@@ -121,15 +121,16 @@ struct DeckOptionsView: View {
                             dismiss()
                         }
                     }
+                    .accessibilityIdentifier("deck.options.close")
                         .buttonStyle(GlassButtonStyle(tint: .white, tintStrength: 0.18, expands: true))
-                    Button("Salvar") { save() }
+                    Button("deck-options.save") { save() }
                         .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
             }
             .background(AppBackground())
-            .navigationTitle("Opções do baralho")
+            .navigationTitle("deck-options.title")
             .interactiveDismissDisabled(hasUnsavedChanges)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -232,6 +233,7 @@ struct DeckOptionsView: View {
                     .textFieldStyle(.plain)
                     .multilineTextAlignment(.trailing)
                     .frame(minWidth: 140)
+                    .accessibilityIdentifier("deck.options.preset.name")
             }
             optionsLabeled("Usar preset") {
                 Picker("", selection: Binding(get: { selectedConfID }, set: selectConfig)) {
@@ -241,6 +243,7 @@ struct DeckOptionsView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .accessibilityIdentifier("deck.options.preset")
             }
             Button("Duplicar preset") {
                 guard applyStepInputs() else { return }
@@ -267,7 +270,7 @@ struct DeckOptionsView: View {
 
     private var newCardsSection: some View {
         optionsCard("Cartões novos") {
-            dailyLimitOptions(mode: $newLimitMode, presetValue: $config.new.perDay, deckValue: $deckNewLimit, todayValue: $todayNewLimit, maximum: 9999)
+            dailyLimitOptions(mode: $newLimitMode, presetValue: $config.new.perDay, deckValue: $deckNewLimit, todayValue: $todayNewLimit, maximum: 9999, identifier: "new")
             optionsLabeled("Passos de aprendizagem (min)") {
                 TextField("1 10", text: $newStepsText)
                 .textFieldStyle(.plain)
@@ -313,7 +316,7 @@ struct DeckOptionsView: View {
                 )
             }
             optionsPicker("Ordem de inserção", selection: $config.new.order) {
-                Text("Aleatória").tag(0)
+                Text("deck-options.new-order.random").tag(0)
                 Text("Data de adição").tag(1)
             }
             optionsPicker("Novos vs revisões", selection: $config.newMix) {
@@ -327,7 +330,7 @@ struct DeckOptionsView: View {
                 Text("Antes das revisões").tag(2)
             }
             optionsPicker("Prioridade ao reunir novos", selection: $config.newGatherPriority) {
-                Text("Baralho").tag(0)
+                Text("deck-options.gather-priority.deck").tag(0)
                 Text("Posição crescente").tag(1)
                 Text("Posição decrescente").tag(2)
                 Text("Notas aleatórias").tag(3)
@@ -348,8 +351,8 @@ struct DeckOptionsView: View {
     }
 
     private var reviewsSection: some View {
-        optionsCard("Revisões") {
-            dailyLimitOptions(mode: $reviewLimitMode, presetValue: $config.rev.perDay, deckValue: $deckReviewLimit, todayValue: $todayReviewLimit, maximum: 9999)
+        optionsCard("deck-options.reviews.section") {
+            dailyLimitOptions(mode: $reviewLimitMode, presetValue: $config.rev.perDay, deckValue: $deckReviewLimit, todayValue: $todayReviewLimit, maximum: 9999, identifier: "review")
             optionsPicker("Ordem das revisões", selection: $config.reviewOrder) {
                 Text("Vencimento, depois aleatória").tag(0)
                 Text("Vencimento, depois baralho").tag(1)
@@ -359,7 +362,7 @@ struct DeckOptionsView: View {
                 Text("Facilidade crescente").tag(5)
                 Text("Facilidade decrescente").tag(6)
                 Text("Recuperabilidade crescente").tag(7)
-                Text("Aleatória").tag(8)
+                Text("deck-options.sort-order.random").tag(8)
                 Text("Adicionadas primeiro").tag(9)
                 Text("Adicionadas por último").tag(10)
                 Text("Recuperabilidade decrescente").tag(11)
@@ -441,14 +444,17 @@ struct DeckOptionsView: View {
                 }
                 .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
                 .disabled(isOptimizingFSRS)
+                .accessibilityIdentifier("deck.options.fsrs.optimize")
                 Button("Otimizar todos os presets", action: optimizeAllFSRSParameters)
                     .buttonStyle(GlassButtonStyle(tint: .white, tintStrength: 0.16, expands: true))
                     .disabled(isOptimizingFSRS)
+                    .accessibilityIdentifier("deck.options.fsrs.optimizeAll")
                 optionsToggle("Verificar qualidade ao otimizar (lento)", isOn: $checkFSRSHealth)
                 if let fsrsOptimizationStatus {
                     Text(fsrsOptimizationStatus)
                         .font(.caption)
                         .foregroundStyle(AppTheme.secondaryText)
+                        .accessibilityIdentifier("deck.options.fsrs.optimizationStatus")
                 }
                 #if os(macOS)
                 fsrsSimulatorSection
@@ -468,6 +474,7 @@ struct DeckOptionsView: View {
                     .lineLimit(2...5)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(AppTheme.primaryText)
+                    .accessibilityIdentifier("deck.options.fsrs.weights")
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -534,13 +541,13 @@ struct DeckOptionsView: View {
                 Chart(fsrsSimulationDaysResult, id: \.day) { item in
                     BarMark(
                         x: .value("Dia", item.day),
-                        y: .value(fsrsSimulationShowsMinutes ? "Minutos" : "Revisões", fsrsSimulationShowsMinutes ? Double(item.studySeconds / 60) : Double(item.reviews))
+                        y: .value(fsrsSimulationShowsMinutes ? "Minutos" : String(localized: "deck-options.fsrs.reviews"), fsrsSimulationShowsMinutes ? Double(item.studySeconds / 60) : Double(item.reviews))
                     )
                     .foregroundStyle(AppTheme.accent.gradient)
                 }
                 .frame(height: 190)
                 .chartXAxisLabel("Dia")
-                .chartYAxisLabel(fsrsSimulationShowsMinutes ? "Minutos" : "Revisões")
+                .chartYAxisLabel(fsrsSimulationShowsMinutes ? LocalizedStringKey("Minutos") : LocalizedStringKey("deck-options.fsrs.reviews"))
                 .padding(.top, 4)
                 let averageReviews = fsrsSimulationDaysResult.map(\.reviews).reduce(0, +) / max(fsrsSimulationDaysResult.count, 1)
                 let averageMinutes = fsrsSimulationDaysResult.map(\.studySeconds).reduce(0, +) / Float(max(fsrsSimulationDaysResult.count, 1)) / 60
@@ -611,16 +618,16 @@ struct DeckOptionsView: View {
 
     // MARK: - Row helpers
 
-    private func optionsCard<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func optionsCard<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
         GlassFormSection(title: title, content: content)
     }
 
-    private func optionsLabeled<Content: View>(_ title: String, @ViewBuilder trailing: () -> Content) -> some View {
+    private func optionsLabeled<Content: View>(_ title: LocalizedStringKey, @ViewBuilder trailing: () -> Content) -> some View {
         GlassOptionRow(title: title, trailing: trailing)
     }
 
-    private func optionsToggle(_ title: String, isOn: Binding<Bool>) -> some View {
-        optionsLabeled(title) {
+    private func optionsToggle(_ title: LocalizedStringKey, isOn: Binding<Bool>) -> some View {
+        GlassOptionRow(title: title) {
             Toggle("", isOn: isOn)
                 .labelsHidden()
                 .accessibilityLabel(title)
@@ -628,8 +635,8 @@ struct DeckOptionsView: View {
         }
     }
 
-    private func optionsStepper(_ title: String, value: Binding<Int>, range: ClosedRange<Int>, step: Int = 1) -> some View {
-        optionsLabeled(title) {
+    private func optionsStepper(_ title: String, value: Binding<Int>, range: ClosedRange<Int>, step: Int = 1, identifier: String? = nil) -> some View {
+        optionsLabeled(LocalizedStringKey(title)) {
             HStack(spacing: 8) {
                 Text("\(value.wrappedValue)")
                     .font(.body.monospacedDigit().weight(.semibold))
@@ -637,13 +644,14 @@ struct DeckOptionsView: View {
                     .frame(minWidth: 44, alignment: .trailing)
                 Stepper("", value: value, in: range, step: step)
                     .labelsHidden()
-                    .frame(width: 100)
+                .frame(width: 100)
+                    .accessibilityIdentifier(identifier ?? "deck.options.stepper.\(title)")
             }
         }
     }
 
     private func optionsNumber(_ title: String, value: Binding<Double>) -> some View {
-        optionsLabeled(title) {
+        optionsLabeled(LocalizedStringKey(title)) {
             TextField("0", value: value, format: .number)
                 .textFieldStyle(.plain)
                 .ankiKeyboardType(.decimalPad)
@@ -651,6 +659,8 @@ struct DeckOptionsView: View {
                 .font(.body.monospacedDigit())
                 .foregroundStyle(AppTheme.primaryText)
                 .frame(width: 96)
+                .accessibilityLabel(LocalizedStringKey(title))
+                .accessibilityIdentifier("deck.options.number.\(title)")
         }
     }
 
@@ -702,17 +712,17 @@ struct DeckOptionsView: View {
         return steps
     }
 
-    private func dailyLimitOptions(mode: Binding<String>, presetValue: Binding<Int>, deckValue: Binding<Int>, todayValue: Binding<Int>, maximum: Int) -> some View {
+    private func dailyLimitOptions(mode: Binding<String>, presetValue: Binding<Int>, deckValue: Binding<Int>, todayValue: Binding<Int>, maximum: Int, identifier: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            optionsPicker("Aplicar limite", selection: mode) {
+            optionsPicker("Aplicar limite", selection: mode, identifier: "deck.options.limitMode.\(identifier)") {
                 Text("Preset").tag("preset")
                 Text("Este baralho").tag("deck")
                 Text("Somente hoje").tag("today")
             }
             switch mode.wrappedValue {
-            case "deck": optionsStepper("Limite deste baralho", value: deckValue, range: 0...maximum)
-            case "today": optionsStepper("Limite de hoje", value: todayValue, range: 0...maximum)
-            default: optionsStepper("Limite do preset", value: presetValue, range: 0...maximum)
+            case "deck": optionsStepper("Limite deste baralho", value: deckValue, range: 0...maximum, identifier: "deck.options.limit.\(identifier).deck")
+            case "today": optionsStepper("Limite de hoje", value: todayValue, range: 0...maximum, identifier: "deck.options.limit.\(identifier).today")
+            default: optionsStepper("Limite do preset", value: presetValue, range: 0...maximum, identifier: "deck.options.limit.\(identifier).preset")
             }
         }
     }
@@ -720,13 +730,15 @@ struct DeckOptionsView: View {
     private func optionsPicker<SelectionValue: Hashable, Content: View>(
         _ title: String,
         selection: Binding<SelectionValue>,
+        identifier: String? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        optionsLabeled(title) {
+        optionsLabeled(LocalizedStringKey(title)) {
             Picker("", selection: selection, content: content)
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .frame(minWidth: 140, alignment: .trailing)
+                .accessibilityIdentifier(identifier ?? "deck.options.picker.\(title)")
         }
     }
 
@@ -784,7 +796,8 @@ struct DeckOptionsView: View {
         updateWorkingConfig(config)
         do {
             let trainingItems = try store.fsrsTrainingItems(configID: selectedConfID)
-            let enableShortTerm = store.conf["fsrsShortTermWithSteps"] as? Bool ?? false
+            let enableShortTerm = store.conf["fsrsShortTermWithStepsEnabled"] as? Bool
+                ?? store.conf["fsrsShortTermWithSteps"] as? Bool ?? false
             let relearningSteps = max(config.lapse.delays.count, 1)
             let performHealthCheck = checkFSRSHealth
             let cardCount = Set(trainingItems.map(\.cardID)).count
@@ -832,7 +845,8 @@ struct DeckOptionsView: View {
                 fsrsOptimizationStatus = FSRSParameterOptimizer.OptimizerError.insufficientHistory.localizedDescription
                 return
             }
-            let enableShortTerm = store.conf["fsrsShortTermWithSteps"] as? Bool ?? false
+            let enableShortTerm = store.conf["fsrsShortTermWithStepsEnabled"] as? Bool
+                ?? store.conf["fsrsShortTermWithSteps"] as? Bool ?? false
             let performHealthCheck = checkFSRSHealth
             isOptimizingFSRS = true
             fsrsOptimizationStatus = "Otimizando \(usablePresets.count) presets…"
@@ -1012,7 +1026,7 @@ struct FilteredDeckOptionsView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        GlassFormSection(title: "Baralho") {
+                        GlassFormSection(title: "decks.deck.label") {
                             TextField("Nome do baralho", text: $name)
                                 .textFieldStyle(.plain)
                                 .foregroundStyle(AppTheme.primaryText)
@@ -1074,6 +1088,7 @@ struct FilteredDeckOptionsView: View {
                 }
                 HStack(spacing: 12) {
                     Button("Fechar") { dismiss() }
+                        .accessibilityIdentifier("deck.options.close")
                         .buttonStyle(GlassButtonStyle(tint: .white, tintStrength: 0.18, expands: true))
                     Button("Reconstruir") { save() }
                         .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
@@ -1082,7 +1097,7 @@ struct FilteredDeckOptionsView: View {
                 .padding(.vertical, 14)
             }
             .background(AppBackground())
-            .navigationTitle("Opções do baralho")
+            .navigationTitle("deck-options.title")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -1103,7 +1118,7 @@ struct FilteredDeckOptionsView: View {
             Picker("", selection: selection) {
                 Text("Ordem de vencimento").tag("due")
                 Text("Vistos há mais tempo").tag("oldest")
-                Text("Aleatória").tag("random")
+                Text("deck-options.filtered-order.random").tag("random")
                 Text("Ordem de adição").tag("added")
                 Text("Adicionados mais recentemente").tag("latest")
                 Text("Intervalos crescentes").tag("ivl")
@@ -1153,7 +1168,7 @@ struct FilteredDeckOptionsView: View {
     }
 
     private func delayRow(_ title: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
-        GlassOptionRow(title: title) {
+        GlassOptionRow(title: LocalizedStringKey(title)) {
             Stepper("\(value.wrappedValue)", value: value, in: range)
         }
     }

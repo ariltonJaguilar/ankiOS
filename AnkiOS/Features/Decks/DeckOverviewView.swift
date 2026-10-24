@@ -7,6 +7,7 @@ struct DeckOverviewView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showStudy = false
+    @State private var returnToDeckListAfterStudy = false
     @State private var showCustom = false
     @State private var showOptions = false
     @State private var showDescEditor = false
@@ -67,8 +68,8 @@ struct DeckOverviewView: View {
 
                             GlassCard {
                                 VStack(spacing: 12) {
-                                    countRow("Novo", studyCounts.new, counts.new - studyCounts.new, AppTheme.easy)
-                                    countRow("Aprender", studyCounts.learn, counts.learn - studyCounts.learn, AppTheme.danger)
+                                    countRow("stats.new-cards", studyCounts.new, counts.new - studyCounts.new, AppTheme.easy)
+                                    countRow("decks.learn-count", studyCounts.learn, counts.learn - studyCounts.learn, AppTheme.danger)
                                     countRow("Revisar", studyCounts.review, counts.review - studyCounts.review, AppTheme.good)
                                 }
                             }
@@ -112,6 +113,7 @@ struct DeckOverviewView: View {
             #endif
             .safeAreaInset(edge: .bottom) {
                 Button("Fechar") { dismiss() }
+                    .accessibilityIdentifier("deck.overview.close")
                     .buttonStyle(GlassButtonStyle(tint: .white, tintStrength: 0.18, expands: true))
                     .padding(.horizontal, 20)
                     .padding(.vertical, 14)
@@ -119,8 +121,15 @@ struct DeckOverviewView: View {
             .sheet(isPresented: $showStudy, onDismiss: {
                 reloadOverviewCounts()
                 reloadCongrats()
+                if returnToDeckListAfterStudy {
+                    returnToDeckListAfterStudy = false
+                    dismiss()
+                }
             }) {
-                StudyView(deck: deck).environmentObject(store)
+                StudyView(deck: deck, onReturnToDecks: {
+                    returnToDeckListAfterStudy = true
+                    showStudy = false
+                }).environmentObject(store)
             }
             .sheet(isPresented: $showCustom, onDismiss: {
                 if let pending = pendingSession {
@@ -185,7 +194,7 @@ struct DeckOverviewView: View {
         congrats = (try? store.congratsState(for: deck.id)) ?? .empty
     }
 
-    private func countRow(_ title: String, _ value: Int, _ difference: Int, _ color: Color) -> some View {
+    private func countRow(_ title: LocalizedStringKey, _ value: Int, _ difference: Int, _ color: Color) -> some View {
         HStack(spacing: 10) {
             Circle()
                 .fill(color)
@@ -331,26 +340,27 @@ struct DeckFinishedButtons: View {
 
     @ViewBuilder
     private func buttons(expands: Bool) -> some View {
-        barButton("Opções", expands: expands, action: onOptions)
+        barButton("Opções", identifier: "deck.overview.options", expands: expands, action: onOptions)
         if info.isFiltered {
-            barButton("Recriar", expands: expands, action: onRebuild)
-            barButton("Devolver cartões", expands: expands, action: onEmpty)
+            barButton("Recriar", identifier: "filteredDeck.rebuild", expands: expands, action: onRebuild)
+            barButton("Devolver cartões", identifier: "filteredDeck.empty", expands: expands, action: onEmpty)
         } else {
-            barButton("Estudo Personalizado", expands: expands, action: onCustomStudy)
+            barButton("Estudo Personalizado", identifier: "deck.overview.customStudy", expands: expands, action: onCustomStudy)
             if info.buried {
-                barButton("Desocultar", expands: expands, action: onUnbury)
+                barButton("Desocultar", identifier: "deck.overview.unbury", expands: expands, action: onUnbury)
             }
-            barButton("Descrição", expands: expands, action: onDescription)
+            barButton("Descrição", identifier: "deck.overview.description", expands: expands, action: onDescription)
         }
     }
 
-    private func barButton(_ title: String, expands: Bool, action: @escaping () -> Void) -> some View {
+    private func barButton(_ title: LocalizedStringKey, identifier: String, expands: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
         .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.18, expands: expands))
+        .accessibilityIdentifier(identifier)
     }
 }
 

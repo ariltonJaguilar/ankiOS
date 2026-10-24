@@ -60,7 +60,9 @@ enum WidgetSnapshotPublisher {
             next.revealedCardID = previous.revealedCardID
         }
         WidgetStudyStore.save(next)
+        #if !ANKIOS_PARITY_HARNESS
         if SharedProfiles.uiTestSession == nil { WidgetCenter.shared.reloadAllTimelines() }
+        #endif
     }
 
     @MainActor

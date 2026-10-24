@@ -1,5 +1,9 @@
 import Foundation
 import AVFoundation
+import CryptoKit
+#if os(iOS)
+import UIKit
+#endif
 
 enum NoteAudioRecordingError: LocalizedError {
     case permissionDenied
@@ -19,9 +23,11 @@ enum NoteAudioRecordingError: LocalizedError {
 
 @MainActor
 final class MediaStore: NSObject, ObservableObject {
+    @Published private(set) var isPlaying = false
     private var player: AVAudioPlayer?
-    private var playbackQueue: [URL] = []
-    private var speechQueue: [CardHTMLRenderer.SpeechRequest] = []
+    private var playbackQueue: [CardHTMLRenderer.PlaybackItem] = []
+    private var isWaitingForSequencedSpeech = false
+    private var sequencedUtterance: AVSpeechUtterance?
     private let speechSynthesizer = AVSpeechSynthesizer()
     private var recorder: AVAudioRecorder?
     private var noteAudioRecorder: AVAudioRecorder?
@@ -32,20 +38,43 @@ final class MediaStore: NSObject, ObservableObject {
 
     override init() {
         super.init()
+        speechSynthesizer.delegate = self
     }
 
     var mediaDirectory: URL {
         CollectionStore.shared.mediaRoot
     }
 
-    var isPlaying: Bool {
-        player?.isPlaying == true || (speechSynthesizer.isSpeaking && !speechSynthesizer.isPaused)
+    var hasUnfinishedPlayback: Bool {
+        player != nil
+            || ownVoicePlayer != nil
+            || !playbackQueue.isEmpty
+            || isWaitingForSequencedSpeech
+            || speechSynthesizer.isSpeaking
     }
     var isRecordingOwnVoice: Bool { recorder?.isRecording == true }
     var hasOwnVoice: Bool {
         guard let ownVoiceURL else { return false }
         return FileManager.default.fileExists(atPath: ownVoiceURL.path)
     }
+
+    private func refreshPlaybackState() {
+        let playing = player?.isPlaying == true
+            || ownVoicePlayer?.isPlaying == true
+            || (speechSynthesizer.isSpeaking && !speechSynthesizer.isPaused)
+        if isPlaying != playing { isPlaying = playing }
+    }
+
+    #if os(iOS)
+    private func configurePlaybackAudioSession(mode: AVAudioSession.Mode) {
+        let session = AVAudioSession.sharedInstance()
+        let duckAndIgnoreMute = CollectionStore.shared.conf["alwaysDuckAndIgnoreMute"] as? Bool ?? false
+        let category: AVAudioSession.Category = duckAndIgnoreMute ? .playback : .ambient
+        let options: AVAudioSession.CategoryOptions = duckAndIgnoreMute ? [.duckOthers] : []
+        try? session.setCategory(category, mode: mode, options: options)
+        try? session.setActive(true)
+    }
+    #endif
 
     func url(for filename: String) -> URL? {
         let url = mediaDirectory.appendingPathComponent(filename)
@@ -61,33 +90,48 @@ final class MediaStore: NSObject, ObservableObject {
     }
 
     func play(_ filenames: [String], then requests: [CardHTMLRenderer.SpeechRequest]) {
-        player?.stop()
-        player = nil
-        speechSynthesizer.stopSpeaking(at: .immediate)
-        playbackQueue = filenames.compactMap { url(for: $0) }
-        speechQueue = requests
-        playNextFile()
+        let items = filenames.map(CardHTMLRenderer.PlaybackItem.file)
+            + requests.map(CardHTMLRenderer.PlaybackItem.speech)
+        play(items)
     }
 
-    private func playNextFile() {
-        guard !playbackQueue.isEmpty else {
-            speechQueue.forEach(speakQueued)
-            speechQueue.removeAll()
-            return
-        }
-        let url = playbackQueue.removeFirst()
-        do {
-            speechSynthesizer.stopSpeaking(at: .immediate)
-            #if os(iOS)
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-            #endif
-            player = try AVAudioPlayer(contentsOf: url)
-            player?.prepareToPlay()
-            player?.delegate = self
-            player?.play()
-        } catch {
-            playNextFile()
+    func play(_ items: [CardHTMLRenderer.PlaybackItem]) {
+        stop()
+        playbackQueue = items
+        playNextItem()
+    }
+
+    private func playNextItem() {
+        guard !playbackQueue.isEmpty else { return }
+        let item = playbackQueue.removeFirst()
+        switch item {
+        case .file(let filename):
+            guard let url = url(for: filename) else {
+                playNextItem()
+                return
+            }
+            do {
+                #if os(iOS)
+                configurePlaybackAudioSession(mode: .default)
+                #endif
+                player = try AVAudioPlayer(contentsOf: url)
+                player?.prepareToPlay()
+                player?.delegate = self
+                if player?.play() != true {
+                    player = nil
+                    refreshPlaybackState()
+                    playNextItem()
+                } else {
+                    refreshPlaybackState()
+                }
+            } catch {
+                player = nil
+                refreshPlaybackState()
+                playNextItem()
+            }
+        case .speech(let request):
+            isWaitingForSequencedSpeech = true
+            speakQueued(request, sequenced: true)
         }
     }
 
@@ -97,9 +141,12 @@ final class MediaStore: NSObject, ObservableObject {
     }
 
     func speakQueued(_ request: CardHTMLRenderer.SpeechRequest) {
+        speakQueued(request, sequenced: false)
+    }
+
+    private func speakQueued(_ request: CardHTMLRenderer.SpeechRequest, sequenced: Bool) {
         #if os(iOS)
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-        try? AVAudioSession.sharedInstance().setActive(true)
+        configurePlaybackAudioSession(mode: .spokenAudio)
         #endif
         let utterance = AVSpeechUtterance(string: request.text)
         let voices = AVSpeechSynthesisVoice.speechVoices()
@@ -107,38 +154,68 @@ final class MediaStore: NSObject, ObservableObject {
             voices.first { $0.name == preferred || $0.identifier == preferred }
         }.first ?? AVSpeechSynthesisVoice(language: request.language.replacingOccurrences(of: "_", with: "-"))
         utterance.rate = min(max(AVSpeechUtteranceDefaultSpeechRate * request.speed, 0.1), 1.0)
+        if sequenced {
+            sequencedUtterance = utterance
+        }
         speechSynthesizer.speak(utterance)
+        refreshPlaybackState()
+    }
+
+    private func finishSequencedSpeech(_ utteranceID: ObjectIdentifier) {
+        guard isWaitingForSequencedSpeech,
+              let activeUtterance = sequencedUtterance,
+              ObjectIdentifier(activeUtterance) == utteranceID else { return }
+        isWaitingForSequencedSpeech = false
+        sequencedUtterance = nil
+        playNextItem()
     }
 
     func pauseOrResume() {
-        guard let player else {
-            if speechSynthesizer.isPaused {
-                speechSynthesizer.continueSpeaking()
-            } else if speechSynthesizer.isSpeaking || speechSynthesizer.isPaused {
-                speechSynthesizer.pauseSpeaking(at: .immediate)
+        if let player {
+            if player.isPlaying {
+                player.pause()
+            } else {
+                player.play()
             }
+            refreshPlaybackState()
             return
         }
-        if player.isPlaying {
-            player.pause()
-        } else {
-            player.play()
+        if let ownVoicePlayer {
+            if ownVoicePlayer.isPlaying {
+                ownVoicePlayer.pause()
+            } else {
+                ownVoicePlayer.play()
+            }
+            refreshPlaybackState()
+            return
         }
+        if speechSynthesizer.isPaused {
+            speechSynthesizer.continueSpeaking()
+        } else if speechSynthesizer.isSpeaking {
+            speechSynthesizer.pauseSpeaking(at: .immediate)
+        }
+        refreshPlaybackState()
     }
 
     func seek(by seconds: TimeInterval) {
-        guard let player else { return }
-        let next = max(0, min(player.duration, player.currentTime + seconds))
-        player.currentTime = next
-        if !player.isPlaying { player.play() }
+        let audioPlayer = player ?? ownVoicePlayer
+        guard let audioPlayer else { return }
+        let next = max(0, min(audioPlayer.duration, audioPlayer.currentTime + seconds))
+        audioPlayer.currentTime = next
+        if !audioPlayer.isPlaying { audioPlayer.play() }
+        refreshPlaybackState()
     }
 
     func stop() {
         player?.stop()
         player = nil
+        ownVoicePlayer?.stop()
+        ownVoicePlayer = nil
         playbackQueue.removeAll()
-        speechQueue.removeAll()
+        isWaitingForSequencedSpeech = false
+        sequencedUtterance = nil
         speechSynthesizer.stopSpeaking(at: .immediate)
+        refreshPlaybackState()
     }
 
     /// Temporary mic check while studying (Anki “Record Own Voice”) — not saved to the note.
@@ -192,19 +269,25 @@ final class MediaStore: NSObject, ObservableObject {
         ownVoicePlayer?.stop()
         do {
             #if os(iOS)
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
+            configurePlaybackAudioSession(mode: .default)
             #endif
             ownVoicePlayer = try AVAudioPlayer(contentsOf: ownVoiceURL)
             ownVoicePlayer?.prepareToPlay()
-            ownVoicePlayer?.play()
-        } catch {}
+            ownVoicePlayer?.delegate = self
+            if ownVoicePlayer?.play() != true {
+                ownVoicePlayer = nil
+            }
+            refreshPlaybackState()
+        } catch {
+            refreshPlaybackState()
+        }
     }
 
     func clearOwnVoice() {
         stopRecordingOwnVoice()
         ownVoicePlayer?.stop()
         ownVoicePlayer = nil
+        refreshPlaybackState()
         if let ownVoiceURL {
             try? FileManager.default.removeItem(at: ownVoiceURL)
         }
@@ -400,27 +483,167 @@ final class MediaStore: NSObject, ObservableObject {
     /// Copy a user-picked file into collection.media; returns stored filename.
     @discardableResult
     func importFile(from url: URL) throws -> String {
-        let fm = FileManager.default
-        try fm.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
-        var name = url.lastPathComponent
-        guard Self.isValidMediaFilename(name) else { throw CocoaError(.fileWriteInvalidFileName) }
-        let dest = mediaDirectory.appendingPathComponent(name)
-        if fm.fileExists(atPath: dest.path) {
-            if try filesAreEqual(url, dest) { return name }
-            name = uniqueImportedFilename(for: name, reserved: [])
-        }
-        let finalDest = mediaDirectory.appendingPathComponent(name)
-        try fm.copyItem(at: url, to: finalDest)
-        return name
+        try addFile(data: Data(contentsOf: url), desiredName: url.lastPathComponent)
+    }
+
+    @discardableResult
+    func importRemoteFile(_ data: Data, suggestedName: String) throws -> String {
+        try addFile(data: data, desiredName: suggestedName)
     }
 
     @discardableResult
     func importClipboardImage(_ data: Data, format: String) throws -> String {
         let fileExtension = format == "png" ? "png" : "jpg"
+        #if os(iOS)
+        let conf = CollectionStore.shared.conf
+        if conf["resizePastedImages"] as? Bool == true,
+           let maxDimension = conf["imageMaxDimension"] as? Int,
+           maxDimension > 0,
+           let resized = Self.resizedImageData(data, maxDimension: maxDimension, format: fileExtension) {
+            let filename = "paste-\(UUID().uuidString).\(fileExtension)"
+            return try addFile(data: resized, desiredName: filename)
+        }
+        #endif
         let filename = "paste-\(UUID().uuidString).\(fileExtension)"
+        return try addFile(data: data, desiredName: filename)
+    }
+
+    @discardableResult
+    func importPhotoImage(_ data: Data, maxDimension: Int) throws -> String {
+        #if os(iOS)
+        guard let image = UIImage(data: data),
+              let jpeg = Self.resizedImageData(data, maxDimension: maxDimension, format: "jpg") ?? image.jpegData(compressionQuality: 0.92) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return try addFile(data: jpeg, desiredName: "photo-\(UUID().uuidString).jpg")
+        #else
+        return try addFile(data: data, desiredName: "photo-\(UUID().uuidString).jpg")
+        #endif
+    }
+
+    @discardableResult
+    func importDrawingImage(_ data: Data) throws -> String {
+        try addFile(data: data, desiredName: "drawing-\(UUID().uuidString).png")
+    }
+
+    #if os(iOS)
+    private static func resizedImageData(_ data: Data, maxDimension: Int, format: String) -> Data? {
+        guard maxDimension > 0,
+              let image = UIImage(data: data),
+              image.size.width > 0,
+              image.size.height > 0 else { return nil }
+        let longestSide = max(image.size.width, image.size.height)
+        let scale = min(1, CGFloat(maxDimension) / longestSide)
+        let size = CGSize(width: (image.size.width * scale).rounded(.down), height: (image.size.height * scale).rounded(.down))
+        guard scale < 1 else {
+            return format == "png" ? image.pngData() : image.jpegData(compressionQuality: 0.92)
+        }
+        let rendererFormat = UIGraphicsImageRendererFormat.default()
+        rendererFormat.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: size, format: rendererFormat)
+        let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        return format == "png" ? resized.pngData() : resized.jpegData(compressionQuality: 0.92)
+    }
+    #endif
+
+    private func addFile(data: Data, desiredName: String) throws -> String {
         try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
-        try data.write(to: mediaDirectory.appendingPathComponent(filename), options: .atomic)
-        return filename
+        let normalizedName = Self.normalizedFilename(desiredName)
+        guard !normalizedName.isEmpty else { throw CocoaError(.fileWriteInvalidFileName) }
+        let existingURL = existingMediaURL(for: normalizedName)
+        let sourceHash = Insecure.SHA1.hash(data: data)
+        if let existingURL,
+           let existingData = try? Data(contentsOf: existingURL),
+           Insecure.SHA1.hash(data: existingData) == sourceHash {
+            return existingURL.lastPathComponent.precomposedStringWithCanonicalMapping
+        }
+        if normalizedName != normalizedName.lowercased() {
+            return try addFile(data: data, desiredName: normalizedName.lowercased())
+        }
+        guard existingURL != nil else {
+            try data.write(to: mediaDirectory.appendingPathComponent(normalizedName), options: .atomic)
+            return normalizedName
+        }
+        let hash = sourceHash.map { String(format: "%02x", $0) }.joined()
+        let hashedName = Self.hashedFilename(normalizedName, hash: hash)
+        try data.write(to: mediaDirectory.appendingPathComponent(hashedName), options: .atomic)
+        return hashedName
+    }
+
+    private func existingMediaURL(for filename: String) -> URL? {
+        let directURL = mediaDirectory.appendingPathComponent(filename)
+        if FileManager.default.fileExists(atPath: directURL.path) {
+            if let entries = try? FileManager.default.contentsOfDirectory(
+                at: mediaDirectory,
+                includingPropertiesForKeys: nil
+            ), let actualURL = entries.first(where: {
+                $0.lastPathComponent.caseInsensitiveCompare(filename) == .orderedSame
+            }) {
+                return actualURL
+            }
+            return directURL
+        }
+        return nil
+    }
+
+    private static func normalizedFilename(_ filename: String) -> String {
+        let disallowed = Set("[]<>:\"/?*^\\|".unicodeScalars)
+        var normalized = String(filename.precomposedStringWithCanonicalMapping.unicodeScalars.filter { scalar in
+            !disallowed.contains(scalar)
+                && !(scalar.isASCII && (scalar.value < 0x20 || scalar.value == 0x7f))
+                && scalar.properties.generalCategory != .unassigned
+        })
+        normalized = normalized.replacingOccurrences(of: "\u{00a0}", with: " ")
+        let uppercased = normalized.uppercased()
+        let deviceNames = ["CON", "PRN", "AUX", "NUL"] + (1...9).flatMap { ["COM\($0)", "LPT\($0)"] }
+        if let deviceName = deviceNames.first(where: { name in
+            guard uppercased.hasPrefix(name) else { return false }
+            let suffix = uppercased.dropFirst(name.count)
+            return suffix.isEmpty || suffix.hasPrefix(".")
+        }), let insertionPoint = normalized.index(normalized.startIndex, offsetBy: deviceName.count, limitedBy: normalized.endIndex) {
+            normalized.insert("_", at: insertionPoint)
+        }
+        if normalized.last == " " || normalized.last == "." {
+            normalized.append("_")
+        }
+        return truncatedFilename(normalized, maxBytes: 120)
+    }
+
+    private static func hashedFilename(_ filename: String, hash: String) -> String {
+        let (stem, ext) = splitFilename(filename, maxBytes: 79)
+        return ext.isEmpty ? "\(stem)-\(hash)" : "\(stem)-\(hash).\(ext)"
+    }
+
+    private static func truncatedFilename(_ filename: String, maxBytes: Int) -> String {
+        guard filename.utf8.count > maxBytes else { return filename }
+        let (stem, ext) = splitFilename(filename, maxBytes: maxBytes)
+        let truncated = ext.isEmpty ? stem : "\(stem).\(ext)"
+        return truncated.last == " " || truncated.last == "." ? truncated + "_" : truncated
+    }
+
+    private static func splitFilename(_ filename: String, maxBytes: Int) -> (String, String) {
+        let stem: String
+        var ext: String
+        if let dot = filename.lastIndex(of: ".") {
+            stem = String(filename[..<dot])
+            ext = String(filename[filename.index(after: dot)...])
+        } else {
+            stem = filename
+            ext = ""
+        }
+        ext = utf8Prefix(ext, maxBytes: 10)
+        let stemLimit = max(maxBytes - ext.utf8.count - 2, 0)
+        return (utf8Prefix(stem, maxBytes: stemLimit), ext)
+    }
+
+    private static func utf8Prefix(_ value: String, maxBytes: Int) -> String {
+        var result = ""
+        for scalar in value.unicodeScalars {
+            let next = String(scalar)
+            guard result.utf8.count + next.utf8.count <= maxBytes else { break }
+            result.append(contentsOf: next)
+        }
+        return result
     }
 }
 
@@ -428,10 +651,36 @@ extension MediaStore: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         let playerID = ObjectIdentifier(player)
         Task { @MainActor [weak self] in
-            guard let self, let currentPlayer = self.player,
-                  ObjectIdentifier(currentPlayer) == playerID else { return }
-            self.player = nil
-            self.playNextFile()
+            guard let self else { return }
+            if let currentPlayer = self.player, ObjectIdentifier(currentPlayer) == playerID {
+                self.player = nil
+                self.refreshPlaybackState()
+                self.playNextItem()
+            } else if let ownVoicePlayer = self.ownVoicePlayer,
+                      ObjectIdentifier(ownVoicePlayer) == playerID {
+                self.ownVoicePlayer = nil
+                self.refreshPlaybackState()
+            }
+        }
+    }
+}
+
+extension MediaStore: AVSpeechSynthesizerDelegate {
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        let utteranceID = ObjectIdentifier(utterance)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.finishSequencedSpeech(utteranceID)
+            self.refreshPlaybackState()
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        let utteranceID = ObjectIdentifier(utterance)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.finishSequencedSpeech(utteranceID)
+            self.refreshPlaybackState()
         }
     }
 }

@@ -7,8 +7,23 @@ import UIKit
 struct AnkiOSApp: App {
     @StateObject private var store = CollectionStore.shared
     @AppStorage("ankios.themeMode", store: SharedProfiles.defaults) private var themeMode = 0
+    @State private var launchLanguageCode: String
+    @Environment(\.scenePhase) private var scenePhase
+    private var selectedLanguage: AnkiLanguage {
+        AnkiLanguageCatalog.language(for: launchLanguageCode)
+    }
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
 
     init() {
+        #if os(iOS)
+        let storedLanguageCode = AnkiLanguageCatalog.appLanguageCode
+        #else
+        let storedLanguageCode = SharedProfiles.defaults.string(forKey: AnkiLanguageCatalog.preferenceKey)
+            .flatMap(AnkiLanguageCatalog.normalizedCode) ?? AnkiLanguageCatalog.defaultLanguageCode
+        #endif
+        _launchLanguageCode = State(initialValue: storedLanguageCode)
         WidgetStudyBridge.install()
         #if os(iOS)
         UIWindow.appearance().backgroundColor = UIColor.systemBackground
@@ -16,22 +31,20 @@ struct AnkiOSApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
-            RootView()
-                .environmentObject(store)
-                .preferredColorScheme(preferredColorScheme)
-                .task {
-                    await store.bootstrapIfNeeded()
-                    #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
-                    await store.syncWithAnkiWebIfAutomaticEnabled()
-                    #endif
-                }
-        }
         #if os(macOS)
+        WindowGroup("AnkiOS", id: "main") {
+            rootContent
+        }
+        .restorationBehavior(.automatic)
         .defaultSize(width: 1180, height: 760)
         .commands {
             CollectionUndoCommands(store: store)
             CommandGroup(replacing: .newItem) {
+                Button("Nova janela") {
+                    openWindow(id: "main")
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+
                 Button("Nova nota") {
                     NotificationCenter.default.post(name: .ankiOpenAdd, object: nil)
                 }
@@ -45,7 +58,7 @@ struct AnkiOSApp: App {
                 Button("Importar CSV…") {
                     NotificationCenter.default.post(name: .ankiImportCSV, object: nil)
                 }
-                Button("Exportar coleção…") {
+                Button("mac.command.export-collection") {
                     NotificationCenter.default.post(name: .ankiExportCollection, object: nil)
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
@@ -53,7 +66,7 @@ struct AnkiOSApp: App {
                 Button("Desocultar todos") {
                     NotificationCenter.default.post(name: .ankiUnburyAll, object: nil)
                 }
-                Button("Preferências…") {
+                Button("mac.command.preferences") {
                     NotificationCenter.default.post(name: .ankiOpenPrefs, object: nil)
                 }
                 .keyboardShortcut(",", modifiers: [.command])
@@ -66,7 +79,39 @@ struct AnkiOSApp: App {
                 .keyboardShortcut("y", modifiers: [.command])
             }
         }
+        #else
+        WindowGroup {
+            rootContent
+        }
         #endif
+    }
+
+    private var rootContent: some View {
+        RootView()
+            .environmentObject(store)
+            .environment(\.locale, selectedLanguage.locale)
+            .environment(\.layoutDirection, selectedLanguage.isRightToLeft ? .rightToLeft : .leftToRight)
+            .preferredColorScheme(preferredColorScheme)
+            .task {
+                await store.bootstrapIfNeeded()
+                #if os(iOS) && !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+                StudyReminderScheduler.refresh(store: store)
+                #endif
+                #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+                await store.syncWithAnkiWebIfAutomaticEnabled()
+                #endif
+            }
+            .onChange(of: store.deckCounts) { _, _ in
+                #if os(iOS) && !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+                StudyReminderScheduler.refresh(store: store)
+                #endif
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                #if os(iOS) && !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+                StudyReminderScheduler.refresh(store: store)
+                #endif
+            }
     }
 
     private var preferredColorScheme: ColorScheme? {
@@ -76,6 +121,7 @@ struct AnkiOSApp: App {
         default: nil
         }
     }
+
 }
 
 #if os(macOS)

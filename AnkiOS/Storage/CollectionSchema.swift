@@ -127,6 +127,77 @@ enum CollectionSchema {
         }
     }
 
+    static func collectionConfig(from db: SQLiteDatabase) throws -> [String: Any] {
+        var values: [String: Any] = [:]
+        if let raw = try db.scalarText("SELECT conf FROM col"),
+           let decoded = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any] {
+            values = decoded
+        }
+        guard try hasConfigTable(in: db) else { return values }
+        try db.query("SELECT key, val FROM config") { statement in
+            let key = SQLiteDatabase.text(statement, 0)
+            let data = SQLiteDatabase.blob(statement, 1)
+            guard !key.isEmpty,
+                  let decoded = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return }
+            values[key] = decoded
+        }
+        return values
+    }
+
+    static func saveCollectionConfig(_ values: [String: Any], to db: SQLiteDatabase) throws {
+        guard try hasConfigTable(in: db) else { return }
+
+        var existing: [String: Data] = [:]
+        try db.query("SELECT key, val FROM config") { statement in
+            let key = SQLiteDatabase.text(statement, 0)
+            if !key.isEmpty { existing[key] = SQLiteDatabase.blob(statement, 1) }
+        }
+        let columns = try configTableColumns(in: db)
+        let hasSyncMetadata = columns.contains("usn") && columns.contains("mtime_secs")
+        let now = Int64(Date().timeIntervalSince1970)
+
+        for key in values.keys.sorted() {
+            guard let value = values[key] else { continue }
+            let data = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys])
+            if let stored = existing[key],
+               let decoded = try? JSONSerialization.jsonObject(with: stored, options: [.fragmentsAllowed]),
+               let normalized = try? JSONSerialization.data(withJSONObject: decoded, options: [.fragmentsAllowed, .sortedKeys]),
+               normalized == data {
+                continue
+            }
+            if hasSyncMetadata {
+                try db.run("INSERT OR REPLACE INTO config (key, usn, mtime_secs, val) VALUES (?, -1, ?, ?)") { statement in
+                    try SQLiteDatabase.bindText(statement, 1, key)
+                    SQLiteDatabase.bindInt64(statement, 2, now)
+                    try SQLiteDatabase.bindBlob(statement, 3, data)
+                }
+            } else {
+                try db.run("INSERT OR REPLACE INTO config (key, val) VALUES (?, ?)") { statement in
+                    try SQLiteDatabase.bindText(statement, 1, key)
+                    try SQLiteDatabase.bindBlob(statement, 2, data)
+                }
+            }
+        }
+
+        for key in existing.keys where values[key] == nil {
+            try db.run("DELETE FROM config WHERE key = ?") { statement in
+                try SQLiteDatabase.bindText(statement, 1, key)
+            }
+        }
+    }
+
+    private static func hasConfigTable(in db: SQLiteDatabase) throws -> Bool {
+        try db.scalarInt("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='config'") > 0
+    }
+
+    private static func configTableColumns(in db: SQLiteDatabase) throws -> Set<String> {
+        var columns: Set<String> = []
+        try db.query("PRAGMA table_info(config)") { statement in
+            columns.insert(SQLiteDatabase.text(statement, 1))
+        }
+        return columns
+    }
+
     static func emptyColJSON() -> (conf: String, models: String, decks: String, dconf: String, tags: String) {
         let now = Int64(Date().timeIntervalSince1970)
         let defaultDeck: [String: Any] = [

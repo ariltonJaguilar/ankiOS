@@ -2,11 +2,15 @@ import SwiftUI
 
 struct FieldFormatBar: View {
     @Binding var text: String
+    let fieldName: String
     var isClozeType: Bool = false
     var onAction: ((FieldFormattingAction, String) -> Void)? = nil
+    var onMenuOpen: (() -> Void)? = nil
     var onMedia: (() -> Void)? = nil
     var isRecording = false
     var onRecord: (() -> Void)? = nil
+    var recordButtonTitle: LocalizedStringKey = "Gravar"
+    var showsRecordButton = true
 
     private let colors: [(name: String, hex: String)] = [
         ("Vermelho", "#ef4444"), ("Laranja", "#f97316"), ("Amarelo", "#eab308"),
@@ -22,20 +26,42 @@ struct FieldFormatBar: View {
                     formatButton("I", action: .italic) { wrap("<i>", "</i>") }
                     formatButton("U", action: .underline) { wrap("<u>", "</u>") }
                     formatButton("Aa", action: .larger) { wrap("<span style=\"font-size:1.2em\">", "</span>") }
+                    formatButton("Fx", action: .removeFormatting, fallback: nil)
+                    formatButton("A¹", action: .superscript) { wrap("<sup>", "</sup>") }
+                        .accessibilityLabel("Sobrescrito")
+                    formatButton("A₁", action: .subscriptText) { wrap("<sub>", "</sub>") }
+                        .accessibilityLabel("Subscrito")
+                    formatButton("•", action: .unorderedList) { wrap("<ul><li>", "</li></ul>") }
+                        .accessibilityLabel("Lista com marcadores")
+                    formatButton("1.", action: .orderedList) { wrap("<ol><li>", "</li></ol>") }
+                        .accessibilityLabel("Lista numerada")
                     colorMenu
                     formatMenu
                     Divider().frame(height: 18)
+                    #if os(iOS)
+                    if let onMedia {
+                        Button(action: onMedia) {
+                            Label("Add Media", systemImage: "paperclip")
+                                .font(.caption.weight(.bold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                        }
+                        .buttonStyle(GlassChipButtonStyle(tint: AppTheme.mist.opacity(0.22)))
+                        .accessibilityIdentifier("field.addMedia.\(fieldName)")
+                    }
+                    #else
                     formatButton("Sound", action: .sound) { insert("[sound:]") }
                     formatButton("Img", action: .image) { insert(#"<img src="">"#) }
-                    if let onRecord {
+                    #endif
+                    if let onRecord, showsRecordButton {
                         Button(action: onRecord) {
-                            Label(isRecording ? "Parar" : "Gravar", systemImage: isRecording ? "stop.fill" : "mic.fill")
+                            Label(isRecording ? "Parar" : recordButtonTitle, systemImage: isRecording ? "stop.fill" : "mic.fill")
                                 .font(.caption.weight(.bold))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
                         }
                         .buttonStyle(GlassChipButtonStyle(tint: isRecording ? AppTheme.danger.opacity(0.32) : AppTheme.mist.opacity(0.22)))
-                        .accessibilityLabel(isRecording ? "Parar gravação de áudio" : "Gravar áudio no campo")
+                        .accessibilityLabel(isRecording ? "Parar gravação de áudio" : recordButtonTitle)
                     }
                     if isClozeType {
                         formatButton("Cloze", action: .cloze) { insertCloze() }
@@ -46,6 +72,7 @@ struct FieldFormatBar: View {
                 }
             }
         }
+        .accessibilityIdentifier("field.formatBar.\(fieldName)")
     }
 
     private var colorMenu: some View {
@@ -56,7 +83,11 @@ struct FieldFormatBar: View {
                     Button {
                         onAction?(.textColor, color.hex)
                     } label: {
-                        Label(color.name, systemImage: "textformat")
+                        Label {
+                            Text(LocalizedStringKey(color.name))
+                        } icon: {
+                            Image(systemName: "textformat")
+                        }
                     }
                 }
             }
@@ -66,7 +97,11 @@ struct FieldFormatBar: View {
                     Button {
                         onAction?(.highlight, color.hex)
                     } label: {
-                        Label(color.name, systemImage: "highlighter")
+                        Label {
+                            Text(LocalizedStringKey(color.name))
+                        } icon: {
+                            Image(systemName: "highlighter")
+                        }
                     }
                 }
                 Button("Sem realce", systemImage: "eraser") {
@@ -75,20 +110,14 @@ struct FieldFormatBar: View {
             }
         } label: {
             chipLabel("Cor")
+                .simultaneousGesture(TapGesture().onEnded { onMenuOpen?() })
         }
         .buttonStyle(GlassChipButtonStyle(tint: AppTheme.mist.opacity(0.22)))
     }
 
     private var formatMenu: some View {
         Menu {
-            Section("Texto") {
-                Button("Sobrescrito", systemImage: "textformat.superscript") { onAction?(.superscript, "") }
-                Button("Subscrito", systemImage: "textformat.subscript") { onAction?(.subscriptText, "") }
-                Button("Limpar formatação", systemImage: "textformat.clear") { onAction?(.removeFormatting, "") }
-            }
             Section("Parágrafo") {
-                Button("Lista com marcadores", systemImage: "list.bullet") { onAction?(.unorderedList, "") }
-                Button("Lista numerada", systemImage: "list.number") { onAction?(.orderedList, "") }
                 Button("Recuar", systemImage: "decrease.indent") { onAction?(.outdent, "") }
                 Button("Aumentar recuo", systemImage: "increase.indent") { onAction?(.indent, "") }
                 Button("Alinhar à esquerda", systemImage: "text.alignleft") { onAction?(.alignLeft, "") }
@@ -97,22 +126,23 @@ struct FieldFormatBar: View {
             }
         } label: {
             chipLabel("Mais")
+                .simultaneousGesture(TapGesture().onEnded { onMenuOpen?() })
         }
         .buttonStyle(GlassChipButtonStyle(tint: AppTheme.mist.opacity(0.22)))
     }
 
-    private func chipLabel(_ title: String) -> some View {
+    private func chipLabel(_ title: LocalizedStringKey) -> some View {
         Text(title)
             .font(.caption.weight(.bold))
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
     }
 
-    private func formatButton(_ title: String, action: FieldFormattingAction, fallback: @escaping () -> Void) -> some View {
+    private func formatButton(_ title: LocalizedStringKey, action: FieldFormattingAction, fallback: (() -> Void)?) -> some View {
         Button {
             if (action == .image || action == .sound), let onMedia {
                 onMedia()
-            } else if let onAction { onAction(action, "") } else { fallback() }
+            } else if let onAction { onAction(action, "") } else { fallback?() }
         } label: {
             Text(title)
                 .font(.caption.weight(.bold))

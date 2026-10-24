@@ -6,7 +6,9 @@ struct AddNoteHomeView: View {
     @EnvironmentObject private var store: CollectionStore
     @Environment(\.colorScheme) private var colorScheme
     @Binding private var copyRequest: AddNoteCopyRequest?
+    private let onClose: (() -> Void)?
     @State private var didLoadDefaults = false
+    @State private var loadedProfile: String?
     @State private var skipNextTypeSync = false
     @State private var previousTypeID: Int64?
     @State private var selectedTypeID: Int64 = 0
@@ -24,8 +26,9 @@ struct AddNoteHomeView: View {
     @State private var showMissingClozeConfirmation = false
     @State private var pendingAllowMissingCloze = false
 
-    init(copyRequest: Binding<AddNoteCopyRequest?> = .constant(nil)) {
+    init(copyRequest: Binding<AddNoteCopyRequest?> = .constant(nil), onClose: (() -> Void)? = nil) {
         _copyRequest = copyRequest
+        self.onClose = onClose
     }
 
     var body: some View {
@@ -33,8 +36,8 @@ struct AddNoteHomeView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        GlassFormSection(title: "Baralho") {
-                            GlassOptionRow(title: "Baralho") {
+                        GlassFormSection(title: "decks.deck.label") {
+                            GlassOptionRow(title: "decks.deck.label") {
                                 Picker("", selection: $selectedDeckID) {
                                     ForEach(store.decks.filter { !$0.isFiltered }) { d in
                                         Text(d.name).tag(d.id)
@@ -42,6 +45,7 @@ struct AddNoteHomeView: View {
                                 }
                                 .labelsHidden()
                                 .pickerStyle(.menu)
+                                .accessibilityIdentifier("add.deck")
                                 .onChange(of: selectedDeckID) { _, id in
                                     store.setCurrentDeck(id)
                                 }
@@ -75,8 +79,9 @@ struct AddNoteHomeView: View {
                             }
                         }
                         Button("Oclusão de imagem") { showOcclusion = true }
+                            .accessibilityIdentifier("add.imageOcclusion")
                             .buttonStyle(GlassButtonStyle(tint: .white, tintStrength: 0.16, expands: true))
-                        GlassFormSection(title: "Campos") {
+                        GlassFormSection(title: "editor.fields.section") {
                             if let nt = store.notetype(id: selectedTypeID) {
                                 ForEach(Array(nt.flds.enumerated()), id: \.offset) { idx, field in
                                     GlassInset {
@@ -112,6 +117,7 @@ struct AddNoteHomeView: View {
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                     .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.14, expands: true))
+                                    .accessibilityIdentifier("add.history.\(item.id)")
                                 }
                             }
                         }
@@ -153,6 +159,13 @@ struct AddNoteHomeView: View {
             }
             .background(AppBackground())
             .navigationTitle("Adicionar")
+            .toolbar {
+                if let onClose {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Fechar", action: onClose)
+                    }
+                }
+            }
             .ankiKeyboardDismissToolbar()
             .alert("Nota possivelmente duplicada", isPresented: $showDuplicateWarning) {
                 Button("Adicionar mesmo assim") {
@@ -169,9 +182,17 @@ struct AddNoteHomeView: View {
                 previewSheet
             }
             .onAppear {
-                loadDefaults()
+                if !didLoadDefaults || loadedProfile != store.activeProfile {
+                    if loadedProfile != nil {
+                        fieldValues = []
+                        tags = ""
+                        statusMessage = nil
+                    }
+                    loadDefaults()
+                    loadedProfile = store.activeProfile
+                    didLoadDefaults = true
+                }
                 reloadHistory()
-                didLoadDefaults = true
                 consumeCopyRequest()
             }
             .onChange(of: copyRequest) { _, _ in consumeCopyRequest() }
