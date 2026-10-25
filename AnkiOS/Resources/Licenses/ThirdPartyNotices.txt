@@ -1,0 +1,18 @@
+Avisos de componentes de terceiros do AnkiOS
+
+O código original do AnkiOS é © 2026 Arilton Aguilar e contribuidores, e está licenciado sob a GNU Affero General Public License, versão 3 ou, a seu critério, qualquer versão posterior. A licença completa acompanha o projeto como LICENSE e o app como Licenses/AGPL-3.0.txt.
+
+O AnkiOS é um app independente para iOS/iPadOS que integra o backend Rust do Anki e acrescenta cliente, interface e bridges próprios. Não é o app oficial do Anki e não é afiliado nem endossado pela Ankitects. As adaptações estão no histórico do repositório; esta versão foi atualizada em 25 de outubro de 2026.
+
+Componentes de terceiros mantêm seus próprios titulares de direitos autorais e termos:
+
+- Backend Rust do Anki: GNU AGPL-3.0-or-later, revisão c3139c607373c99c81854d61f1ddc45e4606343c (https://github.com/ankitects/anki/tree/c3139c607373c99c81854d61f1ddc45e4606343c); avisos adicionais em Licenses/Anki-UPSTREAM-NOTICE.txt.
+- FSRS: BSD-3-Clause; texto em Licenses/FSRS-BSD-3-Clause.txt.
+- Zstandard: BSD; texto em Licenses/Zstandard-BSD.txt.
+- MathJax: Apache-2.0; texto em Licenses/MathJax-Apache-2.0.txt.
+- Traduções do Anki: contribuições sob BSD-3-Clause e domínio público, conforme os repositórios oficiais ankimobile-ftl (revisão a4acc8e4c50060bf876e94cfecccd0bb571ac381, https://github.com/ankitects/ankimobile-ftl) e anki-core-i18n (revisão 3fc6687d3d2fe33af73909b1bf1b08838cfe8083, https://github.com/ankitects/anki-core-i18n). O guia oficial de tradução informa que os colaboradores licenciam as traduções sob BSD-3-Clause; os direitos autorais continuam com os colaboradores.
+- Crates Rust fixadas pelos Cargo.lock de AnkiOS/AnkiBackendBridge e AnkiOS/FSRSBridge: inventário de versões, expressões SPDX e origem em Tools/Legal/rust-crate-licenses.csv; arquivos de licença publicados pelos pacotes em Licenses/RustCrateLicenses.txt.
+
+As dependências Rust são resolvidas pelos Cargo.lock e pelos manifestos dos bridges. O inventário inclui pacotes específicos de outras plataformas e de compilação; nem todos fazem parte do binário iOS. Os arquivos de licença incluídos pelos pacotes são reproduzidos no inventário. Pacotes que não publicam um arquivo de licença mantêm sua expressão SPDX e URL de origem no CSV.
+
+“Anki” e “AnkiWeb” identificam produtos e serviços de terceiros; as marcas permanecem com seus titulares.

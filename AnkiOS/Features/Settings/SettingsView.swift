@@ -172,6 +172,12 @@ struct SettingsView: View {
                             systemImage: "questionmark.circle",
                             identifier: "settings.section.help"
                         ) { tutorialPage }
+                        settingsLink(
+                            "Licenças de código aberto",
+                            description: Text("Consulte a licença do AnkiOS, os avisos das dependências e o código-fonte desta build."),
+                            systemImage: "doc.text.magnifyingglass",
+                            identifier: "settings.section.licenses"
+                        ) { openSourceLicensesPage }
                     }
                 }
                 .padding(20)
@@ -759,6 +765,104 @@ struct SettingsView: View {
             GlassFormSection(title: "Sobre") {
                 GlassOptionRow(title: "App") {
                     Text("AnkiOS").foregroundStyle(AppTheme.primaryText)
+                }
+            }
+        }
+    }
+
+    private var openSourceLicensesPage: some View {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "desconhecida"
+        let build = info["CFBundleVersion"] as? String ?? "desconhecido"
+        let sourceTag = "v\(version)-build\(build)"
+
+        return settingsDetailPage(
+            title: "Licenças de código aberto",
+            description: "O AnkiOS é gratuito e seu código é aberto. Consulte os termos de uso, os componentes de terceiros e o código-fonte desta versão."
+        ) {
+            GlassFormSection(title: "AnkiOS") {
+                Text("Copyright © 2026 Arilton Aguilar e contribuidores.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+                Text("Você pode compartilhar e modificar o AnkiOS sob os termos da GNU AGPL versão 3 ou posterior.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("O programa é distribuído sem garantia, conforme descrito na licença.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                settingsLink(
+                    "GNU AGPL-3.0-or-later",
+                    description: Text("Leia o texto integral da licença do app."),
+                    systemImage: "doc.text",
+                    identifier: "settings.licenses.agpl"
+                ) {
+                    LicenseDocumentView(resourceName: "AGPL-3.0", title: "GNU AGPL-3.0-or-later")
+                }
+                Text("A versão distribuída deve ter uma tag pública correspondente no repositório.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let sourceURL = URL(string: "https://github.com/ariltonJaguilar/ankiOS/tree/\(sourceTag)") {
+                    Link(destination: sourceURL) {
+                        Label("Código-fonte desta versão", systemImage: "chevron.left.forwardslash.chevron.right")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .tint(AppTheme.accent)
+                    .accessibilityIdentifier("settings.licenses.source")
+                }
+            }
+
+            GlassFormSection(title: "Componentes de terceiros") {
+                settingsLink(
+                    "Avisos e licenças de terceiros",
+                    description: Text("Anki, FSRS, Zstandard, MathJax e traduções."),
+                    systemImage: "text.document",
+                    identifier: "settings.licenses.thirdParty"
+                ) {
+                    LicenseDocumentView(resourceName: "ThirdPartyNotices", title: "Avisos de terceiros")
+                }
+                settingsLink(
+                    "Licenças das dependências Rust",
+                    description: Text("Inventário de versões, licenças e textos fornecidos pelas crates."),
+                    systemImage: "shippingbox",
+                    identifier: "settings.licenses.rust"
+                ) {
+                    LicenseDocumentView(resourceName: "RustCrateLicenses", title: "Licenças das dependências Rust")
+                }
+                settingsLink(
+                    "Aviso de licença do Anki",
+                    description: Text("Créditos e informações de licença do backend upstream."),
+                    systemImage: "info.circle",
+                    identifier: "settings.licenses.anki"
+                ) {
+                    LicenseDocumentView(resourceName: "Anki-UPSTREAM-NOTICE", title: "Aviso do Anki")
+                }
+                settingsLink(
+                    "FSRS · BSD-3-Clause",
+                    description: Text("Licença do algoritmo FSRS usado pelo agendador."),
+                    systemImage: "doc.text",
+                    identifier: "settings.licenses.fsrs"
+                ) {
+                    LicenseDocumentView(resourceName: "FSRS-BSD-3-Clause", title: "FSRS · BSD-3-Clause")
+                }
+                settingsLink(
+                    "Zstandard · BSD",
+                    description: Text("Licença da biblioteca de compressão incluída no app."),
+                    systemImage: "doc.text",
+                    identifier: "settings.licenses.zstandard"
+                ) {
+                    LicenseDocumentView(resourceName: "Zstandard-BSD", title: "Zstandard · BSD")
+                }
+                settingsLink(
+                    "MathJax · Apache-2.0",
+                    description: Text("Licença dos recursos de renderização matemática."),
+                    systemImage: "doc.text",
+                    identifier: "settings.licenses.mathjax"
+                ) {
+                    LicenseDocumentView(resourceName: "MathJax-Apache-2.0", title: "MathJax · Apache-2.0")
                 }
             }
         }
@@ -1383,6 +1487,34 @@ struct SettingsView: View {
         }
     }
 
+}
+
+private struct LicenseDocumentView: View {
+    let resourceName: String
+    let title: LocalizedStringKey
+    @State private var document = ""
+
+    var body: some View {
+        ScrollView {
+            Text(document.isEmpty ? "Carregando licença…" : document)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(AppTheme.primaryText)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(18)
+        }
+        .background(AppBackground())
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            guard let url = Bundle.main.url(forResource: resourceName, withExtension: "txt", subdirectory: "Licenses"),
+                  let text = try? String(contentsOf: url, encoding: .utf8) else {
+                document = "Não foi possível carregar este arquivo de licença. Consulte o repositório público do AnkiOS."
+                return
+            }
+            document = text
+        }
+    }
 }
 
 #if !WIDGET_EXTENSION

@@ -12,6 +12,7 @@
 		07726071E0A157099FAEDD8F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 65199FB953BC5E2EB9A7F44B /* Assets.xcassets */; };
 		C0FFEE01A1C10D0000000001 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = C0FFEE01A1C10D0000000002 /* LaunchScreen.storyboard */; platformFilter = ios; };
 		A11CE100000000000000A8 /* MathJax in Resources */ = {isa = PBXBuildFile; fileRef = A11CE100000000000000A9 /* MathJax */; };
+		D6A8B1E74A3C5F2098C14007 /* Licenses in Resources */ = {isa = PBXBuildFile; fileRef = D6A8B1E74A3C5F2098C14006 /* Licenses */; };
 		D6A8B1E74A3C5F2098C14005 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D6A8B1E74A3C5F2098C14004 /* Localizable.xcstrings */; };
 		A11CE5000000000000000011 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A11CE5000000000000000012 /* InfoPlist.xcstrings */; };
 		C0FFEE02A1C10D0000000003 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C0FFEE02A1C10D0000000002 /* AppIcon.icon */; };
@@ -151,6 +152,7 @@
 		CD0168BD7349520CBFAC43D2 /* NoteTypesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteTypesView.swift; sourceTree = "<group>"; };
 		E0C10C010000000000000001 /* ImageOcclusionEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageOcclusionEditor.swift; sourceTree = "<group>"; };
 		A11CE100000000000000A9 /* MathJax */ = {isa = PBXFileReference; lastKnownFileType = folder; path = MathJax; sourceTree = "<group>"; };
+		D6A8B1E74A3C5F2098C14006 /* Licenses */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Licenses; sourceTree = "<group>"; };
 		D45DF5854256541481610306 /* CardWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardWebView.swift; sourceTree = "<group>"; };
 		D8C676E086F150D3B187244F /* StatsHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsHomeView.swift; sourceTree = "<group>"; };
 		D9CDAD52FE1A5D77AD93319B /* StudyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudyView.swift; sourceTree = "<group>"; };
@@ -356,6 +358,7 @@
 			isa = PBXGroup;
 			children = (
 				A11CE100000000000000A9 /* MathJax */,
+				D6A8B1E74A3C5F2098C14006 /* Licenses */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -552,6 +555,7 @@
 				C0FFEE02A1C10D0000000003 /* AppIcon.icon in Resources */,
 				C0FFEE01A1C10D0000000001 /* LaunchScreen.storyboard in Resources */,
 				A11CE100000000000000A8 /* MathJax in Resources */,
+				D6A8B1E74A3C5F2098C14007 /* Licenses in Resources */,
 				D6A8B1E74A3C5F2098C14005 /* Localizable.xcstrings in Resources */,
 				A11CE5000000000000000011 /* InfoPlist.xcstrings in Resources */,
 			);
@@ -715,7 +719,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 6GY2KMR4QD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnkiOS/Info-iOS.plist;
@@ -775,7 +779,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 6GY2KMR4QD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnkiOS/Info-iOS.plist;
@@ -839,7 +843,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = AnkiWidget/AnkiWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 6GY2KMR4QD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnkiWidget/Info.plist;
@@ -870,7 +874,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = AnkiWidget/AnkiWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 6GY2KMR4QD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnkiWidget/Info.plist;

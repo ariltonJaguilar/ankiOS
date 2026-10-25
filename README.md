@@ -70,9 +70,15 @@ zsh Tools/UITests/run.sh ios <UUID-do-simulador>
 
 O script prepara os dados de teste necessários para fluxos de importação, mídia e coleção. Para rodar um método específico, passe o filtro de teste após o UUID, conforme os nomes em `Tools/UITests/AnkiOSUITests.swift`.
 
-## Backend e licenças
+## Licença e distribuição
 
-O backend Rust upstream do Anki está sob a licença AGPL-3.0-or-later; a licença está incluída em `AnkiOS/AnkiBackendBridge/UPSTREAM-LICENSE.txt`. O projeto também incorpora dependências e avisos de terceiros, descritos em `Tools/Parity/THIRD_PARTY_NOTICES.md` e nos arquivos de licença junto aos componentes correspondentes.
+O código original do AnkiOS é © 2026 Arilton Aguilar e contribuidores e está licenciado sob a GNU Affero General Public License, versão 3 ou, a critério de cada destinatário, qualquer versão posterior. O texto completo está no arquivo [`LICENSE`](LICENSE). O app é distribuído sem cobrança; a AGPL permite distribuição gratuita ou paga, mas as obrigações de disponibilizar o código correspondente e preservar as liberdades da licença continuam valendo.
+
+O backend Rust upstream do Anki é fixado em uma revisão no `Cargo.toml` e no `Cargo.lock`, e também está sob AGPL-3.0-or-later. FSRS, Zstandard, MathJax, traduções e crates Rust têm seus próprios avisos e termos. Consulte [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), que também explica como atualizar o inventário Rust.
+
+Antes de distribuir um binário, publique o código correspondente e crie uma tag `v<versão>-build<número>` no commit usado para a compilação. A tela **Ferramentas → Ajuda → Licenças de código aberto** monta o link para essa tag a partir da versão e do número de build do app. Não altere o código depois de criar a tag; qualquer alteração exige outra build e outra tag.
+
+O uso de AGPL não determina por si só se a distribuição pela App Store ou TestFlight é compatível com os termos da Apple. A Apple aplica um EULA padrão se o desenvolvedor não fornecer um personalizado, então confirme a compatibilidade da distribuição com orientação jurídica antes de publicar. [EULA e licenças no App Store Connect](https://developer.apple.com/help/app-store-connect/manage-app-information/provide-a-custom-license-agreement/) · [Termos do Apple Developer Program](https://developer.apple.com/support/terms/apple-developer-program-license-agreement/)
 
 Para reconstruir o XCFramework do backend, instale Rust e os targets `aarch64-apple-ios`, `aarch64-apple-ios-sim` e `x86_64-apple-ios`, depois execute:
 
