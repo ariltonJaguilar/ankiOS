@@ -156,7 +156,7 @@
     "el-GR",
     "en-GB",
     "en-US",
-    "eo-UY",
+    "eo",
     "es-ES",
     "et-EE",
     "eu-ES",
@@ -171,7 +171,7 @@
     "hy-AM",
     "it-IT",
     "ja-JP",
-    "jbo-EN",
+    "jbo",
     "kk-KZ",
     "ko-KR",
     "la-LA",
@@ -181,7 +181,7 @@
     "nb-NO",
     "nl-NL",
     "oc-FR",
-    "or-OR",
+    "or-IN",
     "pl-PL",
     "pt-BR",
     "pt-PT",
@@ -189,7 +189,7 @@
     "ru-RU",
     "sk-SK",
     "sl-SI",
-    "sr-SP",
+    "sr-RS",
     "sv-SE",
     "th-TH",
     "tl",
@@ -218,7 +218,7 @@
     "ja-JP": 0,
     "ko-KR": 0,
     "ml-IN": 0,
-    "or-OR": 0,
+    "or-IN": 0,
     "fa-IR": 0,
     "pl-PL": 0,
     "pt-BR": 0,
@@ -244,7 +244,7 @@
     "ja-JP": 0,
     "ko-KR": 0,
     "ml-IN": 0,
-    "or-OR": 0,
+    "or-IN": 0,
     "fa-IR": 0,
     "pl-PL": 0,
     "pt-BR": 0,
@@ -334,7 +334,7 @@
           "differentCategories": 0
         },
         {
-          "locale": "or-OR",
+          "locale": "or-IN",
           "equalCategories": 6,
           "differentCategories": 0
         },
@@ -463,7 +463,7 @@
           "differentCategories": 0
         },
         {
-          "locale": "or-OR",
+          "locale": "or-IN",
           "equalCategories": 6,
           "differentCategories": 0
         },
@@ -592,7 +592,7 @@
           "differentCategories": 0
         },
         {
-          "locale": "or-OR",
+          "locale": "or-IN",
           "equalCategories": 6,
           "differentCategories": 0
         },
@@ -1322,7 +1322,7 @@
       "directMappings": 317
     },
     {
-      "locale": "or-OR",
+      "locale": "or-IN",
       "catalogLocalePresent": true,
       "equal": 241,
       "different": 0,

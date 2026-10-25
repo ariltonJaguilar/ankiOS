@@ -1457,7 +1457,7 @@ struct AnkiWebAccountSection: View {
                         .accessibilityIdentifier("ankiweb.openLoginPanel")
                     }
                 }
-                Text("Use sua conta AnkiWeb para sincronizar a coleção e a mídia com o Anki oficial.")
+                Text("O login do AnkiWeb serve somente para sincronizar sua coleção e mídia. Você pode usar o app sem entrar.")
                     .font(.caption)
                     .foregroundStyle(AppTheme.secondaryText)
                     .padding(.horizontal, 4)

@@ -7,6 +7,9 @@
     "Anki Deck Package" : {
 
     },
+    "AnkiMobile information payload" : {
+
+    },
     "CFBundleDisplayName" : {
       "comment" : "Bundle display name",
       "extractionState" : "extracted_with_value",
@@ -100,7 +103,7 @@
             "value" : "This allows Anki to insert the images you capture onto your cards."
           }
         },
-        "eo-UY" : {
+        "eo" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "This allows Anki to insert the images you capture onto your cards."
@@ -196,7 +199,7 @@
             "value" : "許可をすることで、カメラで撮影した画像をカードに取り込めるようになります。"
           }
         },
-        "jbo-EN" : {
+        "jbo" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "This allows Anki to insert the images you capture onto your cards."
@@ -256,7 +259,7 @@
             "value" : "This allows Anki to insert the images you capture onto your cards."
           }
         },
-        "or-OR" : {
+        "or-IN" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "This allows Anki to insert the images you capture onto your cards."
@@ -304,7 +307,7 @@
             "value" : "This allows Anki to insert the images you capture onto your cards."
           }
         },
-        "sr-SP" : {
+        "sr-RS" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "This allows Anki to insert the images you capture onto your cards."
@@ -441,7 +444,7 @@
             "value" : "The microphone will only be used when you tap the record button."
           }
         },
-        "eo-UY" : {
+        "eo" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "The microphone will only be used when you tap the record button."
@@ -537,7 +540,7 @@
             "value" : "マイク機能は録音ボタンをタップしたときのみ使用されます。"
           }
         },
-        "jbo-EN" : {
+        "jbo" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "The microphone will only be used when you tap the record button."
@@ -597,7 +600,7 @@
             "value" : "The microphone will only be used when you tap the record button."
           }
         },
-        "or-OR" : {
+        "or-IN" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "The microphone will only be used when you tap the record button."
@@ -645,7 +648,7 @@
             "value" : "The microphone will only be used when you tap the record button."
           }
         },
-        "sr-SP" : {
+        "sr-RS" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "The microphone will only be used when you tap the record button."

@@ -30,7 +30,7 @@ OFFICIAL_LOCALES = [
     ("ja-JP", "ja"),
     ("ko-KR", "ko"),
     ("ml-IN", "ml"),
-    ("or-OR", "or"),
+    ("or-IN", "or"),
     ("fa-IR", "fa"),
     ("pl-PL", "pl"),
     ("pt-BR", "pt-BR"),
