@@ -1,9 +1,7 @@
 import Foundation
 import AVFoundation
 import CryptoKit
-#if os(iOS)
 import UIKit
-#endif
 
 enum NoteAudioRecordingError: LocalizedError {
     case permissionDenied
@@ -65,7 +63,6 @@ final class MediaStore: NSObject, ObservableObject {
         if isPlaying != playing { isPlaying = playing }
     }
 
-    #if os(iOS)
     private func configurePlaybackAudioSession(mode: AVAudioSession.Mode) {
         let session = AVAudioSession.sharedInstance()
         let duckAndIgnoreMute = CollectionStore.shared.conf["alwaysDuckAndIgnoreMute"] as? Bool ?? false
@@ -74,7 +71,6 @@ final class MediaStore: NSObject, ObservableObject {
         try? session.setCategory(category, mode: mode, options: options)
         try? session.setActive(true)
     }
-    #endif
 
     func url(for filename: String) -> URL? {
         let url = mediaDirectory.appendingPathComponent(filename)
@@ -111,9 +107,7 @@ final class MediaStore: NSObject, ObservableObject {
                 return
             }
             do {
-                #if os(iOS)
                 configurePlaybackAudioSession(mode: .default)
-                #endif
                 player = try AVAudioPlayer(contentsOf: url)
                 player?.prepareToPlay()
                 player?.delegate = self
@@ -145,9 +139,7 @@ final class MediaStore: NSObject, ObservableObject {
     }
 
     private func speakQueued(_ request: CardHTMLRenderer.SpeechRequest, sequenced: Bool) {
-        #if os(iOS)
         configurePlaybackAudioSession(mode: .spokenAudio)
-        #endif
         let utterance = AVSpeechUtterance(string: request.text)
         let voices = AVSpeechSynthesisVoice.speechVoices()
         utterance.voice = request.voices.lazy.compactMap { preferred in
@@ -239,10 +231,8 @@ final class MediaStore: NSObject, ObservableObject {
         do {
             stop()
             ownVoicePlayer?.stop()
-            #if os(iOS)
             try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
             try AVAudioSession.sharedInstance().setActive(true)
-            #endif
             let audioRecorder = try AVAudioRecorder(url: url, settings: settings)
             guard audioRecorder.prepareToRecord(), audioRecorder.record() else {
                 try? FileManager.default.removeItem(at: url)
@@ -268,9 +258,7 @@ final class MediaStore: NSObject, ObservableObject {
         stop()
         ownVoicePlayer?.stop()
         do {
-            #if os(iOS)
             configurePlaybackAudioSession(mode: .default)
-            #endif
             ownVoicePlayer = try AVAudioPlayer(contentsOf: ownVoiceURL)
             ownVoicePlayer?.prepareToPlay()
             ownVoicePlayer?.delegate = self
@@ -311,10 +299,8 @@ final class MediaStore: NSObject, ObservableObject {
             AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
-        #if os(iOS)
         try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
         try AVAudioSession.sharedInstance().setActive(true)
-        #endif
         let audioRecorder = try AVAudioRecorder(url: url, settings: settings)
         guard audioRecorder.prepareToRecord(), audioRecorder.record() else {
             try? FileManager.default.removeItem(at: url)
@@ -494,7 +480,6 @@ final class MediaStore: NSObject, ObservableObject {
     @discardableResult
     func importClipboardImage(_ data: Data, format: String) throws -> String {
         let fileExtension = format == "png" ? "png" : "jpg"
-        #if os(iOS)
         let conf = CollectionStore.shared.conf
         if conf["resizePastedImages"] as? Bool == true,
            let maxDimension = conf["imageMaxDimension"] as? Int,
@@ -503,22 +488,17 @@ final class MediaStore: NSObject, ObservableObject {
             let filename = "paste-\(UUID().uuidString).\(fileExtension)"
             return try addFile(data: resized, desiredName: filename)
         }
-        #endif
         let filename = "paste-\(UUID().uuidString).\(fileExtension)"
         return try addFile(data: data, desiredName: filename)
     }
 
     @discardableResult
     func importPhotoImage(_ data: Data, maxDimension: Int) throws -> String {
-        #if os(iOS)
         guard let image = UIImage(data: data),
               let jpeg = Self.resizedImageData(data, maxDimension: maxDimension, format: "jpg") ?? image.jpegData(compressionQuality: 0.92) else {
             throw CocoaError(.fileReadCorruptFile)
         }
         return try addFile(data: jpeg, desiredName: "photo-\(UUID().uuidString).jpg")
-        #else
-        return try addFile(data: data, desiredName: "photo-\(UUID().uuidString).jpg")
-        #endif
     }
 
     @discardableResult
@@ -526,7 +506,6 @@ final class MediaStore: NSObject, ObservableObject {
         try addFile(data: data, desiredName: "drawing-\(UUID().uuidString).png")
     }
 
-    #if os(iOS)
     private static func resizedImageData(_ data: Data, maxDimension: Int, format: String) -> Data? {
         guard maxDimension > 0,
               let image = UIImage(data: data),
@@ -544,7 +523,6 @@ final class MediaStore: NSObject, ObservableObject {
         let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
         return format == "png" ? resized.pngData() : resized.jpegData(compressionQuality: 0.92)
     }
-    #endif
 
     private func addFile(data: Data, desiredName: String) throws -> String {
         try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)

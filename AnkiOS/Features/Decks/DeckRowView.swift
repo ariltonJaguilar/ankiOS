@@ -34,11 +34,7 @@ struct DeckRowView: View {
 
     var body: some View {
         Group {
-            #if os(iOS)
             compactRow
-            #else
-            desktopRow
-            #endif
         }
         .contextMenu {
             Button("Estudar", systemImage: "play.fill") { onStudy(liveDeck) }

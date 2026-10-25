@@ -246,9 +246,6 @@ struct AddNoteHomeView: View {
                     }
             }
         }
-        #if os(macOS)
-        .frame(minWidth: 480, minHeight: 360)
-        #endif
     }
 
     private func binding(_ idx: Int) -> Binding<String> {

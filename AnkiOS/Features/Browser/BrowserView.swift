@@ -295,9 +295,6 @@ struct BrowserView: View {
             .sheet(item: $previewRow) { row in
                 CardPreviewSheet(row: row)
                     .environmentObject(store)
-                    #if os(macOS)
-                    .frame(minWidth: 480, minHeight: 420)
-                    #endif
             }
             .confirmationDialog("Mudar tipo de nota", isPresented: $showChangeType) {
                 ForEach(store.notetypes) { nt in
@@ -563,9 +560,6 @@ struct BrowserView: View {
                 }
             }
         }
-        #if os(macOS)
-        .listStyle(.sidebar)
-        #endif
         .scrollContentBackground(.hidden)
     }
 
@@ -657,10 +651,8 @@ struct BrowserView: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(AppTheme.secondaryText)
                 TextField("Busca (deck:, tag:, is:new…)", text: $query)
-                    #if os(iOS)
                     .textInputAutocapitalization(.never)
                     .submitLabel(.search)
-                    #endif
                     .autocorrectionDisabled()
                     .foregroundStyle(AppTheme.primaryText)
                     .onSubmit { submitSearch() }
@@ -742,15 +734,9 @@ struct BrowserView: View {
     }
 
     private var browserRowsList: some View {
-        #if os(macOS)
-        List(selection: $selectedIDs) { browserRows }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-        #else
         List { browserRows }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-        #endif
     }
 
     @ViewBuilder
@@ -771,10 +757,6 @@ struct BrowserView: View {
                     tint: browserRowTint(row)
                 )
                 .contentShape(Rectangle())
-                #if os(macOS)
-                .tag(row.id)
-                .onTapGesture { selectedCardID = row.id }
-                #else
                 .onTapGesture {
                     if isSelectingRows {
                         if !selectedIDs.insert(row.id).inserted {
@@ -785,7 +767,6 @@ struct BrowserView: View {
                         selectedIDs = [row.id]
                     }
                 }
-                #endif
                 .contextMenu {
                     Button("Pré-visualizar", systemImage: "eye") { previewRow = row }
                     Button("Criar cópia", systemImage: "doc.on.doc") { requestCopy(of: row) }
@@ -956,7 +937,6 @@ struct BrowserView: View {
                 .buttonStyle(GlassChipButtonStyle())
                 .help("Refazer \(store.collectionRedoMessage ?? "ação")")
             }
-            #if os(iOS)
             Button {
                 isSelectingRows.toggle()
                 if !isSelectingRows { selectedCardID = selectedIDs.first }
@@ -964,7 +944,6 @@ struct BrowserView: View {
                 Label(isSelectingRows ? "Concluir" : "Selecionar", systemImage: isSelectingRows ? "checkmark" : "checkmark.circle")
             }
             .buttonStyle(GlassChipButtonStyle())
-            #endif
             Menu {
                 ForEach(store.savedSearches, id: \.name) { item in
                     Button(item.name) { applySavedSearch(item.query) }
@@ -1000,9 +979,7 @@ struct BrowserView: View {
                 Button("Inverter seleção") {
                     do {
                         selectedIDs = try allSearchCardIDs().subtracting(selectedIDs)
-                        #if os(iOS)
                         isSelectingRows = true
-                        #endif
                     }
                     catch { store.lastError = error.localizedDescription }
                 }
@@ -1086,9 +1063,6 @@ struct BrowserView: View {
                 Button("Remover tag…", systemImage: "tag.slash") { activeAlert = .removeTag }
                 Button("Substituir tag…", systemImage: "arrow.left.arrow.right") { activeAlert = .replaceTag }
                 Button("browser.find-replace", systemImage: "text.magnifyingglass") { showFindReplace = true }
-                    #if os(macOS)
-                    .accessibilityIdentifier("browser.findReplace")
-                    #endif
                 Button("Definir due…", systemImage: "calendar") { activeAlert = .setDue }
                 Button("browser.grade-now", systemImage: "checkmark") { showGradeNow = true }
                     .disabled(targets().isEmpty)
@@ -1146,10 +1120,6 @@ struct BrowserView: View {
                 .keyboardShortcut("z", modifiers: [.command])
             Button("") { redoBrowserAction() }
                 .keyboardShortcut("z", modifiers: [.command, .shift])
-            #if os(macOS)
-            Button("") { notesMode.toggle() }
-                .keyboardShortcut("t", modifiers: [.command, .option])
-            #endif
         }
         .opacity(0.001)
         .frame(width: 0, height: 0)
@@ -1207,9 +1177,7 @@ struct BrowserView: View {
             }
             .background(AppBackground())
             .navigationTitle("Reposicionar")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
         }
     }
 
@@ -1242,13 +1210,8 @@ struct BrowserView: View {
             }
             .background(AppBackground())
             .navigationTitle("Repor cartões")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
         }
-        #if os(macOS)
-        .frame(minWidth: 420, minHeight: 280)
-        #endif
     }
 
     private var moveSheet: some View {
@@ -1296,9 +1259,6 @@ struct BrowserView: View {
             .background(AppBackground())
             .navigationTitle("Mover para baralho")
         }
-        #if os(macOS)
-        .frame(minWidth: 420, minHeight: 360)
-        #endif
     }
 
     // MARK: - Actions
@@ -1330,7 +1290,7 @@ struct BrowserView: View {
             applyBrowserSearchRequest(request)
             store.consumeBrowserSearchRequest(id: request.id)
         }
-        applyPendingSearchQuery()
+        _ = applyPendingSearchQuery()
         runSearch()
     }
 
@@ -1435,15 +1395,8 @@ struct BrowserView: View {
                 selectedIDs.formIntersection(try allSearchCardIDs())
             }
             if let id = selectedCardID, !rows.contains(where: { $0.id == id }) {
-                #if os(macOS)
-                selectedCardID = rows.first?.id
-                #else
                 selectedCardID = nil
-                #endif
             } else if selectedCardID == nil {
-                #if os(macOS)
-                selectedCardID = rows.first?.id
-                #endif
             }
             return true
         } catch {
@@ -1473,9 +1426,7 @@ struct BrowserView: View {
     private func selectAllSearchResults() {
         do {
             selectedIDs = try allSearchCardIDs()
-            #if os(iOS)
             isSelectingRows = true
-            #endif
         }
         catch { store.lastError = error.localizedDescription }
     }
@@ -1843,9 +1794,7 @@ struct BrowserView: View {
             committedSearchQuery = query
             selectedIDs = Set(cardIDs)
             selectedCardID = cardIDs.first
-            #if os(iOS)
             isSelectingRows = true
-            #endif
             runSearch()
         } catch {
             store.lastError = error.localizedDescription
@@ -2577,12 +2526,7 @@ struct FindReplaceSheet: View {
             }
             .background(AppBackground())
             .navigationTitle("Localizar e substituir")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
-            #if os(macOS)
-            .frame(minWidth: 440, minHeight: 340)
-            #endif
         }
     }
 
@@ -2774,18 +2718,13 @@ private struct GradeNowView: View {
                 .frame(width: 0, height: 0)
             }
             .navigationTitle("Avaliar agora")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancelar") { dismiss() }
                 }
             }
         }
-        #if os(macOS)
-        .frame(minWidth: 360, minHeight: 300)
-        #endif
     }
 
     private func tint(for rating: Rating) -> Color {

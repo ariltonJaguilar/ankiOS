@@ -69,16 +69,9 @@ struct DecksHomeView: View {
                 .padding()
             }
             .navigationTitle("AnkiOS")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.large)
-            #endif
             .toolbar {
-                #if !ANKIOS_PARITY_HARNESS
-                #if os(macOS)
-                let syncPlacement: ToolbarItemPlacement = .navigation
-                #else
                 let syncPlacement: ToolbarItemPlacement = .topBarLeading
-                #endif
                 ToolbarItem(placement: syncPlacement) {
                     Button {
                         Task { await store.syncWithAnkiWeb() }
@@ -88,7 +81,6 @@ struct DecksHomeView: View {
                     .disabled(store.collectionSyncing)
                     .accessibilityLabel(store.collectionSyncing ? "Sincronizando" : "Sincronizar com AnkiWeb")
                 }
-                #endif
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button("Novo baralho", systemImage: "folder.badge.plus") {
@@ -102,13 +94,7 @@ struct DecksHomeView: View {
                         Button("Importar CSV", systemImage: "tablecells") { showCSVImport = true }
                         Divider()
                         Button("Buscar baralho compartilhado", systemImage: "books.vertical") {
-                            #if os(iOS)
                             showSharedDeckBrowser = true
-                            #else
-                            if let url = URL(string: "https://ankiweb.net/shared/decks/") {
-                                openURL(url)
-                            }
-                            #endif
                         }
                         .accessibilityIdentifier("decks.sharedDeckList")
                     } label: {
@@ -159,7 +145,6 @@ struct DecksHomeView: View {
                 }
             }
         }
-        #if os(iOS)
         .sheet(isPresented: $showSharedDeckBrowser) {
             SharedDeckBrowserView { url in
                 showSharedDeckBrowser = false
@@ -168,7 +153,6 @@ struct DecksHomeView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
-        #endif
         .overlay {
             if importingDeckPackage {
                 ZStack {
@@ -463,11 +447,7 @@ struct DecksHomeView: View {
     }
 
     private var deckListSpacing: CGFloat {
-        #if os(iOS)
         6
-        #else
-        12
-        #endif
     }
 
     /// Root decks like Anki: alphabetical, with Default always last.

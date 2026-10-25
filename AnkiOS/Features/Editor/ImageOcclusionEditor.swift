@@ -1,10 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
-#if os(iOS)
 import UIKit
-#elseif os(macOS)
-import AppKit
-#endif
 
 /// Anki's image occlusion note: one cloze card per mask, stored in the note's cloze field.
 struct ImageOcclusionEditor: View {
@@ -96,9 +92,7 @@ struct ImageOcclusionEditor: View {
             }
             .background(AppBackground())
             .navigationTitle("Oclusão de imagem")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .onAppear(perform: loadExisting)
             .fileImporter(isPresented: $showImporter, allowedContentTypes: [.image], allowsMultipleSelection: false) { result in
                 importImage(result)
@@ -108,9 +102,6 @@ struct ImageOcclusionEditor: View {
             } message: {
                 Text(message ?? "")
             }
-            #if os(macOS)
-            .frame(minWidth: 560, minHeight: 640)
-            #endif
         }
     }
 
@@ -339,7 +330,6 @@ private struct OcclusionCanvas: View {
     }
 }
 
-#if os(iOS)
 typealias PlatformPicture = UIImage
 
 private extension PlatformPicture {
@@ -352,17 +342,6 @@ private extension PlatformPicture {
 private func picture(_ image: PlatformPicture) -> Image {
     Image(uiImage: image)
 }
-#else
-typealias PlatformPicture = NSImage
-
-private extension PlatformPicture {
-    var pixelSize: CGSize { size }
-}
-
-private func picture(_ image: PlatformPicture) -> Image {
-    Image(nsImage: image)
-}
-#endif
 
 enum ImageOcclusionNotetype {
     static func isImageOcclusion(_ nt: AnkiNotetype) -> Bool {

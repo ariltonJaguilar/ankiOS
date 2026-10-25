@@ -1,6 +1,6 @@
 # AnkiOS
 
-Universal SwiftUI Anki-compatible study app (iOS 26 + macOS 26) with Liquid Glass UI.
+iOS and iPadOS Anki-compatible study app with Liquid Glass UI.
 
 ## Open & run
 
@@ -8,7 +8,7 @@ Universal SwiftUI Anki-compatible study app (iOS 26 + macOS 26) with Liquid Glas
 open "/Users/ariltonaguilar/Desktop/Projetos/Anki/DeckExample/AnkiOS/AnkiOS.xcodeproj"
 ```
 
-Pick an **iPhone** or **My Mac** destination, then ⌘R.
+Pick an **iPhone** or **iPad** destination, then run the app.
 
 The collection starts empty. Import your own deck from Ferramentas or the deck list.
 
@@ -20,16 +20,16 @@ The collection starts empty. Import your own deck from Ferramentas or the deck l
 - **Estatísticas** — today / future / retention
 - **Ferramentas** — import/export, options, tutorial
 
-AnkiWeb sync uses the upstream Rust backend pinned in `AnkiOS/AnkiBackendBridge/Cargo.toml`. iCloud file sync remains available from Ferramentas and the sync menu.
+AnkiWeb sync uses the upstream Rust backend pinned in `AnkiOS/AnkiBackendBridge/Cargo.toml`.
 
 ## Requirements
 
 - Xcode 27
-- iOS 26 / macOS 26 SDK
+- iOS 26 SDK
 - Swift 6
 
 The FSRS optimizer and simulator use the official `fsrs` 6.6.2 crate through the same Rust XCFramework as AnkiWeb sync.
 
 AnkiWeb sync links the Anki Rust backend at the pinned revision in `Cargo.toml`. The upstream backend is licensed under AGPL-3.0-or-later; its license is included in `AnkiOS/AnkiBackendBridge/UPSTREAM-LICENSE.txt`.
 
-To rebuild the backend XCFramework, install Rust with the `aarch64-apple-darwin`, `x86_64-apple-darwin`, `aarch64-apple-ios`, `aarch64-apple-ios-sim`, and `x86_64-apple-ios` targets, then run `AnkiOS/AnkiBackendBridge/build-xcframework.sh`.
+To rebuild the backend XCFramework, install Rust with the `aarch64-apple-ios`, `aarch64-apple-ios-sim`, and `x86_64-apple-ios` targets, then run `AnkiOS/AnkiBackendBridge/build-xcframework.sh`.

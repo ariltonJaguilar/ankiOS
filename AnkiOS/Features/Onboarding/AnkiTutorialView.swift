@@ -54,7 +54,6 @@ struct AnkiTutorialView: View {
                         .padding(.top, 8)
                 }
 
-                #if os(iOS)
                 TabView(selection: $page) {
                     ForEach(Array(pages.enumerated()), id: \.offset) { index, item in
                         tutorialCard(item)
@@ -63,19 +62,6 @@ struct AnkiTutorialView: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .always))
-                #else
-                tutorialCard(pages[page])
-                    .padding(.horizontal, 20)
-                    .id(page)
-                HStack(spacing: 8) {
-                    ForEach(0..<pages.count, id: \.self) { i in
-                        Circle()
-                            .fill(i == page ? AppTheme.accent : Color.white.opacity(0.25))
-                            .frame(width: 8, height: 8)
-                    }
-                }
-                .padding(.bottom, 8)
-                #endif
 
                 Button {
                     if page < pages.count - 1 {

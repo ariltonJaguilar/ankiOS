@@ -812,16 +812,6 @@ final class Scheduler {
     }
 }
 
-#if ANKIOS_PARITY_HARNESS
-extension Scheduler {
-    func harnessResults(card: AnkiCard, deck: AnkiDeck, loadBalancerActive: Bool = false) -> [Rating: ScheduleResult] {
-        let cfg = store.config(for: schedulingDeck(for: card, in: deck))
-        let day = store.schedDay()
-        let loadBalancer = loadBalancerContext(for: loadBalancerActive || store.studyQueuesForUpdate() != nil, day: day)
-        return scheduledResults(card: card, config: cfg, day: day, now: Int(Date().timeIntervalSince1970), deck: deck, loadBalancer: loadBalancer)
-    }
-}
-#endif
 
 private enum CardStateCustomizer {
     static func apply(_ script: String, states: [String: Any], customData: String, context: [String: Any]) -> [String: Any]? {

@@ -1,4 +1,3 @@
-#if os(iOS)
 import SwiftUI
 import WebKit
 
@@ -386,4 +385,3 @@ private struct SharedDeckBrowserWebView: UIViewRepresentable {
         }
     }
 }
-#endif

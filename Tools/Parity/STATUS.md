@@ -1,6 +1,6 @@
-# Painel de paridade
+# Painel histórico de paridade
 
-Referência: Anki Desktop 26.9.3. Inventário atualizado por `report.py`; última execução diferencial registrada: 2026-10-24.
+Este painel preserva resultados de versões anteriores do app. O produto atual compila somente para iOS e iPadOS; as evidências macOS abaixo são históricas. Referência: Anki Desktop 26.9.3. Última execução diferencial registrada: 2026-10-24.
 
 ## Progresso
 

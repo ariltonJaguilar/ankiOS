@@ -26,8 +26,5 @@ struct CardInfoView: View {
                     .padding(.vertical, 14)
             }
         }
-        #if os(macOS)
-        .frame(minWidth: 420, minHeight: 360)
-        #endif
     }
 }

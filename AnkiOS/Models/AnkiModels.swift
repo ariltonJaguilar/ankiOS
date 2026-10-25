@@ -1243,16 +1243,10 @@ enum StudyKeyboardShortcutResolver {
             StudyKeyboardShortcutBinding(key: "space", modifiers: .none, action: .showAnswer),
             StudyKeyboardShortcutBinding(key: "return", modifiers: .none, action: .showAnswer)
         ]
-#if os(macOS)
-        shortcuts.append(StudyKeyboardShortcutBinding(key: "enter", modifiers: .none, action: .showAnswer))
-#endif
         shortcuts += [
             StudyKeyboardShortcutBinding(key: "m", modifiers: .none, action: .contextMenu),
             StudyKeyboardShortcutBinding(key: "r", modifiers: .none, action: .replayAudio)
         ]
-#if os(macOS)
-        shortcuts.append(StudyKeyboardShortcutBinding(key: "F5", modifiers: .none, action: .replayAudio))
-#endif
         let flags = (1...7).map { flag in
             let actions: [StudyKeyboardShortcutAction] = [
                 .setFlag1, .setFlag2, .setFlag3, .setFlag4, .setFlag5, .setFlag6, .setFlag7
@@ -1269,11 +1263,7 @@ enum StudyKeyboardShortcutResolver {
             StudyKeyboardShortcutBinding(key: "n", modifiers: .controlOption, action: .forgetCard),
             StudyKeyboardShortcutBinding(key: "e", modifiers: .controlOption, action: .createCopy)
         ]
-#if os(macOS)
-        shortcuts.append(StudyKeyboardShortcutBinding(key: "backspace", modifiers: .control, action: .deleteNote))
-#else
         shortcuts.append(StudyKeyboardShortcutBinding(key: "delete", modifiers: .control, action: .deleteNote))
-#endif
         shortcuts += [
             StudyKeyboardShortcutBinding(key: "d", modifiers: .controlShift, action: .setDueDate),
             StudyKeyboardShortcutBinding(key: "v", modifiers: .none, action: .replayOwnVoice),

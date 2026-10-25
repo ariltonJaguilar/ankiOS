@@ -163,13 +163,9 @@ enum WidgetStudyStore {
         if SharedProfiles.uiTestSession != nil {
             return SharedProfiles.profilesRoot.deletingLastPathComponent().appendingPathComponent("widget-study.json")
         }
-        #if ANKIOS_PARITY_HARNESS
-        return SharedProfiles.profilesRoot.deletingLastPathComponent().appendingPathComponent("widget-study.json")
-        #else
         guard let container = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: groupID
         ) else { return nil }
         return container.appendingPathComponent(fileName)
-        #endif
     }
 }

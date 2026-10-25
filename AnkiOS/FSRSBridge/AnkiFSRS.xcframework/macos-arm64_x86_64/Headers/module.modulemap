@@ -1,4 +1,0 @@
-module AnkiFSRS {
-    header "AnkiFSRS.h"
-    export *
-}

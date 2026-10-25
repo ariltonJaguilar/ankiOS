@@ -64,9 +64,7 @@ struct CustomStudyView: View {
                                         .font(.title3.monospacedDigit().weight(.semibold))
                                         .foregroundStyle(AppTheme.primaryText)
                                         .frame(width: 88)
-                                        #if os(iOS)
                                         .keyboardType(.numbersAndPunctuation)
-                                        #endif
                                         .glassField(cornerRadius: 10)
                                     Stepper("", value: amountBinding, in: mode.range)
                                         .labelsHidden()
@@ -108,9 +106,7 @@ struct CustomStudyView: View {
                 }
             }
             .navigationTitle("Estudo Personalizado")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancelar") { dismiss() }
@@ -451,9 +447,7 @@ private struct SelectiveStudyView: View {
                 }
             }
             .navigationTitle("Estudo Seletivo")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancelar") { dismiss() }

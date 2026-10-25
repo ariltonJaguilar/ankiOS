@@ -2035,9 +2035,6 @@ struct ApkgImportOptionsSheet: View {
                 }
             }
         }
-        #if os(macOS)
-        .frame(minWidth: 420, minHeight: 300)
-        #endif
     }
 
     private func updateConditionMenu(

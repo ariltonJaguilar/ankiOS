@@ -1,7 +1,5 @@
 import SwiftUI
-#if os(iOS)
 import UIKit
-#endif
 
 struct RootView: View {
     @EnvironmentObject private var store: CollectionStore
@@ -15,18 +13,12 @@ struct RootView: View {
     @State private var pendingNoteCopy: AddNoteCopyRequest?
     @State private var pendingBrowserSearchQuery: String?
     @State private var syncAnkiWebAfterLoginDismissal = false
-    #if os(iOS)
     @State private var pendingAnkiInfoSuccessURL: URL?
-    #endif
 
     var body: some View {
         ZStack {
             AppBackground()
-            #if os(macOS)
-            macRoot
-            #else
             iosRoot
-            #endif
         }
         .disabled(store.collectionSyncing)
         .overlay {
@@ -42,7 +34,7 @@ struct RootView: View {
                         ProgressView()
                             .controlSize(.large)
                             .tint(AppTheme.accent)
-                        #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+                        #if !WIDGET_EXTENSION
                         if let progress = store.collectionSyncMediaProgress {
                             AnkiWebMediaProgressView(progress: progress)
                         } else {
@@ -57,14 +49,12 @@ struct RootView: View {
                             .foregroundStyle(AppTheme.primaryText)
                             .multilineTextAlignment(.center)
                         #endif
-                        #if !ANKIOS_PARITY_HARNESS
                         if store.collectionSyncCanCancel {
                             Button("Cancelar sincronização", systemImage: "xmark") {
                                 store.cancelAnkiWebSync()
                             }
                             .buttonStyle(GlassButtonStyle(tint: AppTheme.danger, prominent: false, tintStrength: 0.24))
                         }
-                        #endif
                     }
                     .padding(28)
                     .ankiGlass(in: RoundedRectangle(cornerRadius: 22))
@@ -94,27 +84,15 @@ struct RootView: View {
                 .frame(maxWidth: 520)
                 .ankiGlass(tint: .black.opacity(0.52), interactive: true, in: Capsule())
                 .padding(.horizontal, 16)
-                #if os(iOS)
                 .padding(.bottom, 78)
-                #else
-                .padding(.bottom, 18)
-                #endif
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        #if os(iOS)
         .fullScreenCover(isPresented: $store.shouldShowTutorial) {
             AnkiTutorialView { store.shouldShowTutorial = false }
                 .environmentObject(store)
         }
-        #else
-        .sheet(isPresented: $store.shouldShowTutorial) {
-            AnkiTutorialView { store.shouldShowTutorial = false }
-                .environmentObject(store)
-                .frame(minWidth: 560, minHeight: 640)
-        }
-        #endif
-        #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+        #if !WIDGET_EXTENSION
         .sheet(isPresented: Binding(
             get: { store.pendingAnkiWebLoginPanel },
             set: { store.pendingAnkiWebLoginPanel = $0 }
@@ -137,12 +115,8 @@ struct RootView: View {
                 },
                 onCancel: { store.pendingAnkiWebFullSync = nil }
             )
-            #if os(iOS)
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
-            #else
-            .frame(minWidth: 500, minHeight: 520)
-            #endif
         }
         #endif
         .alert("Error", isPresented: errorAlertPresented) {
@@ -153,18 +127,16 @@ struct RootView: View {
             Text(store.lastError ?? "")
         }
         .onChange(of: scenePhase) { _, phase in
-            #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+            #if !WIDGET_EXTENSION
             guard phase == .background else { return }
             Task {
-                #if os(iOS)
                 let backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "AnkiWebSync") {}
                 defer { UIApplication.shared.endBackgroundTask(backgroundTask) }
-                #endif
                 await store.syncWithAnkiWebIfAutomaticEnabled()
             }
             #endif
         }
-        #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+        #if !WIDGET_EXTENSION
         .task(id: periodicMediaSyncKey) {
             await runPeriodicMediaSync()
         }
@@ -204,7 +176,6 @@ struct RootView: View {
             selectedTab = .browse
         }
         .onOpenURL { handleSystemURL($0) }
-        #if os(iOS)
         .confirmationDialog(
             "Allow access to add information?",
             isPresented: Binding(
@@ -218,7 +189,6 @@ struct RootView: View {
         } message: {
             Text("The requesting app will receive the profile, deck, and note type names via the clipboard.")
         }
-        #endif
         .task(id: store.activeProfile) {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(300))
@@ -233,7 +203,7 @@ struct RootView: View {
         .modifier(ReducedMotionViewModifier(isEnabled: reduceMotion || systemReduceMotion || minimalistMode, isMinimalist: minimalistMode))
     }
 
-#if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+    #if !WIDGET_EXTENSION
     private var periodicMediaSyncKey: String {
         "\(store.activeProfile):\(store.ankiWebSyncSettingsRevision):\(scenePhase == .active)"
     }
@@ -257,7 +227,7 @@ struct RootView: View {
             await store.syncAnkiWebMediaOnly()
         }
     }
-#endif
+    #endif
 
     private var errorAlertPresented: Binding<Bool> {
         Binding(
@@ -284,9 +254,7 @@ struct RootView: View {
     }
 
     private func handleSystemURL(_ url: URL) {
-        #if os(iOS)
         if handleAnkiMobileURL(url) { return }
-        #endif
         let scheme = url.scheme
         let host = url.host
         if scheme == "ankios" && host == "study" {
@@ -309,7 +277,6 @@ struct RootView: View {
         }
     }
 
-    #if os(iOS)
     private func handleAnkiMobileURL(_ url: URL) -> Bool {
         guard let request = AnkiMobileURLRequest(url: url) else { return false }
         switch request {
@@ -436,9 +403,7 @@ struct RootView: View {
             store.lastError = error.localizedDescription
         }
     }
-    #endif
 
-    #if os(iOS)
     private var iosRoot: some View {
         TabView(selection: $selectedTab) {
             DecksHomeView(studyRequested: $studyRequested)
@@ -468,44 +433,10 @@ struct RootView: View {
                 .tag(AppTab.tools)
         }
     }
-    #endif
 
-    #if os(macOS)
-    private var macRoot: some View {
-        NavigationSplitView {
-            List(selection: $selectedTab) {
-                Label("tab.decks", systemImage: "rectangle.stack.fill").tag(AppTab.decks)
-                Label("Adicionar", systemImage: "plus.circle.fill").tag(AppTab.add)
-                Label("Painel", systemImage: "sidebar.left").tag(AppTab.browse)
-                Label("Estatísticas", systemImage: "chart.bar.fill").tag(AppTab.stats)
-                Label("Ferramentas", systemImage: "wrench.and.screwdriver.fill").tag(AppTab.tools)
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 220)
-            .listStyle(.sidebar)
-        } detail: {
-            Group {
-                switch selectedTab {
-                case .decks: DecksHomeView(studyRequested: $studyRequested)
-                case .add: AddNoteHomeView(copyRequest: $pendingNoteCopy)
-                case .browse:
-                    BrowserView(
-                        onCreateCopy: openCopyInAddScreen,
-                        onAddNote: openAddScreen,
-                        onManageNoteTypes: openNoteTypes
-                    )
-                case .stats: StatsHomeView()
-                case .tools: SettingsView(requestedAction: $pendingToolAction)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .navigationSplitViewStyle(.balanced)
-        .focusedSceneValue(\.activeAppTab, selectedTab)
-    }
-    #endif
 }
 
-#if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+#if !WIDGET_EXTENSION
 private struct AnkiWebMediaProgressView: View {
     let progress: AnkiWebMediaProgress
 
@@ -589,7 +520,6 @@ struct BootSplashView: View {
     }
 }
 
-#if os(iOS)
 private enum AnkiMobileURLRequest {
     case launch
     case addNote(
@@ -694,4 +624,3 @@ private struct AnkiRemoteMedia {
         self.isAudio = audioExtensions.contains(fileExtension)
     }
 }
-#endif

@@ -75,9 +75,7 @@ enum AnkiLanguageCatalog {
             AnkiLanguage(name: "ئۇيغۇر", code: "ug"),
             AnkiLanguage(name: "Oʻzbekcha", code: "uz_UZ")
         ]
-        #if os(iOS) || ANKIOS_IOS_LOCALIZATION_CHECK
         languages.append(AnkiLanguage(name: "മലയാളം", code: "ml_IN"))
-        #endif
         return languages.sorted {
             Array($0.name.unicodeScalars).lexicographicallyPrecedes(Array($1.name.unicodeScalars))
         }
@@ -100,11 +98,7 @@ enum AnkiLanguageCatalog {
     ]
 
     static var defaultLanguageCode: String {
-        #if os(iOS)
         let preferredLanguages = Locale.preferredLanguages
-        #else
-        let preferredLanguages: [String] = []
-        #endif
         return defaultLanguageCode(
             environment: ProcessInfo.processInfo.environment,
             preferredLanguages: preferredLanguages
@@ -112,11 +106,9 @@ enum AnkiLanguageCatalog {
     }
 
     static var appLanguageCode: String {
-        #if os(iOS)
         if let code = Bundle.main.preferredLocalizations.first.flatMap(systemLanguageCode(for:)) {
             return code
         }
-        #endif
         return defaultLanguageCode
     }
 

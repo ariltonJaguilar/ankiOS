@@ -645,10 +645,8 @@ struct StatsHomeView: View {
                         }
                     }
                 }
-                #if os(iOS)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
-                #endif
             }
             .task {
                 if !didSetInitialDeckSelection {

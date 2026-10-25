@@ -38,7 +38,6 @@ struct FieldFormatBar: View {
                     colorMenu
                     formatMenu
                     Divider().frame(height: 18)
-                    #if os(iOS)
                     if let onMedia {
                         Button(action: onMedia) {
                             Label("Add Media", systemImage: "paperclip")
@@ -49,10 +48,6 @@ struct FieldFormatBar: View {
                         .buttonStyle(GlassChipButtonStyle(tint: AppTheme.mist.opacity(0.22)))
                         .accessibilityIdentifier("field.addMedia.\(fieldName)")
                     }
-                    #else
-                    formatButton("Sound", action: .sound) { insert("[sound:]") }
-                    formatButton("Img", action: .image) { insert(#"<img src="">"#) }
-                    #endif
                     if let onRecord, showsRecordButton {
                         Button(action: onRecord) {
                             Label(isRecording ? "Parar" : recordButtonTitle, systemImage: isRecording ? "stop.fill" : "mic.fill")

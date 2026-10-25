@@ -15,7 +15,7 @@ struct RevealWidgetCardIntent: AppIntent {
     static let isDiscoverable = false
     static let supportedModes: IntentModes = .background
 
-    @available(iOS 27.0, macOS 27.0, *)
+    @available(iOS 27.0, *)
     static var allowedExecutionTargets: IntentExecutionTargets { .widgetKitExtension }
 
     @Parameter(title: "Cartão")
@@ -43,7 +43,7 @@ struct GradeWidgetCardIntent: AppIntent {
     static let isDiscoverable = false
     static let supportedModes: IntentModes = .background
 
-    @available(iOS 27.0, macOS 27.0, *)
+    @available(iOS 27.0, *)
     static var allowedExecutionTargets: IntentExecutionTargets { .widgetKitExtension }
 
     @Parameter(title: "Cartão")
@@ -76,7 +76,7 @@ struct StudyAgainWidgetIntent: AppIntent {
     static let isDiscoverable = false
     static let supportedModes: IntentModes = .background
 
-    @available(iOS 27.0, macOS 27.0, *)
+    @available(iOS 27.0, *)
     static var allowedExecutionTargets: IntentExecutionTargets { .widgetKitExtension }
 
     func perform() async throws -> some IntentResult {

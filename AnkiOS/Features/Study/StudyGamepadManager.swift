@@ -1,4 +1,3 @@
-#if os(iOS)
 import Combine
 import Foundation
 import GameController
@@ -13,9 +12,9 @@ final class StudyGamepadManager: ObservableObject {
     private var disconnectionObserver: NSObjectProtocol?
     private var lastScrollAt: [String: TimeInterval] = [:]
     private var isObserving = false
-#if DEBUG
+    #if DEBUG
     private var uiTestVirtualController: GCVirtualController?
-#endif
+    #endif
 
     func configure(
         preferences: ReviewGamepadPreferences,
@@ -50,9 +49,9 @@ final class StudyGamepadManager: ObservableObject {
         }
 
         connectedControllers.forEach(installHandlers)
-#if DEBUG
+        #if DEBUG
         connectUITestVirtualControllerIfRequested()
-#endif
+        #endif
     }
 
     func stop() {
@@ -66,10 +65,10 @@ final class StudyGamepadManager: ObservableObject {
         }
         connectedControllers.forEach(clearHandlers)
         connectedControllers.removeAll()
-#if DEBUG
+        #if DEBUG
         uiTestVirtualController?.disconnect()
         uiTestVirtualController = nil
-#endif
+        #endif
         actionHandler = nil
         scrollHandler = nil
         lastScrollAt.removeAll()
@@ -144,7 +143,7 @@ final class StudyGamepadManager: ObservableObject {
         scrollHandler?(value > 0 ? -1 : 1)
     }
 
-#if DEBUG
+    #if DEBUG
     private func connectUITestVirtualControllerIfRequested() {
         guard uiTestVirtualController == nil,
               ProcessInfo.processInfo.environment["ANKIOS_UI_TEST_VIRTUAL_GAMEPAD"] == "buttonA" else { return }
@@ -161,7 +160,7 @@ final class StudyGamepadManager: ObservableObject {
             controller.setValue(0, forButtonElement: GCInputButtonA)
         }
     }
-#endif
+    #endif
 
     private func clearHandlers(_ controller: GCController) {
         guard let gamepad = controller.extendedGamepad else { return }
@@ -181,4 +180,3 @@ final class StudyGamepadManager: ObservableObject {
         gamepad.rightThumbstick.valueChangedHandler = nil
     }
 }
-#endif

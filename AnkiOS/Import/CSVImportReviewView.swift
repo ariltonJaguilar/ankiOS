@@ -205,9 +205,7 @@ struct CSVImportReviewView: View {
             }
             .background(AppBackground())
             .navigationTitle(importSummary == nil ? "Importar texto" : (importFailed ? "Falha na importação" : "Importação concluída"))
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .toolbar {
                 if importSummary == nil {
                     ToolbarItem(placement: .cancellationAction) {

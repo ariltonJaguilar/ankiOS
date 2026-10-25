@@ -3,7 +3,7 @@ set -euo pipefail
 
 HERE=${0:A:h}
 PROJECT=${HERE:h:h}
-PLATFORM=${1:?Use ios DEVICE_ID or macos}
+PLATFORM=${1:?Use ios DEVICE_ID}
 IS_SIMULATOR=0
 case "$PLATFORM" in
   ios)
@@ -17,11 +17,6 @@ case "$PLATFORM" in
     fi
     SIGNING_ALLOWED=${ANKIOS_UI_CODE_SIGNING_ALLOWED:-YES}
     shift 2
-    ;;
-  macos)
-    DESTINATION="platform=macOS,arch=arm64"
-    SIGNING_ALLOWED=${ANKIOS_UI_CODE_SIGNING_ALLOWED:-YES}
-    shift
     ;;
   *) exit 2 ;;
 esac

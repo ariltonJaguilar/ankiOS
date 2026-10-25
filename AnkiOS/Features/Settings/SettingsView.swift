@@ -62,7 +62,7 @@ struct SettingsView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+                    #if !WIDGET_EXTENSION
                     GlassFormSection(title: "Conta") {
                         settingsLink(
                             "AnkiWeb",
@@ -124,14 +124,12 @@ struct SettingsView: View {
                             systemImage: "rectangle.on.rectangle.angled",
                             identifier: "settings.preferences.study"
                         ) { PreferencesView(category: .study) }
-                        #if os(iOS)
                         settingsLink(
                             "Notificações",
                             description: Text("Configure lembretes para estudar os cartões pendentes."),
                             systemImage: "bell",
                             identifier: "settings.preferences.notifications"
                         ) { PreferencesView(category: .notifications) }
-                        #endif
                         settingsLink(
                             "Cartões",
                             description: Text("Restaure cartões ocultos ou remova cartões vazios."),
@@ -234,8 +232,7 @@ struct SettingsView: View {
                     onTagMissingNotes: { tagNotesWithMissingMedia() },
                     onTrashUnused: { trashUnusedMedia() },
                     onRestoreTrash: { restoreMediaTrash() },
-                    onEmptyTrash: { emptyMediaTrash() },
-                    onRenderLatex: { renderMissingLatex() }
+                    onEmptyTrash: { emptyMediaTrash() }
                 )
             }
             .fileImporter(
@@ -788,9 +785,7 @@ struct SettingsView: View {
         }
         .background(AppBackground())
         .navigationTitle(title)
-        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         .ankiKeyboardDismissToolbar()
     }
 
@@ -1053,14 +1048,7 @@ struct SettingsView: View {
     }
 
     private func checkDB() {
-        #if ANKIOS_PARITY_HARNESS || os(macOS)
-        Task { @MainActor in
-            await Task.yield()
-            CollectionDatabaseChecker(store: store).run()
-        }
-        #else
         Task { await store.checkDatabaseWithAnki() }
-        #endif
     }
 
     private func optimizeDB() {
@@ -1136,8 +1124,6 @@ struct SettingsView: View {
         }
 
         var referencesByName: [String: Set<Int64>] = [:]
-        var latexTasks: [AnkiLatexRenderTask] = []
-        var seenLatexNames = Set<String>()
         try store.db.query("SELECT id, mid, flds FROM notes") { stmt in
             let noteID = sqlite3_column_int64(stmt, 0)
             let notetypeID = sqlite3_column_int64(stmt, 1)
@@ -1151,14 +1137,6 @@ struct SettingsView: View {
                 let extraction = AnkiLatexMarkup.extract(in: fields, svg: notetype.latexsvg, expandClozes: true)
                 for asset in extraction.assets {
                     referencesByName[asset.filename, default: []].insert(noteID)
-                    if seenLatexNames.insert(asset.filename).inserted {
-                        latexTasks.append(AnkiLatexRenderTask(
-                            asset: asset,
-                            header: notetype.latexPre,
-                            footer: notetype.latexPost,
-                            svg: notetype.latexsvg
-                        ))
-                    }
                 }
             }
         }
@@ -1172,8 +1150,6 @@ struct SettingsView: View {
         let unused = files.filter { !$0.hasPrefix("_") && !usedNames.contains(key($0)) }.sorted()
         let missing = referencesByName.keys.filter { !existingNames.contains(key($0)) }.sorted()
         let missingNoteIDs = Set(missing.flatMap { referencesByName[$0] ?? [] }).sorted()
-        let missingLatex = latexTasks.filter { !existingNames.contains(key($0.asset.filename)) }
-
         var trashCount = 0
         var trashBytes: Int64 = 0
         for url in try fileManager.contentsOfDirectory(at: trashRoot, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]) {
@@ -1188,37 +1164,11 @@ struct SettingsView: View {
             fileCount: files.count,
             unused: unused,
             missing: missing,
-            missingLatex: missingLatex,
             missingNoteIDs: missingNoteIDs,
             folders: folders.sorted(),
             trashCount: trashCount,
             trashBytes: trashBytes
         )
-    }
-
-    private func renderMissingLatex() {
-        guard let mediaReport, !mediaReport.missingLatex.isEmpty else { return }
-        #if os(macOS)
-        let tasks = mediaReport.missingLatex
-        let mediaRoot = store.mediaRoot
-        let enabled = store.conf["renderLatex"] as? Bool ?? false
-        mediaCheckStatus = "Gerando imagens LaTeX…"
-        Task {
-            let errors = await Task.detached(priority: .userInitiated) {
-                AnkiLatexImageGenerator.renderMissing(tasks, mediaRoot: mediaRoot, enabled: enabled, stopOnError: true)
-            }.value
-            let status: String
-            if let error = errors.first {
-                status = error
-                    .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
-                    .replacingOccurrences(of: "&amp;", with: "&")
-                    .replacingOccurrences(of: "&quot;", with: "\"")
-            } else {
-                status = "Imagens LaTeX geradas."
-            }
-            refreshMediaReport(status: status)
-        }
-        #endif
     }
 
     private static func decodeMediaFilename(_ rawName: String) -> String {
@@ -1435,7 +1385,7 @@ struct SettingsView: View {
 
 }
 
-#if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+#if !WIDGET_EXTENSION
 struct AnkiWebAccountSection: View {
     @EnvironmentObject private var store: CollectionStore
     @State private var ankiWebUsername = ""
@@ -1476,9 +1426,7 @@ struct AnkiWebAccountSection: View {
                         TextField("Usuário ou e-mail", text: $ankiWebUsername)
                             .textFieldStyle(.plain)
                             .autocorrectionDisabled()
-                            #if os(iOS)
                             .textInputAutocapitalization(.never)
-                            #endif
                             .glassField()
                             .accessibilityIdentifier("ankiweb.username")
                         SecureField("Senha do AnkiWeb", text: $ankiWebPassword)
@@ -1556,29 +1504,16 @@ struct AnkiWebLoginPanel: View {
                 .frame(maxWidth: .infinity)
             }
             .navigationTitle("Sincronizar com AnkiWeb")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .toolbar {
-                #if os(iOS)
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Fechar") { dismiss() }
                         .accessibilityIdentifier("ankiweb.login.close")
                 }
-                #else
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Fechar") { dismiss() }
-                        .accessibilityIdentifier("ankiweb.login.close")
-                }
-                #endif
             }
         }
-        #if os(iOS)
         .presentationDetents([.height(500), .large])
         .presentationDragIndicator(.visible)
-        #else
-        .frame(minWidth: 500, minHeight: 480)
-        #endif
     }
 }
 
@@ -1640,9 +1575,7 @@ struct AnkiWebFullSyncPanel: View {
             }
             .background(AppBackground())
             .navigationTitle("AnkiWeb")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
         }
     }
 
@@ -1686,7 +1619,6 @@ struct MediaCheckReport {
     var fileCount: Int
     var unused: [String]
     var missing: [String]
-    var missingLatex: [AnkiLatexRenderTask]
     var missingNoteIDs: [Int64]
     var folders: [String]
     var trashCount: Int
@@ -1697,7 +1629,6 @@ struct MediaCheckReport {
             fileCount: 0,
             unused: [],
             missing: [],
-            missingLatex: [],
             missingNoteIDs: [],
             folders: [],
             trashCount: 0,
@@ -1718,7 +1649,6 @@ private struct MediaCheckView: View {
     let onTrashUnused: () -> Void
     let onRestoreTrash: () -> Void
     let onEmptyTrash: () -> Void
-    let onRenderLatex: () -> Void
 
     var body: some View {
         ScrollView {
@@ -1738,11 +1668,6 @@ private struct MediaCheckView: View {
                             .padding(.horizontal, 4)
                     }
                     toolButton("Verificar novamente", action: onRescan)
-                    #if os(macOS)
-                    if !report.missingLatex.isEmpty {
-                        toolButton("Gerar imagens LaTeX (\(report.missingLatex.count))", action: onRenderLatex)
-                    }
-                    #endif
                 }
 
                 GlassFormSection(title: "Arquivos ausentes (\(report.missing.count))") {

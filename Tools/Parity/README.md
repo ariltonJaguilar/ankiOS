@@ -1,8 +1,9 @@
-# Validação de paridade
+# Registro de paridade
 
-O avanço atual está em [STATUS.md](STATUS.md), com dados estruturados em
-[`coverage.json`](coverage.json). O painel mantém placares independentes para
-iOS e macOS; uma pendência em uma plataforma não reduz o avanço da outra.
+Os relatórios em [STATUS.md](STATUS.md) e [`coverage.json`](coverage.json)
+preservam evidências de versões anteriores. O produto atual compila somente
+para iOS e iPadOS; os registros de macOS aqui são históricos e não indicam
+suporte atual.
 
 ## Contagem e critérios
 
@@ -30,13 +31,11 @@ iOS e macOS; uma pendência em uma plataforma não reduz o avanço da outra.
   correspondente acompanha a ausência da integração em iOS e macOS; o harness
   diferencial antigo permanece fora dos targets do produto.
 
-## Atualizar
+## Validação atual
 
-1. Recompile o harness com `zsh Tools/Parity/build-harness.sh` para garantir que ele corresponde às fontes Swift atuais.
-2. Execute a comparação diferencial: `/tmp/ankios-parity/venv/bin/python -u Tools/Parity/oracle.py all`.
-3. Registre resultados e estado por plataforma em `coverage.json`.
-4. Gere o painel com `python3 Tools/Parity/report.py`.
-5. Execute as verificações relevantes e registre apenas lacunas funcionais concretas.
+Execute os testes de interface no simulador iOS com
+`zsh Tools/UITests/run.sh ios <UUID do simulador>`. O painel de paridade é um
+registro histórico e não é recalculado pelos testes atuais.
 
 Para comparar novamente o catálogo com os repositórios oficiais clonados em `/private/tmp`:
 

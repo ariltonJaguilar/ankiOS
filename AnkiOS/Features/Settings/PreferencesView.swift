@@ -1,7 +1,5 @@
 import SwiftUI
-#if os(iOS)
 import UserNotifications
-#endif
 
 struct PreferencesView: View {
     enum Category: String, Equatable {
@@ -83,9 +81,6 @@ struct PreferencesView: View {
     @State private var renderLatex = false
     @AppStorage("ankios.themeMode", store: SharedProfiles.defaults) private var themeMode = 0
     @State private var languageCode = AnkiLanguageCatalog.defaultLanguageCode
-    #if os(macOS)
-    @State private var showLanguageRestartAlert = false
-    #endif
 
     var body: some View {
         VStack(spacing: 0) {
@@ -108,33 +103,8 @@ struct PreferencesView: View {
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.secondaryText)
                                 .padding(.horizontal, 4)
-                            #if os(macOS)
-                            GlassOptionRow(title: "Idioma") {
-                                Picker("", selection: languageSelection) {
-                                    ForEach(AnkiLanguageCatalog.languages) { language in
-                                        Text(language.name).tag(language.code)
-                                    }
-                                }
-                                .labelsHidden()
-                                .accessibilityLabel("Idioma")
-                                .accessibilityValue(AnkiLanguageCatalog.language(for: languageCode).name)
-                                .accessibilityIdentifier("preferences.language")
-                                .pickerStyle(.menu)
-                                .menuIndicator(.hidden)
-                                .buttonStyle(GlassChipButtonStyle())
-                            }
-                            #endif
-    #if os(macOS)
-                            glassToggle("Mostrar contagem de cartões restantes", isOn: $showDueCounts)
-    #endif
                             glassToggle("Reduzir movimento", isOn: $reduceMotion)
                             glassToggle("Modo minimalista", isOn: $minimalistMode)
-    #if os(macOS)
-                            glassToggle("Mostrar próxima revisão nos botões", isOn: $estTimes)
-    #endif
-                            #if os(macOS)
-                            glassToggle("Gerar imagens LaTeX ao exibir cartões", isOn: $renderLatex)
-                            #endif
                             GlassInset {
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text("Zoom dos cartões: \(String(format: "%.0f%%", cardZoom * 100))")
@@ -166,7 +136,6 @@ struct PreferencesView: View {
                             glassToggle("Interromper áudio ao responder", isOn: $interruptAudio)
                             glassToggle("Barra de espaço avalia cartão", isOn: $spacebarRatesCard)
                         }
-                        #if os(iOS)
                         GlassFormSection(title: "preferences.review.section") {
                             glassToggle("Mostrar confirmação da avaliação", isOn: $reviewFeedbackTicks, identifier: "preferences.review.feedbackTicks")
                             glassToggle("Reduzir música e ignorar modo silencioso", isOn: $alwaysDuckAndIgnoreMute, identifier: "preferences.review.duckIgnoreMute")
@@ -184,10 +153,8 @@ struct PreferencesView: View {
                                 }
                             }
                         }
-                        #endif
                     }
                     if category == .notifications {
-                        #if os(iOS)
                         GlassFormSection(title: "Notificações") {
                             glassToggle("preferences.notifications.alertWhenDue", isOn: $studyReminderEnabled, identifier: "preferences.notifications.enabled")
                             GlassOptionRow(title: "Horário de alerta") {
@@ -215,10 +182,8 @@ struct PreferencesView: View {
                                     .accessibilityIdentifier("preferences.notifications.status")
                             }
                         }
-                        #endif
                     }
                     if category == .study {
-                        #if os(iOS)
                         GlassFormSection(title: "Toques no cartão") {
                             Text("Configure ações para as nove áreas do cartão. Na pergunta, todas mostram a resposta. Na resposta, as laterais avaliam De novo ou Bom.")
                                 .font(.caption)
@@ -283,7 +248,6 @@ struct PreferencesView: View {
                                 .foregroundStyle(AppTheme.secondaryText)
                                 .padding(.horizontal, 4)
                         }
-                        #if os(iOS)
                         GlassFormSection(title: "mobile.preferences.toolsOverlayButton") {
                             Text("Mostre o ícone de ferramentas sobre o cartão ou use a ação Ferramentas na barra superior.")
                                 .font(.caption)
@@ -299,7 +263,6 @@ struct PreferencesView: View {
                             glassToggle("Mostrar botões de resposta", isOn: $showStudyAnswerButtons, identifier: "preferences.bottomBar.answerButtons")
                             glassToggle("Mostrar próximos horários", isOn: $estTimes, identifier: "preferences.bottomBar.nextTimes")
                         }
-                        #endif
                         GlassFormSection(title: "Ação ao sacudir") {
                             GlassOptionRow(title: "Ação") {
                                 Picker(selection: Binding<String>(
@@ -338,7 +301,6 @@ struct PreferencesView: View {
                                 .padding(.horizontal, 4)
                         }
                         gamepadPreferencesSection
-                        #endif
                     }
                     if category == .editing {
                         GlassFormSection(title: "Edição e navegação") {
@@ -360,7 +322,6 @@ struct PreferencesView: View {
                                         .autocorrectionDisabled()
                                 }
                             }
-                            #if os(iOS)
                             GlassInset {
                                 VStack(alignment: .leading, spacing: 8) {
                                     HStack {
@@ -380,7 +341,6 @@ struct PreferencesView: View {
                                 }
                             }
                             glassToggle("Resize When Pasting", isOn: $resizePastedImages, identifier: "preferences.resizePastedImages")
-                            #endif
                             glassToggle("Colar imagens da área de transferência como PNG", isOn: $pasteImagesAsPNG)
                             glassToggle("Colar sem Shift remove a formatação", isOn: $pasteStripsFormatting)
                             glassToggle("Ignorar acentos nas buscas simples", isOn: $ignoreAccentsInSearch)
@@ -413,13 +373,6 @@ struct PreferencesView: View {
         .background(AppBackground())
         .navigationTitle(category.title)
         .onAppear(perform: load)
-        #if os(macOS)
-        .alert("Idioma alterado", isPresented: $showLanguageRestartAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Reinicie o AnkiOS para concluir a alteração do idioma.")
-        }
-        #endif
     }
 
     private var gamepadPreferencesSection: some View {
@@ -464,26 +417,9 @@ struct PreferencesView: View {
         }
     }
 
-    #if os(macOS)
-    private var languageSelection: Binding<String> {
-        Binding(
-            get: { languageCode },
-            set: { newValue in
-                guard newValue != languageCode else { return }
-                languageCode = newValue
-                SharedProfiles.defaults.set(newValue, forKey: AnkiLanguageCatalog.preferenceKey)
-                showLanguageRestartAlert = true
-            }
-        )
-    }
-    #endif
 
     private var selectedLanguageCode: String {
-        #if os(iOS)
         AnkiLanguageCatalog.appLanguageCode
-        #else
-        languageCode
-        #endif
     }
 
     private func glassToggle(_ title: String, isOn: Binding<Bool>, identifier: String? = nil) -> some View {
@@ -566,19 +502,13 @@ struct PreferencesView: View {
         forceOneWaySyncNext = store.ankiWebForceOneWaySyncNext
         periodicAnkiWebMediaSync = store.ankiWebPeriodicMediaSyncMinutes != 0
         renderLatex = store.conf["renderLatex"] as? Bool ?? false
-        #if os(macOS)
-        languageCode = SharedProfiles.defaults.string(forKey: AnkiLanguageCatalog.preferenceKey)
-            .flatMap(AnkiLanguageCatalog.normalizedCode) ?? AnkiLanguageCatalog.defaultLanguageCode
-        #else
         languageCode = AnkiLanguageCatalog.appLanguageCode
-        #endif
         let keyboard = store.reviewKeyboardPreferences
         spacebarRatesCard = keyboard.spacebarRatesCard
         answerKeyTexts = (1...4).map { keyboard.answerKeys[$0] ?? "" }
         gesturePreferences = store.reviewGesturePreferences
         showToolsOverlayButton = store.conf["showToolsOverlayButton"] as? Bool ?? true
         toolsOverlayButtonOnLeft = store.conf["toolsOverlayButtonOnLeft"] as? Bool ?? false
-        #if os(iOS)
         showStudyBottomBar = store.conf["showBottomBar"] as? Bool ?? true
         showStudyAnswerButtons = store.conf["showAnswerButtons"] as? Bool ?? true
         let defaults = SharedProfiles.defaults
@@ -592,7 +522,6 @@ struct PreferencesView: View {
         Task { @MainActor in
             studyReminderScheduled = await StudyReminderScheduler.hasPendingRequest()
         }
-        #endif
         gamepadPreferences = store.reviewGamepadPreferences
         let scratchpad = store.reviewScratchpadPreferences
         scratchpadIgnoresFingers = scratchpad.ignoreFingers
@@ -607,7 +536,6 @@ struct PreferencesView: View {
         conf["estTimes"] = estTimes
         conf["addToCur"] = addToCur
         conf["hideAudioPlayButtons"] = !showAudioPlayButtons
-        #if os(iOS)
         conf["reviewFeedbackTicks"] = reviewFeedbackTicks
         conf["alwaysDuckAndIgnoreMute"] = alwaysDuckAndIgnoreMute
         conf["answerKeepsZoom"] = answerKeepsZoom
@@ -618,7 +546,6 @@ struct PreferencesView: View {
         conf["toolsOverlayButtonOnLeft"] = toolsOverlayButtonOnLeft
         conf["showBottomBar"] = showStudyBottomBar
         conf["showAnswerButtons"] = showStudyAnswerButtons
-        #endif
         conf["cardZoom"] = cardZoom
         conf["interruptAudioWhenAnswering"] = interruptAudio
         conf.removeValue(forKey: "interruptAudio")
@@ -627,22 +554,13 @@ struct PreferencesView: View {
         conf.removeValue(forKey: "browserDefaultSearch")
         conf["ignoreAccentsInSearch"] = ignoreAccentsInSearch
         conf["pasteImagesAsPng"] = pasteImagesAsPNG
-        #if os(iOS)
         conf["imageMaxDimension"] = imageMaxDimension
         conf["resizePastedImages"] = resizePastedImages
-        #endif
         conf["pasteStripsFormatting"] = pasteStripsFormatting
-        #if os(macOS)
-        conf["renderLatex"] = renderLatex
-        #endif
         do {
             try store.saveConf(conf)
             SharedProfiles.defaults.set(reduceMotion, forKey: "ankios.reduceMotion")
             SharedProfiles.defaults.set(minimalistMode, forKey: "ankios.minimalistMode")
-            #if os(macOS)
-            SharedProfiles.defaults.set(languageCode, forKey: AnkiLanguageCatalog.preferenceKey)
-            #endif
-            #if os(iOS)
             let reminderPrefix = StudyReminderScheduler.storagePrefix(for: store.activeProfile)
             let reminderComponents = Calendar.current.dateComponents([.hour, .minute], from: studyReminderTime)
             let reminderHour = reminderComponents.hour ?? 19
@@ -667,7 +585,6 @@ struct PreferencesView: View {
                 studyReminderPermissionDenied = reminderEnabled && !permitted
                 studyReminderScheduled = reminderEnabled && permitted
             }
-            #endif
             var keyboard = store.reviewKeyboardPreferences
             keyboard.spacebarRatesCard = spacebarRatesCard
             keyboard.answerKeys = Dictionary(uniqueKeysWithValues: (1...4).map { rating in
@@ -676,13 +593,11 @@ struct PreferencesView: View {
             store.saveReviewKeyboardPreferences(keyboard)
             store.saveReviewGesturePreferences(gesturePreferences)
             store.saveReviewGamepadPreferences(gamepadPreferences)
-#if os(iOS)
             store.saveReviewScratchpadPreferences(ReviewScratchpadPreferences(
                 ignoreFingers: scratchpadIgnoresFingers,
                 undoClearsAll: scratchpadUndoClearsAll,
                 belowButtons: scratchpadBelowButtons
             ))
-#endif
             store.saveStudyUserActionScripts(studyUserActionScripts)
             store.saveAnkiWebSyncSettings(
                 autoSync: autoSyncAnkiWeb,
@@ -760,13 +675,8 @@ struct AutoAdvanceSheet: View {
             }
             .background(AppBackground())
             .navigationTitle("Avanço automático")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .onAppear(perform: load)
-            #if os(macOS)
-            .frame(minWidth: 480, minHeight: 460)
-            #endif
         }
     }
 
@@ -817,7 +727,6 @@ struct AutoAdvanceSheet: View {
     }
 }
 
-#if os(iOS)
 enum StudyReminderScheduler {
     private static let notificationID = "ankios.daily-study-reminder"
 
@@ -901,4 +810,3 @@ enum StudyReminderScheduler {
         }
     }
 }
-#endif

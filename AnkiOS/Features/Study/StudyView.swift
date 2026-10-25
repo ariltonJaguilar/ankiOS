@@ -1,12 +1,7 @@
 import SwiftUI
-#if os(iOS)
 import GameController
 import PencilKit
 import UIKit
-#endif
-#if os(macOS)
-import AppKit
-#endif
 
 struct StudyView: View {
     private enum StudyToolsDestination: String, Identifiable, Hashable {
@@ -115,13 +110,9 @@ struct StudyView: View {
     @State private var scratchpadEnabled = false
     @State private var scratchpadSize = 1
     @State private var scratchpadStrokes: [StudyScratchpadStroke] = []
-    #if os(iOS)
     @State private var scratchpadDrawing = PKDrawing()
-    #endif
     @State private var cardScrollRequest = 0
-#if os(iOS)
     @StateObject private var gamepadManager = StudyGamepadManager()
-#endif
     @State private var cardScrollDirection = 0
     @State private var activeUserActionNumber: Int?
     @State private var activeUserActionScript = ""
@@ -135,10 +126,6 @@ struct StudyView: View {
 
     var body: some View {
         NavigationStack { studyNavigationContent }
-#if os(macOS)
-        .frame(minWidth: 760, minHeight: 600)
-#endif
-#if os(iOS)
         .overlay(alignment: .topLeading) {
             StudyShakeReceiver {
                 guard current != nil,
@@ -151,7 +138,6 @@ struct StudyView: View {
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }
-#endif
         .task { await setup() }
         .onAppear { studySceneIsActive = scenePhase == .active }
         .onChange(of: scenePhase) { _, phase in studySceneIsActive = phase == .active }
@@ -174,7 +160,6 @@ struct StudyView: View {
                 AppBackground()
                 VStack(spacing: 0) {
                     if studyTopBarVisible { progressBar }
-#if os(iOS)
                     cardArea.overlay(alignment: .topTrailing) {
                         if let answerFeedback {
                             Image(systemName: answerFeedback == .again ? "xmark.circle.fill" : "checkmark.circle.fill")
@@ -186,9 +171,6 @@ struct StudyView: View {
                                 .transition(.scale.combined(with: .opacity))
                         }
                     }
-#else
-                    cardArea
-#endif
                     if studyBottomBarVisible {
                         controls
                             .accessibilityElement(children: .contain)
@@ -198,7 +180,6 @@ struct StudyView: View {
             }
             .navigationTitle(deck.displayName)
         )
-        #if os(iOS)
         view = AnyView(view.navigationBarTitleDisplayMode(.inline))
         view = AnyView(view.toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -213,7 +194,6 @@ struct StudyView: View {
             }
         })
         view = AnyView(view.toolbar(studyTopBarVisible ? .visible : .hidden, for: .navigationBar))
-        #endif
         view = AnyView(view.task(id: autoAdvanceToken) { await runAutoAdvance() })
         view = AnyView(view.sheet(isPresented: $showAutoAdvance) {
             AutoAdvanceSheet(deck: autoAdvanceDeck)
@@ -257,10 +237,8 @@ struct StudyView: View {
                 reloadQueue(keepCurrent: true)
             }
         })
-#if os(iOS)
         view = AnyView(view.onAppear(perform: configureGamepad))
         view = AnyView(view.onChange(of: store.reviewGamepadRevision) { _, _ in configureGamepad() })
-#endif
         view = AnyView(view.modifier(StudyTimeboxAlert(
             showSetDue: $showSetDue,
             dueDateText: $dueDateText,
@@ -279,9 +257,7 @@ struct StudyView: View {
             voiceRecordingTask?.cancel()
             voiceRecordingTask = nil
             store.mediaStore.clearOwnVoice()
-#if os(iOS)
             gamepadManager.stop()
-#endif
         })
         return view
     }
@@ -341,9 +317,6 @@ struct StudyView: View {
             .background(AppBackground())
             .navigationTitle("Repor cartão")
         }
-        #if os(macOS)
-        .frame(minWidth: 420, minHeight: 280)
-        #endif
     }
 
     private var studyToolsSheet: some View {
@@ -374,7 +347,6 @@ struct StudyView: View {
             .background(AppBackground())
             .navigationTitle("Ferramentas")
             .toolbar {
-#if os(iOS)
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
                         adjustCardZoom(by: -0.05)
@@ -400,7 +372,6 @@ struct StudyView: View {
                     .accessibilityIdentifier("study.tools.cardZoom.up")
                     .disabled(cardZoom >= 1.6)
                 }
-#endif
                 ToolbarItem(placement: .automatic) {
                     Button(editingFrequentStudyActions ? "Concluído" : "Editar") {
                         editingFrequentStudyActions.toggle()
@@ -646,7 +617,6 @@ struct StudyView: View {
             studyTopBarVisible.toggle()
         case .toggleBottomBar:
             studyBottomBarVisible.toggle()
-#if os(iOS)
             var conf = store.conf
             conf["showBottomBar"] = studyBottomBarVisible
             do {
@@ -654,7 +624,6 @@ struct StudyView: View {
             } catch {
                 store.lastError = error.localizedDescription
             }
-#endif
         case .toggleNightMode:
             let currentlyDark = themeMode == 2 || (themeMode == 0 && colorScheme == .dark)
             themeMode = currentlyDark ? 1 : 2
@@ -751,9 +720,7 @@ struct StudyView: View {
         scratchpadEnabled.toggle()
         SharedProfiles.defaults.set(scratchpadEnabled, forKey: scratchpadPreferenceKey(notetypeID: notetype.id))
         if !scratchpadEnabled { scratchpadStrokes.removeAll() }
-        #if os(iOS)
         if !scratchpadEnabled { scratchpadDrawing = PKDrawing() }
-        #endif
     }
 
     private func cycleScratchpadSize() {
@@ -810,9 +777,6 @@ struct StudyView: View {
                 NoteEditorView(mode: .edit(note.id))
                     .environmentObject(store)
             }
-            #if os(macOS)
-            .frame(minWidth: 520, minHeight: 480)
-            #endif
         }
     }
 
@@ -823,9 +787,6 @@ struct StudyView: View {
                 NoteEditorView(mode: .copy(copyNoteID))
                     .environmentObject(store)
             }
-            #if os(macOS)
-            .frame(minWidth: 520, minHeight: 480)
-            #endif
         }
     }
 
@@ -942,11 +903,7 @@ struct StudyView: View {
     }
 
     private var showStudyAnswerButtons: Bool {
-#if os(iOS)
         store.conf["showAnswerButtons"] as? Bool ?? true
-#else
-        true
-#endif
     }
 
     private var showAudioPlayButtons: Bool {
@@ -954,14 +911,9 @@ struct StudyView: View {
     }
 
     private var scratchpadBelowButtons: Bool {
-#if os(iOS)
         scratchpadPreferences.belowButtons
-#else
-        false
-#endif
     }
 
-#if os(iOS)
     private var showToolsOverlayButton: Bool {
         let isEnabled = store.conf["showToolsOverlayButton"] as? Bool ?? true
         let topBarAlreadyOpensTools = studyTopBarVisible && store.reviewGesturePreferences.topBarAction == .openTools
@@ -971,7 +923,6 @@ struct StudyView: View {
     private var toolsOverlayButtonOnLeft: Bool {
         store.conf["toolsOverlayButtonOnLeft"] as? Bool ?? false
     }
-#endif
 
     private var dueCountChips: some View {
         let c = queueCounts.map { DeckCounts(new: $0.new, learn: $0.learning, review: $0.review) }
@@ -1037,7 +988,6 @@ struct StudyView: View {
 
     @ViewBuilder
     private var cardArea: some View {
-        #if os(iOS)
         GeometryReader { proxy in
             cardAreaContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1086,9 +1036,6 @@ struct StudyView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("study.cardArea")
-        #else
-        cardAreaContent
-        #endif
     }
 
     @ViewBuilder
@@ -1165,11 +1112,7 @@ struct StudyView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            #if os(iOS)
             .overlay(alignment: .top) { studyCardTopControls }
-            #else
-            .overlay(alignment: .topTrailing) { studyCardBadges }
-            #endif
             .overlay(alignment: .top) {
                 if scratchpadEnabled && !scratchpadBelowButtons {
                     scratchpadPanel
@@ -1185,7 +1128,6 @@ struct StudyView: View {
         }
     }
 
-#if os(iOS)
     private var studyCardTopControls: some View {
         HStack(alignment: .top, spacing: 8) {
             if showToolsOverlayButton && toolsOverlayButtonOnLeft {
@@ -1214,7 +1156,6 @@ struct StudyView: View {
         .accessibilityLabel("Ferramentas")
         .accessibilityIdentifier("study.tools.overlay")
     }
-#endif
 
     private func performStudyTap(at point: CGPoint, globalOrigin: CGPoint, size: CGSize) {
         guard current != nil, !scratchpadEnabled, size.width > 0, size.height > 0 else { return }
@@ -1299,33 +1240,19 @@ struct StudyView: View {
 
     @ViewBuilder
     private var scratchpadCanvas: some View {
-        #if os(iOS)
         StudyPencilScratchpadCanvas(drawing: $scratchpadDrawing, ignoreFingers: scratchpadPreferences.ignoreFingers)
             .accessibilityIdentifier("study.scratchpad.canvas")
             .accessibilityLabel(scratchpadPreferences.ignoreFingers ? "Área do bloco de escrita, somente Apple Pencil" : "Área do bloco de escrita, toque ou Apple Pencil")
             .accessibilityValue("\(scratchpadDrawing.strokes.count) traços")
-        #else
-        StudyScratchpadCanvas(strokes: $scratchpadStrokes)
-            .accessibilityIdentifier("study.scratchpad.canvas")
-            .accessibilityValue("\(scratchpadStrokes.count) traços")
-        #endif
     }
 
     private func undoScratchpadStroke() {
-        #if os(iOS)
         guard !scratchpadDrawing.strokes.isEmpty else { return }
         scratchpadDrawing = PKDrawing(strokes: Array(scratchpadDrawing.strokes.dropLast()))
-        #else
-        if !scratchpadStrokes.isEmpty { scratchpadStrokes.removeLast() }
-        #endif
     }
 
     private func clearScratchpad() {
-        #if os(iOS)
         scratchpadDrawing = PKDrawing()
-        #else
-        scratchpadStrokes.removeAll()
-        #endif
     }
 
     private func performStudyGestureAction(_ action: ReviewGestureAction) {
@@ -1342,7 +1269,6 @@ struct StudyView: View {
         }
     }
 
-#if os(iOS)
     private func configureGamepad() {
         gamepadManager.configure(
             preferences: store.reviewGamepadPreferences,
@@ -1350,7 +1276,6 @@ struct StudyView: View {
             onScroll: { direction in scrollStudyCard(direction: direction) }
         )
     }
-#endif
 
     @ViewBuilder
     private var studyCardBadges: some View {
@@ -1552,11 +1477,9 @@ struct StudyView: View {
                     }
                 }
             }
-#if os(iOS)
             if current != nil && scratchpadEnabled && scratchpadBelowButtons {
                 scratchpadPanel
             }
-#endif
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 20)
@@ -1855,9 +1778,7 @@ struct StudyView: View {
         scheduler = store.schedulerForStudySession()
         store.setCurrentDeck(deck.id)
         scratchpadPreferences = store.reviewScratchpadPreferences
-#if os(iOS)
         studyBottomBarVisible = store.conf["showBottomBar"] as? Bool ?? true
-#endif
         sessionStarted = Date()
         timeboxStartedAt = sessionStarted
         timeboxAnsweredCount = 0
@@ -1887,9 +1808,7 @@ struct StudyView: View {
         startedAt = Date()
         timerStoppedAt = nil
         scratchpadStrokes.removeAll()
-        #if os(iOS)
         scratchpadDrawing = PKDrawing()
-        #endif
         current = queue.first
         guard let card = current else {
             note = nil
@@ -2018,9 +1937,7 @@ struct StudyView: View {
                     reloadQueue(keepCurrent: false)
                 }
             }
-#if os(iOS)
             showAnswerFeedback(for: rating)
-#endif
         } catch {
             self.current = nil
             note = nil
@@ -2028,7 +1945,6 @@ struct StudyView: View {
         }
     }
 
-#if os(iOS)
     private func showAnswerFeedback(for rating: Rating) {
         guard store.conf["reviewFeedbackTicks"] as? Bool ?? true else {
             answerFeedback = nil
@@ -2045,7 +1961,6 @@ struct StudyView: View {
             }
         }
     }
-#endif
 
     private func reachedTimeboxMessage() -> String? {
         let limit = max(store.conf["timeLim"] as? Int ?? 0, 0)
@@ -2122,21 +2037,13 @@ struct StudyView: View {
         case "space": return .space
         case "return": return .return
         case "enter":
-#if os(macOS)
-            return KeyEquivalent(Character(UnicodeScalar(NSEnterCharacter)!))
-#else
             return .return
-#endif
         case "tab": return .tab
         case "delete": return .deleteForward
         case "backspace": return .delete
         case "escape", "esc": return .escape
         case "f5":
-#if os(macOS)
-            return KeyEquivalent(Character(UnicodeScalar(NSF5FunctionKey)!))
-#else
             return nil
-#endif
         default:
             guard value.count == 1, let character = value.first else { return nil }
             return KeyEquivalent(character)
@@ -2350,7 +2257,6 @@ struct StudyView: View {
     }
 }
 
-#if os(iOS)
 private struct StudyShakeReceiver: UIViewRepresentable {
     let onShake: () -> Void
 
@@ -2386,9 +2292,7 @@ private final class StudyShakeView: UIView {
         }
     }
 }
-#endif
 
-#if os(iOS)
 @MainActor
 private struct StudyPencilScratchpadCanvas: UIViewRepresentable {
     @Binding var drawing: PKDrawing
@@ -2432,7 +2336,6 @@ private struct StudyPencilScratchpadCanvas: UIViewRepresentable {
         }
     }
 }
-#endif
 
 private struct StudyScratchpadStroke: Identifiable {
     let id: UUID

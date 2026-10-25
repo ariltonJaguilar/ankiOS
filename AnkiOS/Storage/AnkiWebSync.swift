@@ -1,4 +1,3 @@
-#if !ANKIOS_PARITY_HARNESS
 import AnkiBackend
 import Foundation
 import Security
@@ -16,11 +15,9 @@ struct AnkiWebSyncResponse: Decodable, Sendable {
     var serverMediaUsn: Int
 }
 
-#if os(iOS)
 private struct AnkiDatabaseCheckResponse: Decodable {
     var problems: [String]
 }
-#endif
 
 struct AnkiWebMediaProgress: Decodable, Sendable, Equatable {
     var checked: String?
@@ -216,7 +213,6 @@ final class AnkiBackendSession: @unchecked Sendable {
         handle = opened
     }
 
-    #if os(iOS)
     static func checkDatabase(collectionPath: URL, mediaPath: URL, mediaDatabasePath: URL) throws -> [String] {
         var error: UnsafeMutablePointer<CChar>?
         let result = collectionPath.path.withCString { collection in
@@ -231,7 +227,6 @@ final class AnkiBackendSession: @unchecked Sendable {
         let data = Data(String(cString: result).utf8)
         return try JSONDecoder().decode(AnkiDatabaseCheckResponse.self, from: data).problems
     }
-    #endif
 
     func login(username: String, password: String, endpoint: String?) throws -> AnkiWebAuth {
         let response: LoginResponse = try withError { error in
@@ -363,4 +358,3 @@ private struct LoginResponse: Decodable {
 }
 
 private struct EmptyResponse: Decodable {}
-#endif

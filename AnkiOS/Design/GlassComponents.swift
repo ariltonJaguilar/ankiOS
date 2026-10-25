@@ -318,16 +318,12 @@ struct GlassInset<Content: View>: View {
 
 extension View {
     func glassListRow(selected: Bool = false, tint: Color? = nil) -> some View {
-        #if os(iOS)
         // glassEffect inside listRowBackground traps on iPhone.
         self.listRowBackground(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill((tint ?? AppTheme.primaryText).opacity(selected ? 0.20 : 0.10))
                 .padding(.vertical, 2)
         )
-        #else
-        self.listRowBackground(GlassListRowBackground(selected: selected, tint: tint))
-        #endif
     }
 
     /// Menu outside the system toolbar: glass on the label only, no extra chevron.
@@ -337,7 +333,6 @@ extension View {
             .buttonStyle(GlassChipButtonStyle())
     }
 
-    /// Full-width tappable list row label (macOS otherwise only hits the text glyphs).
     func glassRowHitTarget() -> some View {
         self
             .frame(maxWidth: .infinity, alignment: .leading)

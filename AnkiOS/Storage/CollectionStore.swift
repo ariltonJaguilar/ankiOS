@@ -25,11 +25,7 @@ enum SharedProfiles {
         if let uiTestSession {
             return UserDefaults(suiteName: "com.bigbear.AnkiOS.uitests.\(uiTestSession)") ?? .standard
         }
-        #if ANKIOS_PARITY_HARNESS
-        return UserDefaults(suiteName: "com.bigbear.AnkiOS.parity-harness") ?? .standard
-        #else
         return UserDefaults(suiteName: groupID) ?? .standard
-        #endif
     }()
 
     static var defaults: UserDefaults {
@@ -43,17 +39,11 @@ enum SharedProfiles {
                 .appendingPathComponent(uiTestSession, isDirectory: true)
                 .appendingPathComponent("Profiles", isDirectory: true)
         }
-        #if ANKIOS_PARITY_HARNESS
-        let root = ProcessInfo.processInfo.environment["ANKIOS_PROFILES_ROOT"] ?? "/tmp/ankios-parity/default"
-        return URL(fileURLWithPath: root, isDirectory: true)
-        #else
         return groupProfiles ?? documentsProfiles
-        #endif
     }
 
     static func migrateLegacyIfNeeded() {
         guard uiTestSession == nil else { return }
-        #if !ANKIOS_PARITY_HARNESS
         guard let group = groupProfiles else { return }
         guard !didMigrate else { return }
         didMigrate = true
@@ -88,7 +78,6 @@ enum SharedProfiles {
                 }
             }
         }
-        #endif
     }
 
     private static var groupProfiles: URL? {
@@ -568,7 +557,7 @@ final class CollectionStore: ObservableObject {
     @Published var shouldShowTutorial = false
     @Published var collectionSyncing = false
     @Published var collectionSyncMessage: String?
-    #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+    #if !WIDGET_EXTENSION
     @Published var collectionSyncCanCancel = false
     @Published var collectionSyncMediaProgress: AnkiWebMediaProgress?
     @Published var pendingAnkiWebFullSync: AnkiWebFullSyncPrompt?
@@ -1019,9 +1008,6 @@ final class CollectionStore: ObservableObject {
     }
 
     var collectionPath: URL {
-        #if ANKIOS_PARITY_HARNESS
-        return profileDirectory.appendingPathComponent("collection.anki2")
-        #else
         // Migrate legacy single-collection layout into the active profile once.
         let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let legacy = docs.appendingPathComponent("collection.anki2")
@@ -1036,7 +1022,6 @@ final class CollectionStore: ObservableObject {
             }
         }
         return modern
-        #endif
     }
 
     var mediaRoot: URL {
@@ -1103,7 +1088,7 @@ final class CollectionStore: ObservableObject {
             migrateReviewGamepadPreferences(from: oldName, to: trimmed)
             migrateStudyScratchpadPreferences(from: oldName, to: trimmed)
             migrateAnkiWebSyncSettings(from: oldName, to: trimmed)
-            #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+            #if !WIDGET_EXTENSION
             if let auth = AnkiWebCredentialStore.load(profile: oldName) {
                 do {
                     try AnkiWebCredentialStore.save(auth, profile: trimmed)
@@ -1116,7 +1101,7 @@ final class CollectionStore: ObservableObject {
             if isActive {
                 activeProfile = trimmed
                 await bootstrapIfNeeded()
-                #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+                #if !WIDGET_EXTENSION
                 await syncWithAnkiWebIfAutomaticEnabled()
                 #endif
             }
@@ -1137,11 +1122,7 @@ final class CollectionStore: ObservableObject {
         guard fileManager.fileExists(atPath: directory.path) else {
             throw SQLiteError.exec("Perfil não encontrado.")
         }
-        #if os(macOS) && !ANKIOS_PARITY_HARNESS
-        try fileManager.trashItem(at: directory, resultingItemURL: nil)
-        #else
         try fileManager.removeItem(at: directory)
-        #endif
         SharedProfiles.defaults.removeObject(forKey: Self.legacyReviewKeyboardPreferencesKey(for: name))
         SharedProfiles.defaults.removeObject(forKey: Self.reviewGesturePreferencesKey(for: name))
         SharedProfiles.defaults.removeObject(forKey: Self.reviewGamepadPreferencesKey(for: name))
@@ -1156,7 +1137,7 @@ final class CollectionStore: ObservableObject {
         SharedProfiles.defaults.removeObject(forKey: Self.ankiWebMediaSyncKey(for: name))
         SharedProfiles.defaults.removeObject(forKey: Self.ankiWebForceOneWayKey(for: name))
         SharedProfiles.defaults.removeObject(forKey: Self.ankiWebPeriodicMediaKey(for: name))
-        #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+        #if !WIDGET_EXTENSION
         AnkiWebCredentialStore.remove(profile: name)
         #endif
     }
@@ -1177,7 +1158,7 @@ final class CollectionStore: ObservableObject {
 
     func switchProfile(to name: String) async {
         clearCollectionUndoHistory()
-        #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+        #if !WIDGET_EXTENSION
         pendingAnkiWebFullSync = nil
         #endif
         lastAutomaticBackup = nil
@@ -1191,7 +1172,7 @@ final class CollectionStore: ObservableObject {
         deckCounts = [:]
         conf = [:]
         await bootstrapIfNeeded()
-        #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+        #if !WIDGET_EXTENSION
         await syncWithAnkiWebIfAutomaticEnabled()
         #endif
     }
@@ -1227,7 +1208,7 @@ final class CollectionStore: ObservableObject {
         ankiWebSyncSettingsRevision += 1
     }
 
-    #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+    #if !WIDGET_EXTENSION
     var ankiWebConfigured: Bool {
         AnkiWebCredentialStore.load(profile: activeProfile) != nil
     }
@@ -1468,7 +1449,6 @@ final class CollectionStore: ObservableObject {
         syncLock?.release()
     }
 
-    #if os(iOS) && !ANKIOS_PARITY_HARNESS
     func checkDatabaseWithAnki() async {
         guard !collectionSyncing else { return }
         collectionSyncing = true
@@ -1499,7 +1479,6 @@ final class CollectionStore: ObservableObject {
         collectionSyncing = false
         syncLock?.release()
     }
-    #endif
 
     func cancelAnkiWebSync() {
         guard collectionSyncCanCancel else { return }
@@ -2979,12 +2958,7 @@ final class CollectionStore: ObservableObject {
         #if WIDGET_EXTENSION
         let sessionName = "Sessão de Estudo Personalizado"
         #else
-        #if os(iOS)
         let languageCode = AnkiLanguageCatalog.appLanguageCode
-        #else
-        let languageCode = SharedProfiles.defaults.string(forKey: "ankios.language")
-            ?? AnkiLanguageCatalog.defaultLanguageCode
-        #endif
         let sessionName = AnkiLanguageCatalog.localizedString(
             "Sessão de Estudo Personalizado",
             for: languageCode

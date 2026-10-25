@@ -1,12 +1,7 @@
 import SwiftUI
 import WebKit
-#if os(macOS)
-import AppKit
-#else
 import UIKit
-#endif
 
-#if os(iOS)
 struct CardWebView: UIViewRepresentable {
     let html: String
     let baseURL: URL
@@ -151,134 +146,6 @@ struct CardWebView: UIViewRepresentable {
         }
     }
 }
-#else
-struct CardWebView: NSViewRepresentable {
-    let html: String
-    let baseURL: URL
-    var onSoundTap: ((String) -> Void)?
-    var onSpeechTap: ((CardHTMLRenderer.SpeechRequest) -> Void)?
-    var onVideoFramesChanged: (([CGRect]) -> Void)?
-    var scrollRequest = 0
-    var scrollDirection = 0
-    var userActionRequest = 0
-    var userActionNumber: Int?
-    var userActionScript = ""
-    @Environment(\.colorScheme) private var colorScheme
-
-    func makeCoordinator() -> Coordinator { Coordinator(onSoundTap: onSoundTap, onSpeechTap: onSpeechTap) }
-
-    func makeNSView(context: Context) -> WKWebView {
-        let web = makeWebView(handler: context.coordinator)
-        web.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
-        context.coordinator.lastHTML = html
-        context.coordinator.lastScrollRequest = scrollRequest
-        context.coordinator.lastUserActionRequest = userActionRequest
-        web.loadHTMLString(html, baseURL: baseURL)
-        return web
-    }
-
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        context.coordinator.onSoundTap = onSoundTap
-        context.coordinator.onSpeechTap = onSpeechTap
-        webView.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
-        context.coordinator.updateRequests(
-            scrollRequest: scrollRequest,
-            scrollDirection: scrollDirection,
-            userActionRequest: userActionRequest,
-            userActionNumber: userActionNumber,
-            userActionScript: userActionScript,
-            webView: webView
-        )
-        guard context.coordinator.lastHTML != html else { return }
-        context.coordinator.lastHTML = html
-        webView.loadHTMLString(html, baseURL: baseURL)
-    }
-
-    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
-        var lastHTML: String?
-        var onSoundTap: ((String) -> Void)?
-        var onSpeechTap: ((CardHTMLRenderer.SpeechRequest) -> Void)?
-        var lastScrollRequest = 0
-        var pendingScrollDirection = 0
-        var lastUserActionRequest = 0
-        var pendingUserAction: (number: Int, script: String)?
-
-        init(onSoundTap: ((String) -> Void)?, onSpeechTap: ((CardHTMLRenderer.SpeechRequest) -> Void)?) {
-            self.onSoundTap = onSoundTap
-            self.onSpeechTap = onSpeechTap
-        }
-
-        func updateRequests(
-            scrollRequest: Int,
-            scrollDirection: Int,
-            userActionRequest: Int,
-            userActionNumber: Int?,
-            userActionScript: String,
-            webView: WKWebView
-        ) {
-            if scrollRequest != lastScrollRequest {
-                lastScrollRequest = scrollRequest
-                pendingScrollDirection = scrollDirection
-            }
-            if userActionRequest != lastUserActionRequest {
-                lastUserActionRequest = userActionRequest
-                if let userActionNumber {
-                    pendingUserAction = (userActionNumber, userActionScript)
-                }
-            }
-            flushRequests(in: webView)
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            flushRequests(in: webView)
-        }
-
-        private func flushRequests(in webView: WKWebView) {
-            guard !webView.isLoading else { return }
-            if pendingScrollDirection != 0 {
-                let distance = max(webView.frame.height * 0.8, 120)
-                let offset = Int(distance * CGFloat(pendingScrollDirection))
-                webView.evaluateJavaScript("window.scrollBy({top:\(offset), behavior:'smooth'});")
-                pendingScrollDirection = 0
-            }
-            if let request = pendingUserAction {
-                pendingUserAction = nil
-                let actionName = "userJs\(request.number)"
-                let setup = request.script.contains(actionName)
-                    ? request.script
-                    : "window.\(actionName) = \(request.script);"
-                webView.evaluateJavaScript("\(setup)\nif (typeof window.\(actionName) === 'function') window.\(actionName)();")
-            }
-        }
-
-        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            if message.name == "ankiSound", let file = message.body as? String {
-                onSoundTap?(file)
-            } else if message.name == "ankiSpeech", let request = speechRequest(from: message.body) {
-                onSpeechTap?(request)
-            }
-        }
-
-        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
-            guard navigationAction.navigationType == .linkActivated,
-                  let url = navigationAction.request.url else {
-                return .allow
-            }
-            guard !isSameDocumentAnchor(url, currentURL: webView.url) else {
-                return .allow
-            }
-            openCardLink(url)
-            return .cancel
-        }
-
-        func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-            guard let url = navigationAction.request.url else { return nil }
-            openCardLink(url)
-            return nil
-        }
-    }
-}
-#endif
 
 private func isSameDocumentAnchor(_ url: URL, currentURL: URL?) -> Bool {
     guard let currentURL,
@@ -293,26 +160,18 @@ private func isSameDocumentAnchor(_ url: URL, currentURL: URL?) -> Bool {
 @MainActor private func openCardLink(_ url: URL) {
     guard let scheme = url.scheme?.lowercased(),
           !["javascript", "data", "file", "blob", "about"].contains(scheme) else { return }
-    #if os(iOS)
     UIApplication.shared.open(url)
-    #else
-    NSWorkspace.shared.open(url)
-    #endif
 }
 
 @MainActor private func makeWebView(handler: WKScriptMessageHandler) -> WKWebView {
     let config = WKWebViewConfiguration()
     config.defaultWebpagePreferences.allowsContentJavaScript = true
     config.setURLSchemeHandler(MathJaxResourceHandler(), forURLScheme: "ankimathjax")
-    #if os(macOS)
-    config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-    #endif
     let uc = config.userContentController
     uc.removeScriptMessageHandler(forName: "ankiSound")
     uc.removeScriptMessageHandler(forName: "ankiSpeech")
     uc.add(handler, name: "ankiSound")
     uc.add(handler, name: "ankiSpeech")
-    #if os(iOS)
     uc.add(handler, name: "ankiVideoFrames")
     let videoFrameScript = """
     (function(){
@@ -337,7 +196,6 @@ private func isSameDocumentAnchor(_ url: URL, currentURL: URL?) -> Bool {
     })();
     """
     uc.addUserScript(WKUserScript(source: videoFrameScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
-    #endif
     let ankiTemplateBootstrap = """
     window.anki = window.anki || {};
     if (typeof window.anki.qFade === 'undefined') window.anki.qFade = 100;
@@ -391,15 +249,10 @@ private func isSameDocumentAnchor(_ url: URL, currentURL: URL?) -> Bool {
     let web = WKWebView(frame: .zero, configuration: config)
     web.navigationDelegate = handler as? WKNavigationDelegate
     web.uiDelegate = handler as? WKUIDelegate
-    #if os(macOS)
-    web.setValue(false, forKey: "drawsBackground")
-    #endif
-    #if os(iOS)
     web.isOpaque = false
     web.backgroundColor = .clear
     web.scrollView.backgroundColor = .clear
     web.scrollView.contentInsetAdjustmentBehavior = .never
-    #endif
     return web
 }
 

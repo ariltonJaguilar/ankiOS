@@ -1,9 +1,5 @@
 import SwiftUI
-#if os(iOS)
 import UIKit
-#elseif os(macOS)
-import AppKit
-#endif
 
 private struct AnkiMinimalistModeKey: EnvironmentKey {
     static let defaultValue = false
@@ -70,21 +66,12 @@ extension View {
 enum AppTheme {
     static let deepTeal = Color(red: 0.02, green: 0.14, blue: 0.18)
     static let ink = Color(red: 0.03, green: 0.05, blue: 0.07)
-    #if os(iOS)
     static let mist = Color(uiColor: .systemCyan)
     static let accent = Color(uiColor: .systemTeal)
     static let warn = Color(uiColor: .systemOrange)
     static let danger = Color(uiColor: .systemRed)
     static let good = Color(uiColor: .systemGreen)
     static let easy = Color(uiColor: .systemBlue)
-    #else
-    static let mist = Color(nsColor: .systemCyan)
-    static let accent = Color(nsColor: .systemTeal)
-    static let warn = Color(nsColor: .systemOrange)
-    static let danger = Color(nsColor: .systemRed)
-    static let good = Color(nsColor: .systemGreen)
-    static let easy = Color(nsColor: .systemBlue)
-    #endif
 
     static let primaryText = Color.primary
     static let secondaryText = Color.secondary

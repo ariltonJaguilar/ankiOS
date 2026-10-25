@@ -1,11 +1,9 @@
 import Foundation
 import CryptoKit
-#if !ANKIOS_PARITY_HARNESS && !WIDGET_EXTENSION
+#if !WIDGET_EXTENSION
 import AnkiBackend
 #endif
-#if os(iOS)
 import UIKit
-#endif
 
 @MainActor
 enum CardHTMLRenderer {
@@ -335,14 +333,9 @@ enum CardHTMLRenderer {
     ) -> String {
         let zoom = (CollectionStore.shared.conf["cardZoom"] as? Double) ?? 1.0
         let hideAudioPlayButtons = CollectionStore.shared.conf["hideAudioPlayButtons"] as? Bool ?? false
-        #if os(macOS)
-        let missedAnswerStyle = ".typeMissed { color: #aaa !important; }"
-        let platformClasses = "mac"
-        #else
         let missedAnswerStyle = ""
         let deviceClass = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
         let platformClasses = "mobile \(deviceClass)"
-        #endif
         let isMobile = platformClasses.contains("mobile")
         let sideName: String
         let themeClasses = nightMode ? "nightMode night_mode" : ""
@@ -351,18 +344,7 @@ enum CardHTMLRenderer {
         case .answer: sideName = "answer"
         }
         let extraction = AnkiLatexMarkup.extract(in: body, svg: latexSVG)
-        var renderedBody = extraction.html
-        #if os(macOS) && !WIDGET_EXTENSION
-        let renderLatex = CollectionStore.shared.conf["renderLatex"] as? Bool ?? false
-        let errors = AnkiLatexImageGenerator.renderMissing(
-            extraction.assets.map {
-                AnkiLatexRenderTask(asset: $0, header: latexPre, footer: latexPost, svg: latexSVG)
-            },
-            mediaRoot: mediaBase,
-            enabled: renderLatex
-        )
-        renderedBody += errors.map { "<br>\($0)" }.joined()
-        #endif
+        let renderedBody = extraction.html
         let renderedCards: String
         if isMobile {
             if side == .answer,
@@ -663,20 +645,13 @@ struct AnkiLatexExtraction: Sendable {
     var assets: [AnkiLatexAsset]
 }
 
-struct AnkiLatexRenderTask: Sendable {
-    var asset: AnkiLatexAsset
-    var header: String
-    var footer: String
-    var svg: Bool
-}
-
 enum AnkiLatexMarkup {
     static func replacing(in html: String, svg: Bool) -> String {
         extract(in: html, svg: svg).html
     }
 
     static func extract(in html: String, svg: Bool, expandClozes: Bool = false) -> AnkiLatexExtraction {
-        #if !ANKIOS_PARITY_HARNESS && !WIDGET_EXTENSION
+        #if !WIDGET_EXTENSION
         var error: UnsafeMutablePointer<CChar>?
         let rendered = html.withCString { text in
             ankios_anki_extract_latex_details(text, svg ? 1 : 0, expandClozes ? 1 : 0, &error)
@@ -873,143 +848,3 @@ enum AnkiLatexMarkup {
         return encoded
     }
 }
-
-#if os(macOS) && !WIDGET_EXTENSION
-enum AnkiLatexImageGenerator {
-    private enum RenderError: Error {
-        case disabled
-        case executableMissing(String)
-        case commandFailed(String, String)
-        case outputMissing(String)
-        case message(String)
-
-        var html: String {
-            let message: String
-            switch self {
-            case .disabled:
-                message = "La geração de LaTeX está desativada nas preferências."
-            case .executableMissing(let executable):
-                message = "Não foi possível executar \(executable). Verifique se LaTeX e dvipng/dvisvgm estão instalados."
-            case .commandFailed(let executable, let log):
-                let detail = log.isEmpty ? "" : " — \(log)"
-                message = "Falha ao executar \(executable). Verifique se LaTeX e dvipng/dvisvgm estão instalados.\(detail)"
-            case .outputMissing(let filename):
-                message = "O comando LaTeX não criou \(filename)."
-            case .message(let value):
-                message = value
-            }
-            let escaped = message
-                .replacingOccurrences(of: "&", with: "&amp;")
-                .replacingOccurrences(of: "<", with: "&lt;")
-                .replacingOccurrences(of: ">", with: "&gt;")
-                .replacingOccurrences(of: "\"", with: "&quot;")
-            return "<div class=latex-error>\(escaped)</div>"
-        }
-    }
-
-    static func renderMissing(
-        _ tasks: [AnkiLatexRenderTask],
-        mediaRoot: URL,
-        enabled: Bool,
-        stopOnError: Bool = false
-    ) -> [String] {
-        guard !tasks.isEmpty else { return [] }
-        let fileManager = FileManager.default
-        var errors: [String] = []
-        var rendered = Set<String>()
-        for task in tasks {
-            let asset = task.asset
-            let destination = mediaRoot.appendingPathComponent(asset.filename)
-            if fileManager.fileExists(atPath: destination.path) { continue }
-            guard !rendered.contains(asset.filename) else { continue }
-            guard enabled else { return errors + [RenderError.disabled.html] }
-            do {
-                try render(task, destination: destination)
-                rendered.insert(asset.filename)
-            } catch let error as RenderError {
-                errors.append(error.html)
-                if stopOnError { return errors }
-            } catch {
-                errors.append(RenderError.message(error.localizedDescription).html)
-                if stopOnError { return errors }
-            }
-        }
-        return errors
-    }
-
-    private static func render(_ task: AnkiLatexRenderTask, destination: URL) throws {
-        let asset = task.asset
-        let fileManager = FileManager.default
-        let directory = fileManager.temporaryDirectory.appendingPathComponent("ankios-latex-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: directory) }
-
-        let sourceURL = directory.appendingPathComponent("tmp.tex")
-        let document = "\(task.header)\n\(asset.body)\n\(task.footer)"
-        try Data(document.utf8).write(to: sourceURL, options: .atomic)
-
-        let outputName = task.svg ? "tmp.svg" : "tmp.png"
-        let commands: [(String, [String])]
-        if task.svg {
-            commands = [
-                ("latex", ["-interaction=nonstopmode", "tmp.tex"]),
-                ("dvisvgm", ["--no-fonts", "--exact", "-Z", "2", "tmp.dvi", "-o", outputName])
-            ]
-        } else {
-            commands = [
-                ("latex", ["-interaction=nonstopmode", "tmp.tex"]),
-                ("dvipng", ["-bg", "Transparent", "-D", "200", "-T", "tight", "tmp.dvi", "-o", outputName])
-            ]
-        }
-
-        let environment = ProcessInfo.processInfo.environment
-        let searchPath = ((environment["PATH"] ?? "").split(separator: ":").map(String.init)
-            + ["/usr/texbin", "/Library/TeX/texbin"]).joined(separator: ":")
-        let logURL = directory.appendingPathComponent("latex_log.txt")
-        fileManager.createFile(atPath: logURL.path, contents: Data())
-        let log = try FileHandle(forWritingTo: logURL)
-        defer { try? log.close() }
-
-        for (name, arguments) in commands {
-            guard let executable = executable(named: name, searchPath: searchPath) else {
-                throw RenderError.executableMissing(name)
-            }
-            let process = Process()
-            process.executableURL = executable
-            process.arguments = arguments
-            process.currentDirectoryURL = directory
-            var processEnvironment = environment
-            processEnvironment["PATH"] = searchPath
-            process.environment = processEnvironment
-            process.standardOutput = log
-            process.standardError = log
-            do {
-                try process.run()
-            } catch {
-                throw RenderError.executableMissing(name)
-            }
-            process.waitUntilExit()
-            if process.terminationStatus != 0 {
-                try? log.synchronize()
-                let output = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
-                throw RenderError.commandFailed(name, output.trimmingCharacters(in: .whitespacesAndNewlines))
-            }
-        }
-
-        let outputURL = directory.appendingPathComponent(outputName)
-        guard fileManager.fileExists(atPath: outputURL.path) else {
-            throw RenderError.outputMissing(outputName)
-        }
-        try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(contentsOf: outputURL).write(to: destination, options: .atomic)
-    }
-
-    private static func executable(named name: String, searchPath: String) -> URL? {
-        for directory in searchPath.split(separator: ":").map(String.init) {
-            let candidate = URL(fileURLWithPath: directory, isDirectory: true).appendingPathComponent(name)
-            if FileManager.default.isExecutableFile(atPath: candidate.path) { return candidate }
-        }
-        return nil
-    }
-}
-#endif

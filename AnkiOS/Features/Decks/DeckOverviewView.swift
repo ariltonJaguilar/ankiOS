@@ -108,9 +108,7 @@ struct DeckOverviewView: View {
                 }
             }
             .navigationTitle(liveDeck.displayName)
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .safeAreaInset(edge: .bottom) {
                 Button("Fechar") { dismiss() }
                     .accessibilityIdentifier("deck.overview.close")
@@ -400,9 +398,7 @@ struct DeckDescriptionEditor: View {
                     .padding(20)
             }
             .navigationTitle("Descrição")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancelar") { dismiss() }

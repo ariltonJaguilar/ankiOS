@@ -1,7 +1,4 @@
 import SwiftUI
-#if os(macOS)
-import Charts
-#endif
 
 struct DeckOptionsView: View {
     let deck: AnkiDeck
@@ -43,14 +40,6 @@ struct DeckOptionsView: View {
     @State private var fsrsOptimizationStatus: String?
     @State private var checkFSRSHealth = true
     @State private var baselineCheckFSRSHealth = true
-    #if os(macOS)
-    @State private var fsrsSimulationDays = 365
-    @State private var fsrsAdditionalCards = 0
-    @State private var fsrsSimulationDaysResult: [FSRSSimulationDay] = []
-    @State private var fsrsSimulationStatus: String?
-    @State private var fsrsSimulationShowsMinutes = false
-    @State private var isSimulatingFSRS = false
-    #endif
 
     private var fsrsEnabled: Bool {
         store.fsrsEnabled
@@ -132,9 +121,7 @@ struct DeckOptionsView: View {
             .background(AppBackground())
             .navigationTitle("deck-options.title")
             .interactiveDismissDisabled(hasUnsavedChanges)
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .onAppear {
                 originalConfigs = store.deckConfigs
                 workingConfigs = originalConfigs
@@ -181,9 +168,6 @@ struct DeckOptionsView: View {
             .sheet(isPresented: $showAutoAdvance) {
                 AutoAdvanceSheet(deckConfig: $config)
             }
-            #if os(macOS)
-            .frame(minWidth: 560, minHeight: 640)
-            #endif
         }
     }
 
@@ -456,9 +440,6 @@ struct DeckOptionsView: View {
                         .foregroundStyle(AppTheme.secondaryText)
                         .accessibilityIdentifier("deck.options.fsrs.optimizationStatus")
                 }
-                #if os(macOS)
-                fsrsSimulatorSection
-                #endif
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Pesos FSRS (separados por espaço)")
                         .font(.subheadline.weight(.medium))
@@ -516,90 +497,6 @@ struct DeckOptionsView: View {
         }
     }
 
-    #if os(macOS)
-    private var fsrsSimulatorSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Simulador de carga")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(AppTheme.primaryText)
-            Text("Projeta revisões e tempo diário com os estados de memória, limites e histórico deste preset.")
-                .font(.caption)
-                .foregroundStyle(AppTheme.secondaryText)
-            optionsStepper("Dias da simulação", value: $fsrsSimulationDays, range: 30...3650, step: 30)
-            optionsStepper("Novos cartões adicionais", value: $fsrsAdditionalCards, range: 0...100_000, step: 10)
-            optionsToggle("Mostrar minutos por dia", isOn: $fsrsSimulationShowsMinutes)
-            Button(action: simulateFSRSWorkload) {
-                HStack(spacing: 8) {
-                    if isSimulatingFSRS { ProgressView().tint(AppTheme.primaryText) }
-                    Text(isSimulatingFSRS ? "Simulando…" : "Simular carga futura")
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
-            .disabled(isSimulatingFSRS)
-            if !fsrsSimulationDaysResult.isEmpty {
-                Chart(fsrsSimulationDaysResult, id: \.day) { item in
-                    BarMark(
-                        x: .value("Dia", item.day),
-                        y: .value(fsrsSimulationShowsMinutes ? "Minutos" : String(localized: "deck-options.fsrs.reviews"), fsrsSimulationShowsMinutes ? Double(item.studySeconds / 60) : Double(item.reviews))
-                    )
-                    .foregroundStyle(AppTheme.accent.gradient)
-                }
-                .frame(height: 190)
-                .chartXAxisLabel("Dia")
-                .chartYAxisLabel(fsrsSimulationShowsMinutes ? LocalizedStringKey("Minutos") : LocalizedStringKey("deck-options.fsrs.reviews"))
-                .padding(.top, 4)
-                let averageReviews = fsrsSimulationDaysResult.map(\.reviews).reduce(0, +) / max(fsrsSimulationDaysResult.count, 1)
-                let averageMinutes = fsrsSimulationDaysResult.map(\.studySeconds).reduce(0, +) / Float(max(fsrsSimulationDaysResult.count, 1)) / 60
-                Text("Média: \(averageReviews) revisões · \(averageMinutes, specifier: "%.1f") min por dia")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(AppTheme.secondaryText)
-            }
-            if let fsrsSimulationStatus {
-                Text(fsrsSimulationStatus)
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.secondaryText)
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .ankiGlass(tint: .white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-    }
-
-    private func simulateFSRSWorkload() {
-        guard !isSimulatingFSRS else { return }
-        do {
-            guard let request = try store.fsrsSimulationRequest(
-                configID: selectedConfID,
-                deckID: deck.id,
-                additionalNewCards: fsrsAdditionalCards,
-                days: fsrsSimulationDays
-            ) else {
-                fsrsSimulationDaysResult = []
-                fsrsSimulationStatus = "Este preset não tem cartões para simular."
-                return
-            }
-            isSimulatingFSRS = true
-            fsrsSimulationStatus = nil
-            Task {
-                do {
-                    let result = try await Task.detached(priority: .userInitiated) {
-                        try FSRSParameterSimulator.compute(request)
-                    }.value
-                    fsrsSimulationDaysResult = result
-                    fsrsSimulationStatus = nil
-                } catch {
-                    fsrsSimulationDaysResult = []
-                    fsrsSimulationStatus = error.localizedDescription
-                }
-                isSimulatingFSRS = false
-            }
-        } catch {
-            fsrsSimulationDaysResult = []
-            fsrsSimulationStatus = error.localizedDescription
-        }
-    }
-    #endif
 
     private var autoAdvanceSection: some View {
         optionsCard("Avanço automático") {
@@ -1098,18 +995,13 @@ struct FilteredDeckOptionsView: View {
             }
             .background(AppBackground())
             .navigationTitle("deck-options.title")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .onAppear(perform: load)
             .alert("Baralho filtrado", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
                 Button("OK", role: .cancel) { message = nil }
             } message: {
                 Text(message ?? "")
             }
-            #if os(macOS)
-            .frame(minWidth: 560, minHeight: 520)
-            #endif
         }
     }
 

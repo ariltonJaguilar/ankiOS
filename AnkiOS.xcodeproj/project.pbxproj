@@ -718,9 +718,7 @@
 				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 6GY2KMR4QD;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = AnkiOS/Info.plist;
-				"INFOPLIST_FILE[sdk=iphoneos*]" = AnkiOS/Info-iOS.plist;
-				"INFOPLIST_FILE[sdk=iphonesimulator*]" = AnkiOS/Info-iOS.plist;
+				INFOPLIST_FILE = AnkiOS/Info-iOS.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = AnkiOS;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -732,7 +730,6 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.2;
 				CODE_SIGN_ENTITLEMENTS = AnkiOS/AnkiOS.entitlements;
 				OTHER_LDFLAGS = (
@@ -749,8 +746,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.bigbear.AnkiOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
-				SUPPORTS_MACCATALYST = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 6.0;
 				SWIFT_INCLUDE_PATHS = (
@@ -758,7 +754,7 @@
 					"$(SRCROOT)/AnkiOS/AnkiBackendBridge",
 				);
 				SWIFT_OBJC_BRIDGING_HEADER = AnkiOS/Import/ZstdNative/AnkiZstd-Bridging-Header.h;
-				TARGETED_DEVICE_FAMILY = "1,2,6";
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -769,7 +765,6 @@
 				CLANG_ENABLE_MODULES = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				SDKROOT = auto;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
@@ -783,9 +778,7 @@
 				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 6GY2KMR4QD;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = AnkiOS/Info.plist;
-				"INFOPLIST_FILE[sdk=iphoneos*]" = AnkiOS/Info-iOS.plist;
-				"INFOPLIST_FILE[sdk=iphonesimulator*]" = AnkiOS/Info-iOS.plist;
+				INFOPLIST_FILE = AnkiOS/Info-iOS.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = AnkiOS;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -797,7 +790,6 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.2;
 				CODE_SIGN_ENTITLEMENTS = AnkiOS/AnkiOS.entitlements;
 				OTHER_LDFLAGS = (
@@ -814,8 +806,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.bigbear.AnkiOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
-				SUPPORTS_MACCATALYST = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 6.0;
 				SWIFT_INCLUDE_PATHS = (
@@ -823,7 +814,7 @@
 					"$(SRCROOT)/AnkiOS/AnkiBackendBridge",
 				);
 				SWIFT_OBJC_BRIDGING_HEADER = AnkiOS/Import/ZstdNative/AnkiZstd-Bridging-Header.h;
-				TARGETED_DEVICE_FAMILY = "1,2,6";
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -835,7 +826,6 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTABILITY = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = auto;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -860,13 +850,12 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bigbear.AnkiOS.AnkiWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = WIDGET_EXTENSION;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = minimal;
@@ -892,13 +881,12 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bigbear.AnkiOS.AnkiWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = WIDGET_EXTENSION;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = minimal;
@@ -915,11 +903,10 @@
                 GENERATE_INFOPLIST_FILE = YES;
                 INFOPLIST_FILE = Tools/UITests/Info.plist;
                 IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-                MACOSX_DEPLOYMENT_TARGET = 26.0;
                 PRODUCT_BUNDLE_IDENTIFIER = com.bigbear.AnkiOS.UITests;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SDKROOT = auto;
-                SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+                SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
                 SWIFT_VERSION = 6.0;
                 TARGETED_DEVICE_FAMILY = "1,2";
                 TEST_TARGET_NAME = AnkiOS;
@@ -934,11 +921,10 @@
                 GENERATE_INFOPLIST_FILE = YES;
                 INFOPLIST_FILE = Tools/UITests/Info.plist;
                 IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-                MACOSX_DEPLOYMENT_TARGET = 26.0;
                 PRODUCT_BUNDLE_IDENTIFIER = com.bigbear.AnkiOS.UITests;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SDKROOT = auto;
-                SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+                SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
                 SWIFT_VERSION = 6.0;
                 TARGETED_DEVICE_FAMILY = "1,2";
                 TEST_TARGET_NAME = AnkiOS;
