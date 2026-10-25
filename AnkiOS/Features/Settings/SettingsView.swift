@@ -59,126 +59,133 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        var content = AnyView(
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     #if !WIDGET_EXTENSION
-                    GlassFormSection(title: "Conta") {
-                        settingsLink(
-                            "AnkiWeb",
-                            description: ankiWebDirectorySummary,
-                            systemImage: "arrow.triangle.2.circlepath.circle.fill",
-                            identifier: "settings.section.ankiweb"
-                        ) {
-                            settingsDetailPage(
-                                title: "AnkiWeb",
-                                description: "Conecte sua conta para sincronizar a coleção e a mídia com o Anki. As credenciais pertencem ao perfil ativo."
-                            ) {
-                                AnkiWebAccountSection()
-                            }
-                        }
-                        settingsLink(
-                            "Opções de sincronização",
-                            description: Text("Escolha quando sincronizar a coleção e a mídia com o AnkiWeb."),
-                            systemImage: "arrow.triangle.2.circlepath",
-                            identifier: "settings.preferences.sync"
-                        ) { PreferencesView(category: .sync) }
-                    }
+                        AnyView(
+                            GlassFormSection(title: "Conta") {
+                                settingsLink(
+                                    "AnkiWeb",
+                                    description: ankiWebDirectorySummary,
+                                    systemImage: "arrow.triangle.2.circlepath.circle.fill",
+                                    identifier: "settings.section.ankiweb"
+                                ) {
+                                    settingsDetailPage(
+                                        title: "AnkiWeb",
+                                        description:
+                                            "Conecte sua conta para sincronizar a coleção e a mídia com o Anki. As credenciais pertencem ao perfil ativo."
+                                    ) {
+                                        AnkiWebAccountSection()
+                                    }
+                                }
+                                settingsLink(
+                                    "Opções de sincronização",
+                                    description: Text("Escolha quando sincronizar a coleção e a mídia com o AnkiWeb."),
+                                    systemImage: "arrow.triangle.2.circlepath",
+                                    identifier: "settings.preferences.sync"
+                                ) { PreferencesView(category: .sync) }
+                            })
                     #endif
-                    GlassFormSection(title: "Coleção") {
-                        settingsLink(
-                            "Importar e exportar",
-                            description: Text("Importe baralhos e notas, ou exporte sua coleção em diferentes formatos."),
-                            systemImage: "square.and.arrow.down.on.square",
-                            identifier: "settings.section.importExport"
-                        ) {
-                            importExportPage
-                        }
-                    }
+                    AnyView(
+                        GlassFormSection(title: "Coleção") {
+                            settingsLink(
+                                "Importar e exportar",
+                                description: Text("Importe baralhos e notas, ou exporte sua coleção em diferentes formatos."),
+                                systemImage: "square.and.arrow.down.on.square",
+                                identifier: "settings.section.importExport"
+                            ) {
+                                importExportPage
+                            }
+                        })
 
-                    GlassFormSection(title: "Manutenção") {
-                        settingsLink(
-                            "Backups",
-                            description: Text("Crie uma cópia local ou restaure um backup deste perfil."),
-                            systemImage: "externaldrive.badge.timemachine",
-                            identifier: "settings.section.backups"
-                        ) { backupsPage }
-                        settingsLink(
-                            "Verificar e reparar",
-                            description: Text("Confira o banco de dados, a mídia e os campos duplicados."),
-                            systemImage: "wrench.and.screwdriver",
-                            identifier: "settings.section.maintenance"
-                        ) { maintenancePage }
-                    }
+                    AnyView(
+                        GlassFormSection(title: "Manutenção") {
+                            settingsLink(
+                                "Backups",
+                                description: Text("Crie uma cópia local ou restaure um backup deste perfil."),
+                                systemImage: "externaldrive.badge.timemachine",
+                                identifier: "settings.section.backups"
+                            ) { backupsPage }
+                            settingsLink(
+                                "Verificar e reparar",
+                                description: Text("Confira o banco de dados, a mídia e os campos duplicados."),
+                                systemImage: "wrench.and.screwdriver",
+                                identifier: "settings.section.maintenance"
+                            ) { maintenancePage }
+                        })
 
-                    GlassFormSection(title: "Estudo") {
-                        settingsLink(
-                            "Agendador",
-                            description: Text("Configure o FSRS, os limites de estudo e a distribuição dos cartões novos."),
-                            systemImage: "calendar",
-                            identifier: "settings.section.scheduler"
-                        ) { schedulerPage }
-                        settingsLink(
-                            "Opções de estudo",
-                            description: Text("Configure controles, gestos e informações da tela de estudo."),
-                            systemImage: "rectangle.on.rectangle.angled",
-                            identifier: "settings.preferences.study"
-                        ) { PreferencesView(category: .study) }
-                        settingsLink(
-                            "Notificações",
-                            description: Text("Configure lembretes para estudar os cartões pendentes."),
-                            systemImage: "bell",
-                            identifier: "settings.preferences.notifications"
-                        ) { PreferencesView(category: .notifications) }
-                        settingsLink(
-                            "Cartões",
-                            description: Text("Restaure cartões ocultos ou remova cartões vazios."),
-                            systemImage: "rectangle.on.rectangle",
-                            identifier: "settings.section.cards"
-                        ) { cardToolsPage }
-                    }
+                    AnyView(
+                        GlassFormSection(title: "Estudo") {
+                            settingsLink(
+                                "Agendador",
+                                description: Text("Configure o FSRS, os limites de estudo e a distribuição dos cartões novos."),
+                                systemImage: "calendar",
+                                identifier: "settings.section.scheduler"
+                            ) { schedulerPage }
+                            settingsLink(
+                                "Opções de estudo",
+                                description: Text("Configure controles, gestos e informações da tela de estudo."),
+                                systemImage: "rectangle.on.rectangle.angled",
+                                identifier: "settings.preferences.study"
+                            ) { PreferencesView(category: .study) }
+                            settingsLink(
+                                "Notificações",
+                                description: Text("Configure lembretes para estudar os cartões pendentes."),
+                                systemImage: "bell",
+                                identifier: "settings.preferences.notifications"
+                            ) { PreferencesView(category: .notifications) }
+                            settingsLink(
+                                "Cartões",
+                                description: Text("Restaure cartões ocultos ou remova cartões vazios."),
+                                systemImage: "rectangle.on.rectangle",
+                                identifier: "settings.section.cards"
+                            ) { cardToolsPage }
+                        })
 
-                    GlassFormSection(title: "Preferências") {
-                        settingsLink(
-                            "Aparência",
-                            description: Text("Personalize o visual e a exibição dos cartões."),
-                            systemImage: "paintbrush",
-                            identifier: "settings.preferences.appearance"
-                        ) { PreferencesView(category: .appearance) }
-                        settingsLink(
-                            "Edição e navegação",
-                            description: Text("Defina opções para adicionar notas e navegar pela coleção."),
-                            systemImage: "square.and.pencil",
-                            identifier: "settings.preferences.editing"
-                        ) { PreferencesView(category: .editing) }
-                        settingsLink(
-                            "Perfis",
-                            description: Text("Separe coleções, progresso e contas do AnkiWeb."),
-                            systemImage: "person.2.fill",
-                            identifier: "settings.section.profiles"
-                        ) { ProfilesView() }
-                        settingsLink(
-                            "Tipos de nota",
-                            description: Text("Gerencie modelos e campos usados para criar cartões."),
-                            systemImage: "rectangle.stack",
-                            identifier: "settings.section.noteTypes"
-                        ) { noteTypesPage }
-                    }
+                    AnyView(
+                        GlassFormSection(title: "Preferências") {
+                            settingsLink(
+                                "Aparência",
+                                description: Text("Personalize o visual e a exibição dos cartões."),
+                                systemImage: "paintbrush",
+                                identifier: "settings.preferences.appearance"
+                            ) { PreferencesView(category: .appearance) }
+                            settingsLink(
+                                "Edição e navegação",
+                                description: Text("Defina opções para adicionar notas e navegar pela coleção."),
+                                systemImage: "square.and.pencil",
+                                identifier: "settings.preferences.editing"
+                            ) { PreferencesView(category: .editing) }
+                            settingsLink(
+                                "Perfis",
+                                description: Text("Separe coleções, progresso e contas do AnkiWeb."),
+                                systemImage: "person.2.fill",
+                                identifier: "settings.section.profiles"
+                            ) { ProfilesView() }
+                            settingsLink(
+                                "Tipos de nota",
+                                description: Text("Gerencie modelos e campos usados para criar cartões."),
+                                systemImage: "rectangle.stack",
+                                identifier: "settings.section.noteTypes"
+                            ) { noteTypesPage }
+                        })
 
-                    GlassFormSection(title: "Ajuda") {
-                        settingsLink(
-                            "Tutorial do AnkiOS",
-                            description: Text("Veja como organizar, importar e estudar baralhos."),
-                            systemImage: "questionmark.circle",
-                            identifier: "settings.section.help"
-                        ) { tutorialPage }
-                        settingsLink(
-                            "Licenças de código aberto",
-                            description: Text("Consulte a licença do AnkiOS, os avisos das dependências e o código-fonte desta build."),
-                            systemImage: "doc.text.magnifyingglass",
-                            identifier: "settings.section.licenses"
-                        ) { openSourceLicensesPage }
-                    }
+                    AnyView(
+                        GlassFormSection(title: "Ajuda") {
+                            settingsLink(
+                                "Tutorial do AnkiOS",
+                                description: Text("Veja como organizar, importar e estudar baralhos."),
+                                systemImage: "questionmark.circle",
+                                identifier: "settings.section.help"
+                            ) { tutorialPage }
+                            settingsLink(
+                                "Licenças de código aberto",
+                                description: Text("Consulte a licença do AnkiOS, os avisos das dependências e o código-fonte desta build."),
+                                systemImage: "doc.text.magnifyingglass",
+                                identifier: "settings.section.licenses"
+                            ) { openSourceLicensesPage }
+                        })
                 }
                 .padding(20)
                 .frame(maxWidth: 720)
@@ -187,7 +194,9 @@ struct SettingsView: View {
             .background(AppBackground())
             .navigationTitle("Ferramentas")
             .ankiKeyboardDismissToolbar()
-            .onAppear {
+        )
+        content = AnyView(
+            content.onAppear {
                 rollday = Double(store.rolloverHour)
                 schedulerFSRS = store.fsrsEnabled
                 loadSchedulerPreferences()
@@ -199,7 +208,8 @@ struct SettingsView: View {
                 csvMatchWithinDeck = store.conf["csvMatchWithinDeck"] as? Bool ?? false
                 csvSeparator = store.conf["csvSeparator"] as? String ?? "auto"
                 if csvDeckID == nil {
-                    csvDeckID = (store.conf["csvDeckID"] as? NSNumber)?.int64Value
+                    csvDeckID =
+                        (store.conf["csvDeckID"] as? NSNumber)?.int64Value
                         ?? store.decks.first(where: { !$0.isFiltered && $0.name != "Default" })?.id
                         ?? store.decks.first(where: { !$0.isFiltered })?.id
                 }
@@ -209,28 +219,32 @@ struct SettingsView: View {
                 refreshAutomaticBackups()
                 loadBackupPreferences()
                 consumeRequestedAction()
-            }
-            .onChange(of: store.activeProfile) { _, _ in
+            })
+        content = AnyView(
+            content.onChange(of: store.activeProfile) { _, _ in
                 refreshAutomaticBackups()
                 loadBackupPreferences()
                 rollday = Double(store.rolloverHour)
                 schedulerFSRS = store.fsrsEnabled
                 loadSchedulerPreferences()
-            }
-            .onChange(of: store.automaticBackupRevision) { _, _ in refreshAutomaticBackups() }
-            .onChange(of: requestedAction) { _, _ in consumeRequestedAction() }
-            .onChange(of: store.isBootstrapping) { _, _ in consumeRequestedAction() }
-            .onChange(of: store.collectionSyncing) { _, _ in consumeRequestedAction() }
-            .onChange(of: showMediaCheck) { _, isPresented in
+            })
+        content = AnyView(content.onChange(of: store.automaticBackupRevision) { _, _ in refreshAutomaticBackups() })
+        content = AnyView(content.onChange(of: requestedAction) { _, _ in consumeRequestedAction() })
+        content = AnyView(content.onChange(of: store.isBootstrapping) { _, _ in consumeRequestedAction() })
+        content = AnyView(content.onChange(of: store.collectionSyncing) { _, _ in consumeRequestedAction() })
+        content = AnyView(
+            content.onChange(of: showMediaCheck) { _, isPresented in
                 if !isPresented {
                     mediaReport = nil
                     mediaCheckStatus = nil
                 }
-            }
-            .navigationDestination(isPresented: $showNoteTypes) {
+            })
+        content = AnyView(
+            content.navigationDestination(isPresented: $showNoteTypes) {
                 NoteTypesView()
-            }
-            .navigationDestination(isPresented: $showMediaCheck) {
+            })
+        content = AnyView(
+            content.navigationDestination(isPresented: $showMediaCheck) {
                 MediaCheckView(
                     report: mediaReport ?? .empty,
                     status: mediaCheckStatus,
@@ -240,8 +254,9 @@ struct SettingsView: View {
                     onRestoreTrash: { restoreMediaTrash() },
                     onEmptyTrash: { emptyMediaTrash() }
                 )
-            }
-            .fileImporter(
+            })
+        content = AnyView(
+            content.fileImporter(
                 isPresented: $showImport,
                 allowedContentTypes: [.ankiApkg, .ankiColpkg, .mnemosyneDB, .archive, .data],
                 allowsMultipleSelection: false
@@ -268,8 +283,8 @@ struct SettingsView: View {
                         store.lastError = error.localizedDescription
                     }
                 }
-            }
-            .fileImporter(isPresented: $showCSVImport, allowedContentTypes: [.commaSeparatedText, .plainText, .text, .data], allowsMultipleSelection: false) { result in
+        })
+        content = AnyView(content.fileImporter(isPresented: $showCSVImport, allowedContentTypes: [.commaSeparatedText, .plainText, .text, .data], allowsMultipleSelection: false) { result in
                 do {
                     guard let url = try result.get().first else { return }
                     let scoped = url.startAccessingSecurityScopedResource()
@@ -280,8 +295,8 @@ struct SettingsView: View {
                 } catch {
                     store.lastError = error.localizedDescription
                 }
-            }
-        .sheet(isPresented: Binding(get: { pendingCSVText != nil }, set: { if !$0 { pendingCSVText = nil; pendingCSVName = nil } }), onDismiss: {
+        })
+        content = AnyView(content.sheet(isPresented: Binding(get: { pendingCSVText != nil }, set: { if !$0 { pendingCSVText = nil; pendingCSVName = nil } }), onDismiss: {
             guard offerTutorialAfterCSVImport else { return }
             offerTutorialAfterCSVImport = false
             store.notifyDeckContentAdded()
@@ -297,12 +312,12 @@ struct SettingsView: View {
                     )
                     .environmentObject(store)
                 }
-            }
-            .sheet(item: $exportSheetItem) { item in
+        })
+        content = AnyView(content.sheet(item: $exportSheetItem) { item in
                 ShareSheet(items: [item.url])
                     .accessibilityIdentifier("settings.export.share-sheet")
-            }
-            .sheet(isPresented: $showDeckImportOptions) {
+        })
+        content = AnyView(content.sheet(isPresented: $showDeckImportOptions) {
                 ApkgImportOptionsSheet { withScheduling, withDeckConfigs, mergeNotetypes, updateNotes, updateNotetypes in
                     importingDeckPackage = true
                     showDeckImportOptions = false
@@ -316,13 +331,13 @@ struct SettingsView: View {
                         )
                     }
                 }
-            }
-            .onChange(of: showDeckImportOptions) { _, isPresented in
+        })
+        content = AnyView(content.onChange(of: showDeckImportOptions) { _, isPresented in
                 if !isPresented && !importingDeckPackage {
                     releasePendingDeckPackage()
                 }
-            }
-            .confirmationDialog(
+        })
+        content = AnyView(content.confirmationDialog(
                 "Restaurar coleção do .colpkg?",
                 isPresented: $showRestoreCollectionConfirm,
                 titleVisibility: .visible
@@ -340,13 +355,13 @@ struct SettingsView: View {
                 }
             } message: {
                 Text("A coleção atual será substituída. O app salvará um backup e manterá a mídia existente.")
-            }
-            .onChange(of: showRestoreCollectionConfirm) { _, isPresented in
+        })
+        content = AnyView(content.onChange(of: showRestoreCollectionConfirm) { _, isPresented in
                 if !isPresented && !restoringCollectionPackage {
                     releasePendingCollectionPackage()
                 }
-            }
-        }
+        })
+        return NavigationStack { content }
     }
 
     private var ankiWebDirectorySummary: Text {
