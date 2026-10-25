@@ -160,7 +160,7 @@ enum TemplateEngine {
 
         text = text.replacingOccurrences(
             of: #"\[sound:([^\]]+)\]"#,
-            with: #"<div class="sound" data-file="$1">▶</div>"#,
+            with: #"<button class="sound" type="button" data-file="$1" aria-label="Reproduzir áudio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05a4.5 4.5 0 0 0 2.5-4.02zm-2.5-9v2.06a7 7 0 0 1 0 13.88V21a9 9 0 0 0 0-18z" fill="currentColor"/></svg></button>"#,
             options: .regularExpression
         )
 

@@ -338,6 +338,7 @@ final class ApkgImporter {
         let destModelsJSON = try dest.scalarText("SELECT models FROM col") ?? "{}"
         let destDconfJSON = try dest.scalarText("SELECT dconf FROM col") ?? "{}"
         let destTagsJSON = try dest.scalarText("SELECT tags FROM col") ?? "{}"
+        let importedTagsJSON = replacing ? tagsJSON : try markTagUsnsPending(tagsJSON)
 
         let modelMerge: NotetypeMergeResult
         if mergeNotetypes && !replacing {
@@ -367,7 +368,7 @@ final class ApkgImporter {
             try SQLiteDatabase.bindText(stmt, 1, deckMerge.json)
             try SQLiteDatabase.bindText(stmt, 2, normalizedModels)
             try SQLiteDatabase.bindText(stmt, 3, configMerge.json)
-            try SQLiteDatabase.bindText(stmt, 4, try self.mergeJSONObjects(destTagsJSON, tagsJSON))
+            try SQLiteDatabase.bindText(stmt, 4, try self.mergeJSONObjects(destTagsJSON, importedTagsJSON))
         })
 
         if let importedConf = try JSONSerialization.jsonObject(with: Data(confJSON.utf8)) as? [String: Any],
@@ -398,8 +399,8 @@ final class ApkgImporter {
             for id in modelMerge.changedIDs { try store.syncCardsForNotetype(mid: id) }
         }
         if mergeNotetypes { try resolveCrossNotetypeConflicts(from: src, to: dest, maps: &maps) }
-        try copyNotesAndCards(from: src, to: dest, maps: &maps, withScheduling: includeScheduling, shiftCollectionRelativeDates: !replacing, updateNotes: updateNotes)
-        if includeScheduling { try copyRevlog(from: src, to: dest, cardIDs: maps.cards) }
+        try copyNotesAndCards(from: src, to: dest, maps: &maps, withScheduling: includeScheduling, shiftCollectionRelativeDates: !replacing, replacing: replacing, updateNotes: updateNotes)
+        if includeScheduling { try copyRevlog(from: src, to: dest, cardIDs: maps.cards, replacing: replacing) }
         if replacing { try restoreCollectionTiming(from: src, to: dest) }
         try store.touchCol()
     }
@@ -486,7 +487,7 @@ final class ApkgImporter {
                 let id = sqlite3_column_int64(stmt, 0)
                 let name = SQLiteDatabase.text(stmt, 1)
                 let now = sqlite3_column_int64(stmt, 2)
-                let usn = Int(sqlite3_column_int(stmt, 3))
+                let usn = replacing ? Int(sqlite3_column_int(stmt, 3)) : -1
                 let config = ProtoMessage(data: SQLiteDatabase.blob(stmt, 4))
                 let reqs: [[Any]] = config.messages(8).map { requirement in
                     let rawKind = requirement.int(2)
@@ -557,7 +558,7 @@ final class ApkgImporter {
             if try hasTable("tags", in: src) {
                 var importedTags: [String: Any] = [:]
                 try src.query("SELECT tag, usn FROM tags") { stmt in
-                    importedTags[SQLiteDatabase.text(stmt, 0)] = Int(sqlite3_column_int(stmt, 1))
+                    importedTags[SQLiteDatabase.text(stmt, 0)] = replacing ? Int(sqlite3_column_int(stmt, 1)) : -1
                 }
                 let localTags = try dest.scalarText("SELECT tags FROM col") ?? "{}"
                 let mergedTags = try mergeJSONObjects(localTags, CollectionSchema.encodeJSON(importedTags))
@@ -571,7 +572,7 @@ final class ApkgImporter {
                 let id = sqlite3_column_int64(stmt, 0)
                 let name = SQLiteDatabase.text(stmt, 1).replacingOccurrences(of: "\u{1f}", with: "::")
                 let mod = sqlite3_column_int64(stmt, 2)
-                let usn = Int(sqlite3_column_int(stmt, 3))
+                let usn = replacing ? Int(sqlite3_column_int(stmt, 3)) : -1
                 let common = ProtoMessage(data: SQLiteDatabase.blob(stmt, 4))
                 let kind = ProtoMessage(data: SQLiteDatabase.blob(stmt, 5))
                 var deck: [String: Any] = [
@@ -631,7 +632,7 @@ final class ApkgImporter {
                 let id = sqlite3_column_int64(stmt, 0)
                 let name = SQLiteDatabase.text(stmt, 1)
                 let modified = sqlite3_column_int64(stmt, 2)
-                let usn = Int(sqlite3_column_int(stmt, 3))
+                let usn = replacing ? Int(sqlite3_column_int(stmt, 3)) : -1
                 let config = ProtoMessage(data: SQLiteDatabase.blob(stmt, 4))
                 var dconf = CollectionSchema.defaultDconf(id: id, now: modified)
                 dconf["name"] = name
@@ -723,8 +724,8 @@ final class ApkgImporter {
                 try SQLiteDatabase.bindText($0, 1, remappedModelsWithNormalizedIDs)
             })
         }
-        try copyNotesAndCards(from: src, to: dest, maps: &maps, withScheduling: includeScheduling, shiftCollectionRelativeDates: !replacing, updateNotes: updateNotes)
-        if includeScheduling { try copyRevlog(from: src, to: dest, cardIDs: maps.cards) }
+        try copyNotesAndCards(from: src, to: dest, maps: &maps, withScheduling: includeScheduling, shiftCollectionRelativeDates: !replacing, replacing: replacing, updateNotes: updateNotes)
+        if includeScheduling { try copyRevlog(from: src, to: dest, cardIDs: maps.cards, replacing: replacing) }
         if replacing { try restoreCollectionTiming(from: src, to: dest) }
         try store.touchCol()
     }
@@ -780,6 +781,7 @@ final class ApkgImporter {
         for (key, rawValue) in imported {
             guard let id = Int64(key), var config = rawValue as? [String: Any] else { continue }
             config["id"] = id
+            if !replacing { config["usn"] = -1 }
             idMap[id] = id
             if replacing || merged[key] == nil {
                 merged[key] = config
@@ -838,6 +840,7 @@ final class ApkgImporter {
             let sourceName = source["name"] as? String ?? ""
             source["id"] = sourceID
             source["originalId"] = sourceID
+            source["usn"] = -1
 
             if let existingModel = local[String(sourceID)] as? [String: Any] {
                 if !notetypeSchemasMatch(existingModel, source) {
@@ -940,6 +943,7 @@ final class ApkgImporter {
                 while localNames.contains(name) { name += "+" }
                 added["name"] = name
                 added["id"] = destinationID
+                added["usn"] = -1
                 let fields = orderedSchemaItems(source["flds"] as? [[String: Any]] ?? [])
                 let templates = orderedSchemaItems(source["tmpls"] as? [[String: Any]] ?? [])
                 added["flds"] = fields.enumerated().map { index, item in var item = item; item["ord"] = index; return item }
@@ -1000,14 +1004,14 @@ final class ApkgImporter {
             let selectedSortMap = useIncomingContent ? incomingFieldMap : oldFieldMap
             mergedModel["sortf"] = selectedSortMap.indices.contains(selectedSortIndex) ? selectedSortMap[selectedSortIndex] : 0
             if useIncomingContent { mergedModel["mod"] = sourceMod }
+            let schemaChanged = oldFields.count != mergedFields.count || oldTemplates.count != mergedTemplates.count
+                || oldFieldMap.enumerated().contains(where: { $0.offset != $0.element })
+                || oldTemplateMap.contains(where: { $0.key != $0.value })
+            if useIncomingContent || schemaChanged { mergedModel["usn"] = -1 }
             local[String(destinationID)] = mergedModel
             localNames.insert(name)
 
-            if useIncomingContent || oldFields.count != mergedFields.count || oldTemplates.count != mergedTemplates.count
-                || oldFieldMap.enumerated().contains(where: { $0.offset != $0.element })
-                || oldTemplateMap.contains(where: { $0.key != $0.value }) {
-                changedIDs.insert(destinationID)
-            }
+            if useIncomingContent || schemaChanged { changedIDs.insert(destinationID) }
         }
 
         return NotetypeMergeResult(
@@ -1286,6 +1290,7 @@ final class ApkgImporter {
         maps: inout ImportIDMaps,
         withScheduling: Bool,
         shiftCollectionRelativeDates: Bool,
+        replacing: Bool,
         updateNotes: PackageUpdateCondition
     ) throws {
         try store.reloadMeta()
@@ -1302,7 +1307,8 @@ final class ApkgImporter {
             sourceNoteTypes[srcID] = sourceMID
             let mid = maps.noteTypes[sourceMID] ?? sourceMID
             let mod = sqlite3_column_int64(stmt, 3)
-            let usn = Int(sqlite3_column_int(stmt, 4))
+            let sourceUSN = Int(sqlite3_column_int(stmt, 4))
+            let usn = replacing ? sourceUSN : -1
             let sourceTags = SQLiteDatabase.text(stmt, 5)
             let tags = withScheduling ? sourceTags : tagsWithoutSchedulingMarkers(sourceTags)
             let sourceFields = rewriteMediaReferences(SQLiteDatabase.text(stmt, 6)).components(separatedBy: "\u{1f}")
@@ -1383,7 +1389,8 @@ final class ApkgImporter {
             let sourceMID = sourceNoteTypes[srcNID] ?? 0
             let ord = maps.noteTypeTemplates[sourceMID]?[sourceOrd] ?? sourceOrd
             let mod = sqlite3_column_int64(stmt, 4)
-            let usn = Int(sqlite3_column_int(stmt, 5))
+            let sourceUSN = Int(sqlite3_column_int(stmt, 5))
+            let usn = replacing ? sourceUSN : -1
             let type = Int(sqlite3_column_int(stmt, 6))
             let queue = Int(sqlite3_column_int(stmt, 7))
             var due = Int(sqlite3_column_int(stmt, 8))
@@ -1504,12 +1511,13 @@ final class ApkgImporter {
         return id
     }
 
-    private func copyRevlog(from src: SQLiteDatabase, to dest: SQLiteDatabase, cardIDs: [Int64: Int64]) throws {
+    private func copyRevlog(from src: SQLiteDatabase, to dest: SQLiteDatabase, cardIDs: [Int64: Int64], replacing: Bool) throws {
         try src.query("SELECT id, cid, usn, ease, ivl, lastIvl, factor, time, type FROM revlog") { stmt in
             let sourceID = sqlite3_column_int64(stmt, 0)
             let sourceCID = sqlite3_column_int64(stmt, 1)
             guard let destinationCID = cardIDs[sourceCID] else { return }
-            let usn = Int(sqlite3_column_int(stmt, 2))
+            let sourceUSN = Int(sqlite3_column_int(stmt, 2))
+            let usn = replacing ? sourceUSN : -1
             let ease = Int(sqlite3_column_int(stmt, 3))
             let interval = Int(sqlite3_column_int(stmt, 4))
             let lastInterval = Int(sqlite3_column_int(stmt, 5))
@@ -1568,6 +1576,12 @@ final class ApkgImporter {
         var merged = ao
         for (k, v) in bo { merged[k] = v }
         return CollectionSchema.encodeJSON(merged)
+    }
+
+    private func markTagUsnsPending(_ json: String) throws -> String {
+        var tags = (try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]) ?? [:]
+        for key in Array(tags.keys) { tags[key] = -1 }
+        return CollectionSchema.encodeJSON(tags)
     }
 
     private func mergeImportedDecks(
@@ -1646,6 +1660,7 @@ final class ApkgImporter {
 
         for (sourceID, sourceObject) in decks {
             var object = sourceObject
+            if !replacing { object["usn"] = -1 }
             let rawName = normalizedDeckName(sourceObject["name"] as? String ?? "")
             var name = reparentedName(rawName)
             object["name"] = name

@@ -18,6 +18,17 @@ struct SettingsView: View {
     @State private var exportSheetItem: ShareSheetItem?
     @State private var rollday: Double = 4
     @State private var schedulerFSRS = false
+    @State private var fsrsShortTerm = false
+    @State private var learnAheadMinutes = 20
+    @State private var newSpread = 0
+    @State private var timeboxMinutes = 0
+    @State private var schedVer = 2
+    @State private var applyParents = false
+    @State private var cardStateCustomizer = ""
+    @State private var backupInterval = 30
+    @State private var backupDaily = 12
+    @State private var backupWeekly = 10
+    @State private var backupMonthly = 9
     @State private var duplicates: [String] = []
     @State private var exportDeckID: Int64?
     @State private var csvDeckID: Int64?
@@ -38,7 +49,6 @@ struct SettingsView: View {
     @State private var apkgIncludeScheduling = false
     @State private var apkgIncludeDeckPresets = false
     @State private var apkgIncludeMedia = true
-    @State private var showPreferences = false
     @State private var showNoteTypes = false
     @State private var showMediaCheck = false
     @State private var mediaReport: MediaCheckReport?
@@ -53,212 +63,117 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
-                    AnkiWebAccountSection()
+                    GlassFormSection(title: "Conta") {
+                        settingsLink(
+                            "AnkiWeb",
+                            description: ankiWebDirectorySummary,
+                            systemImage: "arrow.triangle.2.circlepath.circle.fill",
+                            identifier: "settings.section.ankiweb"
+                        ) {
+                            settingsDetailPage(
+                                title: "AnkiWeb",
+                                description: "Conecte sua conta para sincronizar a coleção e a mídia com o Anki. As credenciais pertencem ao perfil ativo."
+                            ) {
+                                AnkiWebAccountSection()
+                            }
+                        }
+                        settingsLink(
+                            "Opções de sincronização",
+                            description: Text("Escolha quando sincronizar a coleção e a mídia com o AnkiWeb."),
+                            systemImage: "arrow.triangle.2.circlepath",
+                            identifier: "settings.preferences.sync"
+                        ) { PreferencesView(category: .sync) }
+                    }
                     #endif
-                    GlassFormSection(title: "settings.collection.section") {
-                        toolButton("Importar .apkg, .colpkg ou Mnemosyne .db") { showImport = true }
-                        toolButton("Importar CSV / texto") { showCSVImport = true }
-                        GlassOptionRow(title: "Exportar agendamento e histórico") {
-                            Toggle("", isOn: $apkgIncludeScheduling)
-                                .labelsHidden()
-                                .tint(AppTheme.accent)
-                                .onChange(of: apkgIncludeScheduling) { _, _ in saveApkgExportOptions() }
-                                .accessibilityIdentifier("settings.export.option.scheduling")
-                        }
-                        GlassOptionRow(title: "Exportar predefinições de baralho") {
-                            Toggle("", isOn: $apkgIncludeDeckPresets)
-                                .labelsHidden()
-                                .tint(AppTheme.accent)
-                                .onChange(of: apkgIncludeDeckPresets) { _, _ in saveApkgExportOptions() }
-                                .accessibilityIdentifier("settings.export.option.deck-presets")
-                        }
-                        GlassOptionRow(title: "Exportar mídia") {
-                            Toggle("", isOn: $apkgIncludeMedia)
-                                .labelsHidden()
-                                .tint(AppTheme.accent)
-                                .onChange(of: apkgIncludeMedia) { _, _ in saveApkgExportOptions() }
-                                .accessibilityIdentifier("settings.export.option.media")
-                        }
-                        Text("Essas opções também se aplicam à exportação de baralhos e cartões selecionados.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                        GlassOptionRow(title: "Importar para baralho") {
-                            GlassChoiceMenu(
-                                selection: $csvDeckID,
-                                choices: store.decks.filter { !$0.isFiltered }.map {
-                                    GlassChoice(id: Optional($0.id), title: $0.displayName)
-                                }
-                            )
-                            .onChange(of: csvDeckID) { _, _ in saveCSVImportOptions() }
-                        }
-                        GlassOptionRow(title: "Tipo de nota (CSV)") {
-                            GlassChoiceMenu(
-                                selection: $csvNotetypeID,
-                                choices: store.notetypes.map {
-                                    GlassChoice(id: Optional($0.id), title: $0.name)
-                                }
-                            )
-                            .onChange(of: csvNotetypeID) { _, _ in saveCSVImportOptions() }
-                        }
-                        GlassOptionRow(title: "Permitir HTML no CSV") {
-                            Toggle("", isOn: $csvAllowHTML)
-                                .labelsHidden()
-                                .tint(AppTheme.accent)
-                                .onChange(of: csvAllowHTML) { _, _ in saveCSVImportOptions() }
-                        }
-                        GlassOptionRow(title: "Separador do CSV") {
-                            Picker("", selection: $csvSeparator) {
-                                Text("Detectar").tag("auto")
-                                Text("Tabulação").tag("tab")
-                                Text("Vírgula").tag("comma")
-                                Text("Ponto e vírgula").tag("semicolon")
-                                Text("Espaço").tag("space")
-                                Text("Barra vertical").tag("pipe")
-                                Text("Dois-pontos").tag("colon")
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                            .onChange(of: csvSeparator) { _, _ in saveCSVImportOptions() }
-                        }
-                        GlassOptionRow(title: "Duplicatas no CSV") {
-                            Picker("", selection: $csvExistingNotePolicy) {
-                                ForEach(CSVImporter.ExistingNotePolicy.allCases) { policy in
-                                    Text(policy.title).tag(policy)
-                                }
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                            .onChange(of: csvExistingNotePolicy) { _, _ in saveCSVImportOptions() }
-                        }
-                        GlassOptionRow(title: "Comparar duplicatas no baralho selecionado") {
-                            Toggle("", isOn: $csvMatchWithinDeck)
-                                .labelsHidden()
-                                .tint(AppTheme.accent)
-                                .onChange(of: csvMatchWithinDeck) { _, _ in saveCSVImportOptions() }
-                        }
-                        toolButton("Exportar coleção .apkg") { exportAll() }
-                            .accessibilityIdentifier("settings.export.apkg.collection")
-                        toolButton("Exportar coleção completa (.colpkg)") { exportCollectionPackage() }
-                            .accessibilityIdentifier("settings.export.colpkg")
-                        GlassOptionRow(title: "Exportar baralho") {
-                            GlassChoiceMenu(
-                                selection: $exportDeckID,
-                                choices: [GlassChoice(id: Int64?.none, title: "Coleção inteira")]
-                                    + store.decks.filter { !$0.isFiltered }.map {
-                                        GlassChoice(id: Optional($0.id), title: $0.displayName)
-                                    },
-                                accessibilityPrefix: "settings.export.deck.choice"
-                            )
-                            .accessibilityIdentifier("settings.export.deck")
-                        }
-                        toolButton("Exportar baralho selecionado .apkg") { exportDeck(id: exportDeckID) }
-                            .disabled(exportDeckID == nil)
-                            .accessibilityIdentifier("settings.export.apkg.deck")
-                        toolButton("Exportar notas como TSV") { exportTSV() }
-                        Button("Criar backup agora", systemImage: "externaldrive.badge.timemachine") { backupCollection() }
-                            .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
-                            .accessibilityIdentifier("settings.backup.create")
-                        if automaticBackupURLs.isEmpty {
-                            Text("Ainda não há backups automáticos neste perfil.")
-                                .font(.caption)
-                                .foregroundStyle(AppTheme.secondaryText)
-                                .padding(.horizontal, 4)
-                        } else {
-                            ForEach(automaticBackupURLs, id: \.path) { url in
-                                Button("Restaurar backup de \(backupTitle(url))", systemImage: "clock.arrow.circlepath") {
-                                    pendingCollectionPackage = url
-                                    pendingCollectionPackageScoped = false
-                                    showRestoreCollectionConfirm = true
-                                }
-                                .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.3, expands: true))
-                                .accessibilityIdentifier("settings.backup.restore")
-                            }
-                        }
-                        toolButton(LocalizedStringKey("Verificar banco de dados")) { checkDB() }
-                            .accessibilityIdentifier("settings.database.check")
-                        toolButton("Otimizar banco (VACUUM)") { optimizeDB() }
-                        toolButton("Procurar duplicatas") { findDuplicates() }
-                        toolButton("Verificar mídia") { checkMedia() }
-                            .accessibilityIdentifier("settings.media.check")
-                    }
-                    GlassFormSection(title: "Agendador") {
-                        GlassOptionRow(title: "Usar FSRS") {
-                            Toggle("", isOn: $schedulerFSRS)
-                                .labelsHidden()
-                                .tint(AppTheme.accent)
-                                .onChange(of: schedulerFSRS) { _, v in
-                                    let previousFSRS = store.fsrsEnabled
-                                    var conf = store.conf
-                                    conf["fsrs"] = v
-                                    do {
-                                        try store.saveConf(conf)
-                                        if previousFSRS != v {
-                                            try store.rebuildFSRSMemoryStates(enabled: v)
-                                        }
-                                    }
-                                    catch { store.lastError = error.localizedDescription }
-                                }
-                        }
-                        GlassInset {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Novo dia começa às \(Int(rollday)):00")
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(AppTheme.primaryText)
-                                Slider(value: $rollday, in: 0...23, step: 1)
-                                    .onChange(of: rollday) { _, v in
-                                        guard Int(v) != store.rolloverHour else { return }
-                                        do {
-                                            try store.setRolloverHour(Int(v))
-                                            try store.refreshCounts()
-                                        } catch { store.lastError = error.localizedDescription }
-                                    }
-                            }
+                    GlassFormSection(title: "Coleção") {
+                        settingsLink(
+                            "Importar e exportar",
+                            description: Text("Importe baralhos e notas, ou exporte sua coleção em diferentes formatos."),
+                            systemImage: "square.and.arrow.down.on.square",
+                            identifier: "settings.section.importExport"
+                        ) {
+                            importExportPage
                         }
                     }
+
+                    GlassFormSection(title: "Manutenção") {
+                        settingsLink(
+                            "Backups",
+                            description: Text("Crie uma cópia local ou restaure um backup deste perfil."),
+                            systemImage: "externaldrive.badge.timemachine",
+                            identifier: "settings.section.backups"
+                        ) { backupsPage }
+                        settingsLink(
+                            "Verificar e reparar",
+                            description: Text("Confira o banco de dados, a mídia e os campos duplicados."),
+                            systemImage: "wrench.and.screwdriver",
+                            identifier: "settings.section.maintenance"
+                        ) { maintenancePage }
+                    }
+
+                    GlassFormSection(title: "Estudo") {
+                        settingsLink(
+                            "Agendador",
+                            description: Text("Configure o FSRS, os limites de estudo e a distribuição dos cartões novos."),
+                            systemImage: "calendar",
+                            identifier: "settings.section.scheduler"
+                        ) { schedulerPage }
+                        settingsLink(
+                            "Opções de estudo",
+                            description: Text("Configure controles, gestos e informações da tela de estudo."),
+                            systemImage: "rectangle.on.rectangle.angled",
+                            identifier: "settings.preferences.study"
+                        ) { PreferencesView(category: .study) }
+                        #if os(iOS)
+                        settingsLink(
+                            "Notificações",
+                            description: Text("Configure lembretes para estudar os cartões pendentes."),
+                            systemImage: "bell",
+                            identifier: "settings.preferences.notifications"
+                        ) { PreferencesView(category: .notifications) }
+                        #endif
+                        settingsLink(
+                            "Cartões",
+                            description: Text("Restaure cartões ocultos ou remova cartões vazios."),
+                            systemImage: "rectangle.on.rectangle",
+                            identifier: "settings.section.cards"
+                        ) { cardToolsPage }
+                    }
+
                     GlassFormSection(title: "Preferências") {
-                        settingsLink("Preferências do AnkiOS") { PreferencesView() }
-                        settingsLink("Perfis") { ProfilesView() }
+                        settingsLink(
+                            "Aparência",
+                            description: Text("Personalize o visual e a exibição dos cartões."),
+                            systemImage: "paintbrush",
+                            identifier: "settings.preferences.appearance"
+                        ) { PreferencesView(category: .appearance) }
+                        settingsLink(
+                            "Edição e navegação",
+                            description: Text("Defina opções para adicionar notas e navegar pela coleção."),
+                            systemImage: "square.and.pencil",
+                            identifier: "settings.preferences.editing"
+                        ) { PreferencesView(category: .editing) }
+                        settingsLink(
+                            "Perfis",
+                            description: Text("Separe coleções, progresso e contas do AnkiWeb."),
+                            systemImage: "person.2.fill",
+                            identifier: "settings.section.profiles"
+                        ) { ProfilesView() }
+                        settingsLink(
+                            "Tipos de nota",
+                            description: Text("Gerencie modelos e campos usados para criar cartões."),
+                            systemImage: "rectangle.stack",
+                            identifier: "settings.section.noteTypes"
+                        ) { noteTypesPage }
                     }
-                    GlassFormSection(title: "Tipos de nota") {
-                        settingsLink("Gerenciar tipos de nota") { NoteTypesView() }
-                        settingsLink("Adicionar nota") { NoteEditorView(mode: .add) }
-                    }
-                    if !duplicates.isEmpty {
-                        GlassFormSection(title: "Duplicatas") {
-                            ForEach(duplicates, id: \.self) { line in
-                                Text(line).font(.caption).foregroundStyle(AppTheme.primaryText)
-                            }
-                        }
-                    }
-                    GlassFormSection(title: "settings.cards.section") {
-                        toolButton("Desocultar todos os cartões ocultos") {
-                            do {
-                                try store.unburyAll()
-                                store.lastError = "Cartões ocultos foram restaurados à fila."
-                            } catch {
-                                store.lastError = error.localizedDescription
-                            }
-                        }
-                        toolButton("Remover cartões vazios") {
-                            do {
-                                let n = try store.emptyCards()
-                                store.lastError = "Removidos \(n) cartões vazios/órfãos."
-                            } catch {
-                                store.lastError = error.localizedDescription
-                            }
-                        }
-                    }
+
                     GlassFormSection(title: "Ajuda") {
-                        toolButton("Como usar o Anki (tutorial)") {
-                            TutorialGate.resetForDebug()
-                            store.shouldShowTutorial = true
-                        }
-                    }
-                    GlassFormSection(title: "Sobre") {
-                        GlassOptionRow(title: "App") {
-                            Text("AnkiOS").foregroundStyle(AppTheme.primaryText)
-                        }
+                        settingsLink(
+                            "Tutorial do AnkiOS",
+                            description: Text("Veja como organizar, importar e estudar baralhos."),
+                            systemImage: "questionmark.circle",
+                            identifier: "settings.section.help"
+                        ) { tutorialPage }
                     }
                 }
                 .padding(20)
@@ -271,6 +186,7 @@ struct SettingsView: View {
             .onAppear {
                 rollday = Double(store.rolloverHour)
                 schedulerFSRS = store.fsrsEnabled
+                loadSchedulerPreferences()
                 apkgIncludeScheduling = store.conf["apkgIncludeScheduling"] as? Bool ?? false
                 apkgIncludeDeckPresets = store.conf["apkgIncludeDeckPresets"] as? Bool ?? false
                 apkgIncludeMedia = store.conf["apkgIncludeMedia"] as? Bool ?? true
@@ -287,20 +203,40 @@ struct SettingsView: View {
                     csvNotetypeID = (store.conf["csvNotetypeID"] as? NSNumber)?.int64Value ?? store.notetypes.first?.id
                 }
                 refreshAutomaticBackups()
+                loadBackupPreferences()
                 consumeRequestedAction()
             }
             .onChange(of: store.activeProfile) { _, _ in
                 refreshAutomaticBackups()
+                loadBackupPreferences()
+                rollday = Double(store.rolloverHour)
+                schedulerFSRS = store.fsrsEnabled
+                loadSchedulerPreferences()
             }
             .onChange(of: store.automaticBackupRevision) { _, _ in refreshAutomaticBackups() }
             .onChange(of: requestedAction) { _, _ in consumeRequestedAction() }
             .onChange(of: store.isBootstrapping) { _, _ in consumeRequestedAction() }
             .onChange(of: store.collectionSyncing) { _, _ in consumeRequestedAction() }
-            .navigationDestination(isPresented: $showPreferences) {
-                PreferencesView()
+            .onChange(of: showMediaCheck) { _, isPresented in
+                if !isPresented {
+                    mediaReport = nil
+                    mediaCheckStatus = nil
+                }
             }
             .navigationDestination(isPresented: $showNoteTypes) {
                 NoteTypesView()
+            }
+            .navigationDestination(isPresented: $showMediaCheck) {
+                MediaCheckView(
+                    report: mediaReport ?? .empty,
+                    status: mediaCheckStatus,
+                    onRescan: { refreshMediaReport() },
+                    onTagMissingNotes: { tagNotesWithMissingMedia() },
+                    onTrashUnused: { trashUnusedMedia() },
+                    onRestoreTrash: { restoreMediaTrash() },
+                    onEmptyTrash: { emptyMediaTrash() },
+                    onRenderLatex: { renderMissingLatex() }
+                )
             }
             .fileImporter(
                 isPresented: $showImport,
@@ -363,21 +299,6 @@ struct SettingsView: View {
                 ShareSheet(items: [item.url])
                     .accessibilityIdentifier("settings.export.share-sheet")
             }
-            .sheet(isPresented: $showMediaCheck, onDismiss: {
-                mediaReport = nil
-                mediaCheckStatus = nil
-            }) {
-                MediaCheckSheet(
-                    report: mediaReport ?? .empty,
-                    status: mediaCheckStatus,
-                    onRescan: { refreshMediaReport() },
-                    onTagMissingNotes: { tagNotesWithMissingMedia() },
-                    onTrashUnused: { trashUnusedMedia() },
-                    onRestoreTrash: { restoreMediaTrash() },
-                    onEmptyTrash: { emptyMediaTrash() },
-                    onRenderLatex: { renderMissingLatex() }
-                )
-            }
             .sheet(isPresented: $showDeckImportOptions) {
                 ApkgImportOptionsSheet { withScheduling, withDeckConfigs, mergeNotetypes, updateNotes, updateNotetypes in
                     importingDeckPackage = true
@@ -425,6 +346,454 @@ struct SettingsView: View {
         }
     }
 
+    private var ankiWebDirectorySummary: Text {
+        let username = store.ankiWebUsername
+        guard store.ankiWebConfigured else {
+            return Text("Entre para sincronizar coleção e mídia.")
+        }
+        return username.isEmpty ? Text("Conta vinculada ao perfil ativo.") : Text("Conta: \(username)")
+    }
+
+    private var importExportPage: some View {
+        settingsDetailPage(
+            title: "Importar e exportar",
+            description: "Importe baralhos APKG, arquivos CSV e coleções. Exporte sua coleção, baralhos ou notas."
+        ) {
+            VStack(spacing: 22) {
+                GlassFormSection(title: "Importar") {
+                    toolButton("Importar .apkg, .colpkg ou Mnemosyne .db") { showImport = true }
+                    toolButton("Importar CSV / texto") { showCSVImport = true }
+                }
+
+                GlassFormSection(title: "Opções do CSV") {
+                    GlassOptionRow(title: "Importar para baralho") {
+                        GlassChoiceMenu(
+                            selection: $csvDeckID,
+                            choices: store.decks.filter { !$0.isFiltered }.map {
+                                GlassChoice(id: Optional($0.id), title: $0.displayName)
+                            }
+                        )
+                        .onChange(of: csvDeckID) { _, _ in saveCSVImportOptions() }
+                    }
+                    GlassOptionRow(title: "Tipo de nota (CSV)") {
+                        GlassChoiceMenu(
+                            selection: $csvNotetypeID,
+                            choices: store.notetypes.map {
+                                GlassChoice(id: Optional($0.id), title: $0.name)
+                            }
+                        )
+                        .onChange(of: csvNotetypeID) { _, _ in saveCSVImportOptions() }
+                    }
+                    GlassOptionRow(title: "Permitir HTML no CSV") {
+                        Toggle("", isOn: $csvAllowHTML)
+                            .labelsHidden()
+                            .tint(AppTheme.accent)
+                            .onChange(of: csvAllowHTML) { _, _ in saveCSVImportOptions() }
+                    }
+                    GlassOptionRow(title: "Separador do CSV") {
+                        Picker("", selection: $csvSeparator) {
+                            Text("Detectar").tag("auto")
+                            Text("Tabulação").tag("tab")
+                            Text("Vírgula").tag("comma")
+                            Text("Ponto e vírgula").tag("semicolon")
+                            Text("Espaço").tag("space")
+                            Text("Barra vertical").tag("pipe")
+                            Text("Dois-pontos").tag("colon")
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .onChange(of: csvSeparator) { _, _ in saveCSVImportOptions() }
+                    }
+                    GlassOptionRow(title: "Duplicatas no CSV") {
+                        Picker("", selection: $csvExistingNotePolicy) {
+                            ForEach(CSVImporter.ExistingNotePolicy.allCases) { policy in
+                                Text(policy.title).tag(policy)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .onChange(of: csvExistingNotePolicy) { _, _ in saveCSVImportOptions() }
+                    }
+                    GlassOptionRow(title: "Comparar duplicatas no baralho selecionado") {
+                        Toggle("", isOn: $csvMatchWithinDeck)
+                            .labelsHidden()
+                            .tint(AppTheme.accent)
+                            .onChange(of: csvMatchWithinDeck) { _, _ in saveCSVImportOptions() }
+                    }
+                }
+
+                GlassFormSection(title: "Exportar") {
+                    toolButton("Exportar coleção .apkg") { exportAll() }
+                        .accessibilityIdentifier("settings.export.apkg.collection")
+                    toolButton("Exportar coleção completa (.colpkg)") { exportCollectionPackage() }
+                        .accessibilityIdentifier("settings.export.colpkg")
+                    GlassOptionRow(title: "Exportar baralho") {
+                        GlassChoiceMenu(
+                            selection: $exportDeckID,
+                            choices: [GlassChoice(id: Int64?.none, title: "Coleção inteira")]
+                                + store.decks.filter { !$0.isFiltered }.map {
+                                    GlassChoice(id: Optional($0.id), title: $0.displayName)
+                                },
+                            accessibilityPrefix: "settings.export.deck.choice"
+                        )
+                        .accessibilityIdentifier("settings.export.deck")
+                    }
+                    toolButton("Exportar baralho selecionado .apkg") { exportDeck(id: exportDeckID) }
+                        .disabled(exportDeckID == nil)
+                        .accessibilityIdentifier("settings.export.apkg.deck")
+                    toolButton("Exportar notas como TSV") { exportTSV() }
+                    GlassOptionRow(title: "Exportar agendamento e histórico") {
+                        Toggle("", isOn: $apkgIncludeScheduling)
+                            .labelsHidden()
+                            .tint(AppTheme.accent)
+                            .onChange(of: apkgIncludeScheduling) { _, _ in saveApkgExportOptions() }
+                            .accessibilityIdentifier("settings.export.option.scheduling")
+                    }
+                    GlassOptionRow(title: "Exportar predefinições de baralho") {
+                        Toggle("", isOn: $apkgIncludeDeckPresets)
+                            .labelsHidden()
+                            .tint(AppTheme.accent)
+                            .onChange(of: apkgIncludeDeckPresets) { _, _ in saveApkgExportOptions() }
+                            .accessibilityIdentifier("settings.export.option.deck-presets")
+                    }
+                    GlassOptionRow(title: "Exportar mídia") {
+                        Toggle("", isOn: $apkgIncludeMedia)
+                            .labelsHidden()
+                            .tint(AppTheme.accent)
+                            .onChange(of: apkgIncludeMedia) { _, _ in saveApkgExportOptions() }
+                            .accessibilityIdentifier("settings.export.option.media")
+                    }
+                    Text("Essas opções também se aplicam à exportação de baralhos e cartões selecionados.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .padding(.horizontal, 4)
+                }
+            }
+        }
+    }
+
+    private var backupsPage: some View {
+        settingsDetailPage(
+            title: "Backups",
+            description: "Os backups ficam neste aparelho e pertencem ao perfil atual. Restaurar um backup substitui a coleção desse perfil."
+        ) {
+            GlassFormSection(title: "Backups locais") {
+                Button("Criar backup agora", systemImage: "externaldrive.badge.timemachine") { backupCollection() }
+                    .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
+                    .accessibilityIdentifier("settings.backup.create")
+                if automaticBackupURLs.isEmpty {
+                    Text("Ainda não há backups automáticos neste perfil.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .padding(.horizontal, 4)
+                } else {
+                    ForEach(automaticBackupURLs, id: \.path) { url in
+                        Button("Restaurar backup de \(backupTitle(url))", systemImage: "clock.arrow.circlepath") {
+                            pendingCollectionPackage = url
+                            pendingCollectionPackageScoped = false
+                            showRestoreCollectionConfirm = true
+                        }
+                        .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.3, expands: true))
+                        .accessibilityIdentifier("settings.backup.restore")
+                    }
+                }
+            }
+            GlassFormSection(title: "Backups automáticos") {
+                backupStepper("Intervalo mínimo (min)", value: $backupInterval, range: 5...9999, step: 5)
+                    .accessibilityIdentifier("settings.backup.retention.interval")
+                backupStepper("Diários", value: $backupDaily, range: 0...9999, step: 1)
+                    .accessibilityIdentifier("settings.backup.retention.daily")
+                backupStepper("Semanais", value: $backupWeekly, range: 0...9999, step: 1)
+                    .accessibilityIdentifier("settings.backup.retention.weekly")
+                backupStepper("Mensais", value: $backupMonthly, range: 0...9999, step: 1)
+                    .accessibilityIdentifier("settings.backup.retention.monthly")
+                Text("O Anki conserva os backups recentes e depois mantém versões diárias, semanais e mensais. Eles não incluem mídia.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .padding(.horizontal, 4)
+                Button("Salvar retenção") { saveBackupPreferences() }
+                    .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
+                    .accessibilityIdentifier("settings.backup.retention.save")
+            }
+        }
+    }
+
+    private var maintenancePage: some View {
+        settingsDetailPage(
+            title: "Verificar e reparar",
+            description: "Use estas ferramentas para conferir a integridade da coleção e localizar problemas no banco ou na mídia."
+        ) {
+            VStack(spacing: 22) {
+                GlassFormSection(title: "Banco de dados") {
+                    toolButton(LocalizedStringKey("Verificar banco de dados")) { checkDB() }
+                        .accessibilityIdentifier("settings.database.check")
+                    toolButton("Otimizar banco (VACUUM)") { optimizeDB() }
+                    toolButton("Procurar duplicatas") { findDuplicates() }
+                    if !duplicates.isEmpty {
+                        GlassInset {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(duplicates, id: \.self) { line in
+                                    Text(line).font(.caption).foregroundStyle(AppTheme.primaryText)
+                                }
+                            }
+                        }
+                    }
+                }
+                GlassFormSection(title: "Mídia") {
+                    toolButton("Verificar mídia") { checkMedia() }
+                        .accessibilityIdentifier("settings.media.check")
+                }
+            }
+        }
+    }
+
+    private var schedulerPage: some View {
+        settingsDetailPage(
+            title: "Agendador",
+            description: "FSRS usa seu histórico de respostas para estimar quando você tende a esquecer cada cartão. Aqui você também define limites de aprendizagem, a ordem dos cartões novos e o início do novo dia."
+        ) {
+            GlassFormSection(title: "Agendamento") {
+                GlassOptionRow(title: "Usar FSRS") {
+                    Toggle("", isOn: $schedulerFSRS)
+                        .labelsHidden()
+                        .tint(AppTheme.accent)
+                        .accessibilityIdentifier("settings.scheduler.fsrs")
+                        .onChange(of: schedulerFSRS) { _, value in
+                            let previousFSRS = store.fsrsEnabled
+                            var conf = store.conf
+                            conf["fsrs"] = value
+                            do {
+                                try store.saveConf(conf)
+                                if previousFSRS != value {
+                                    try store.rebuildFSRSMemoryStates(enabled: value)
+                                }
+                            } catch {
+                                store.lastError = error.localizedDescription
+                            }
+                        }
+                }
+                GlassInset {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Novo dia começa às \(Int(rollday)):00")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(AppTheme.primaryText)
+                        Slider(value: $rollday, in: 0...23, step: 1)
+                            .onChange(of: rollday) { _, value in
+                                guard Int(value) != store.rolloverHour else { return }
+                                do {
+                                    try store.setRolloverHour(Int(value))
+                                    try store.refreshCounts()
+                                } catch {
+                                    store.lastError = error.localizedDescription
+                                }
+                            }
+                    }
+                }
+            }
+            GlassFormSection(title: "Limites e distribuição") {
+                GlassOptionRow(title: "FSRS com passos de curto prazo", interactive: false) {
+                    Toggle("", isOn: $fsrsShortTerm)
+                        .labelsHidden()
+                        .tint(AppTheme.accent)
+                        .accessibilityIdentifier("settings.scheduler.fsrsShortTerm")
+                }
+                schedulerStepper(
+                    "Antecipar aprendizagem (min)",
+                    value: $learnAheadMinutes,
+                    range: 0...999,
+                    display: "\(learnAheadMinutes)"
+                )
+                schedulerStepper(
+                    "Limite de tempo da sessão (min)",
+                    value: $timeboxMinutes,
+                    range: 0...9999,
+                    display: timeboxMinutes == 0 ? "Desativado" : "\(timeboxMinutes)"
+                )
+                GlassOptionRow(title: "Aplicar limites dos baralhos pai", interactive: false) {
+                    Toggle("", isOn: $applyParents)
+                        .labelsHidden()
+                        .tint(AppTheme.accent)
+                        .accessibilityIdentifier("settings.scheduler.applyParentLimits")
+                }
+                GlassOptionRow(title: "Distribuição de novos") {
+                    Picker("Distribuição de novos", selection: $newSpread) {
+                        Text("Misturar com revisões").tag(0)
+                        Text("Novos depois das revisões").tag(1)
+                        Text("Novos antes das revisões").tag(2)
+                    }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("settings.scheduler.newSpread")
+                }
+            }
+            GlassFormSection(title: "Avançado") {
+                GlassOptionRow(title: "Versão do agendador") {
+                    Text("v\(schedVer)")
+                        .font(.body.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(AppTheme.primaryText)
+                }
+                Text("O agendador segue o modelo de filas do Anki 2.1.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .padding(.horizontal, 4)
+                Text("JavaScript global para ajustar os estados previstos dos botões de resposta. O código recebe states, customData e ctx.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .padding(.horizontal, 4)
+                TextEditor(text: $cardStateCustomizer)
+                    .font(.system(.body, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .foregroundStyle(AppTheme.primaryText)
+                    .padding(8)
+                    .frame(minHeight: 180)
+                    .ankiGlass(tint: .white.opacity(0.06), interactive: true, in: RoundedRectangle(cornerRadius: 14))
+            }
+            Button("Salvar opções do agendador") { saveSchedulerPreferences() }
+                .buttonStyle(GlassButtonStyle(tint: AppTheme.accent, tintStrength: 0.42, expands: true))
+                .accessibilityIdentifier("settings.scheduler.save")
+        }
+    }
+
+    private func schedulerStepper(
+        _ title: LocalizedStringKey,
+        value: Binding<Int>,
+        range: ClosedRange<Int>,
+        display: String
+    ) -> some View {
+        GlassOptionRow(title: title) {
+            HStack(spacing: 8) {
+                Text(display)
+                    .font(.body.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(AppTheme.primaryText)
+                    .frame(minWidth: 72, alignment: .trailing)
+                Stepper("", value: value, in: range)
+                    .labelsHidden()
+                    .accessibilityLabel(title)
+                    .frame(width: 100)
+            }
+        }
+    }
+
+    private func loadSchedulerPreferences() {
+        learnAheadMinutes = (store.conf["collapseTime"] as? Int ?? 1200) / 60
+        newSpread = store.conf["newSpread"] as? Int ?? 0
+        timeboxMinutes = (store.conf["timeLim"] as? Int ?? 0) / 60
+        schedVer = store.conf["schedVer"] as? Int ?? 2
+        applyParents = store.conf["applyAllParentLimits"] as? Bool ?? false
+        fsrsShortTerm = store.conf["fsrsShortTermWithStepsEnabled"] as? Bool
+            ?? store.conf["fsrsShortTermWithSteps"] as? Bool ?? false
+        cardStateCustomizer = store.conf["cardStateCustomizer"] as? String ?? ""
+    }
+
+    private func saveSchedulerPreferences() {
+        var conf = store.conf
+        conf["collapseTime"] = learnAheadMinutes * 60
+        conf["newSpread"] = newSpread
+        conf["timeLim"] = timeboxMinutes * 60
+        conf["applyAllParentLimits"] = applyParents
+        conf["fsrsShortTermWithStepsEnabled"] = fsrsShortTerm
+        conf.removeValue(forKey: "fsrsShortTermWithSteps")
+        conf["cardStateCustomizer"] = cardStateCustomizer
+        do {
+            try store.saveConf(conf)
+        } catch {
+            store.lastError = error.localizedDescription
+        }
+    }
+
+    private var cardToolsPage: some View {
+        settingsDetailPage(
+            title: "Cartões",
+            description: "Ações para corrigir cartões que não aparecem na fila ou que ficaram sem uma nota válida."
+        ) {
+            GlassFormSection(title: "Ações de cartões") {
+                toolButton("Desocultar todos os cartões ocultos") {
+                    do {
+                        try store.unburyAll()
+                        store.lastError = "Cartões ocultos foram restaurados à fila."
+                    } catch {
+                        store.lastError = error.localizedDescription
+                    }
+                }
+                toolButton("Remover cartões vazios") {
+                    do {
+                        let count = try store.emptyCards()
+                        store.lastError = "Removidos \(count) cartões vazios/órfãos."
+                    } catch {
+                        store.lastError = error.localizedDescription
+                    }
+                }
+            }
+        }
+    }
+
+    private var noteTypesPage: some View {
+        settingsDetailPage(
+            title: "Tipos de nota",
+            description: "Tipos de nota definem os campos e modelos usados para criar cartões."
+        ) {
+            GlassFormSection(title: "Gerenciar notas") {
+                settingsLink(
+                    "Gerenciar tipos de nota",
+                    description: Text("Edite tipos de nota, campos e modelos de cartão."),
+                    systemImage: "rectangle.stack",
+                    identifier: "settings.noteTypes.manage"
+                ) { NoteTypesView() }
+                settingsLink(
+                    "Adicionar nota",
+                    description: Text("Crie uma nota e escolha em qual baralho ela será estudada."),
+                    systemImage: "plus.circle",
+                    identifier: "settings.noteTypes.add"
+                ) { NoteEditorView(mode: .add) }
+            }
+        }
+    }
+
+    private var tutorialPage: some View {
+        settingsDetailPage(
+            title: "Ajuda",
+            description: "Aprenda a organizar os baralhos, adicionar cartões e acompanhar seu estudo."
+        ) {
+            GlassFormSection(title: "Começar") {
+                toolButton("Como usar o Anki (tutorial)") {
+                    TutorialGate.resetForDebug()
+                    store.shouldShowTutorial = true
+                }
+            }
+            GlassFormSection(title: "Sobre") {
+                GlassOptionRow(title: "App") {
+                    Text("AnkiOS").foregroundStyle(AppTheme.primaryText)
+                }
+            }
+        }
+    }
+
+    private func settingsDetailPage<Content: View>(
+        title: LocalizedStringKey,
+        description: LocalizedStringKey,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                GlassCard(interactive: false) {
+                    Text(description)
+                        .font(.callout)
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                content()
+            }
+            .padding(20)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+        }
+        .background(AppBackground())
+        .navigationTitle(title)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .ankiKeyboardDismissToolbar()
+    }
+
     private func consumeRequestedAction() {
         guard let action = requestedAction, !store.isBootstrapping, !store.collectionSyncing else { return }
         requestedAction = nil
@@ -432,7 +801,7 @@ struct SettingsView: View {
         case .importPackage: showImport = true
         case .importText: showCSVImport = true
         case .exportCollection: exportAll()
-        case .preferences: showPreferences = true
+        case .preferences: break
         case .noteTypes: showNoteTypes = true
         }
     }
@@ -498,24 +867,49 @@ struct SettingsView: View {
         pendingCollectionPackageScoped = false
     }
 
-    private func settingsLink<Destination: View>(_ title: LocalizedStringKey, @ViewBuilder destination: () -> Destination) -> some View {
+    private func settingsLink<Destination: View>(
+        _ title: LocalizedStringKey,
+        description: Text,
+        systemImage: String,
+        identifier: String,
+        @ViewBuilder destination: () -> Destination
+    ) -> some View {
         NavigationLink {
             destination()
         } label: {
-            HStack {
-                Text(title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(AppTheme.primaryText)
-                Spacer()
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(width: 32)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.primaryText)
+                    description
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 4)
                 Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.primaryText.opacity(0.55))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(14)
             .frame(maxWidth: .infinity)
-            .ankiGlass(tint: .white.opacity(0.08), interactive: true, in: RoundedRectangle(cornerRadius: 14))
+            .ankiGlass(tint: .white.opacity(0.08), interactive: true, in: RoundedRectangle(cornerRadius: 16))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(AppTheme.primaryText.opacity(0.09), lineWidth: 1)
+            }
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(description)
+        .accessibilityIdentifier(identifier)
     }
 
     private func exportAll() {
@@ -605,6 +999,50 @@ struct SettingsView: View {
         automaticBackupURLs = (try? store.collectionBackupPackages()) ?? []
     }
 
+    private func loadBackupPreferences() {
+        let backups = store.conf["backups"] as? [String: Any] ?? [:]
+        backupInterval = CollectionStore.int(backups["minimum_interval_mins"]) ?? 30
+        backupDaily = CollectionStore.int(backups["daily"]) ?? 12
+        backupWeekly = CollectionStore.int(backups["weekly"]) ?? 10
+        backupMonthly = CollectionStore.int(backups["monthly"]) ?? 9
+    }
+
+    private func saveBackupPreferences() {
+        var conf = store.conf
+        conf["backups"] = [
+            "minimum_interval_mins": max(5, backupInterval),
+            "daily": max(0, backupDaily),
+            "weekly": max(0, backupWeekly),
+            "monthly": max(0, backupMonthly)
+        ]
+        do {
+            try store.saveConf(conf)
+            store.lastError = nil
+        } catch {
+            store.lastError = error.localizedDescription
+        }
+    }
+
+    private func backupStepper(
+        _ title: String,
+        value: Binding<Int>,
+        range: ClosedRange<Int>,
+        step: Int
+    ) -> some View {
+        GlassOptionRow(title: LocalizedStringKey(title)) {
+            HStack(spacing: 8) {
+                Text("\(value.wrappedValue)")
+                    .font(.body.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(AppTheme.primaryText)
+                    .frame(minWidth: 44, alignment: .trailing)
+                Stepper("", value: value, in: range, step: step)
+                    .labelsHidden()
+                    .accessibilityLabel(title)
+                    .frame(width: 100)
+            }
+        }
+    }
+
     private func backupTitle(_ url: URL) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -615,10 +1053,14 @@ struct SettingsView: View {
     }
 
     private func checkDB() {
+        #if ANKIOS_PARITY_HARNESS || os(macOS)
         Task { @MainActor in
             await Task.yield()
             CollectionDatabaseChecker(store: store).run()
         }
+        #else
+        Task { await store.checkDatabaseWithAnki() }
+        #endif
     }
 
     private func optimizeDB() {
@@ -1006,10 +1448,16 @@ struct AnkiWebAccountSection: View {
         GlassFormSection(title: "AnkiWeb") {
             VStack(alignment: .leading, spacing: 14) {
                 if store.ankiWebConfigured {
-                    Label("Conectado como \(store.ankiWebUsername)", systemImage: "checkmark.circle.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.good)
-                        .padding(.horizontal, 4)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Conta AnkiWeb conectada", systemImage: "checkmark.circle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.good)
+                        Text(store.ankiWebUsername.isEmpty ? "Conta vinculada ao perfil ativo." : store.ankiWebUsername)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.secondaryText)
+                            .accessibilityIdentifier("ankiweb.account.username")
+                    }
+                    .padding(.horizontal, 4)
                     Button {
                         Task { await store.syncWithAnkiWeb() }
                     } label: {
@@ -1258,7 +1706,7 @@ struct MediaCheckReport {
     }
 }
 
-private struct MediaCheckSheet: View {
+private struct MediaCheckView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showTrashUnusedConfirmation = false
     @State private var showEmptyTrashConfirmation = false
@@ -1273,104 +1721,102 @@ private struct MediaCheckSheet: View {
     let onRenderLatex: () -> Void
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    GlassFormSection(title: "Resumo") {
-                        Text("\(report.fileCount) arquivos, \(report.unused.count) não usados e \(report.missing.count) ausentes.")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(AppTheme.primaryText)
-                        Text("Arquivos iniciados por _ são mantidos. Referências em templates não são verificadas.")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                GlassFormSection(title: "Resumo") {
+                    Text("\(report.fileCount) arquivos, \(report.unused.count) não usados e \(report.missing.count) ausentes.")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(AppTheme.primaryText)
+                    Text("Arquivos iniciados por _ são mantidos. Referências em templates não são verificadas.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .padding(.horizontal, 4)
+                    if let status {
+                        Text(status)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.good)
+                            .padding(.horizontal, 4)
+                    }
+                    toolButton("Verificar novamente", action: onRescan)
+                    #if os(macOS)
+                    if !report.missingLatex.isEmpty {
+                        toolButton("Gerar imagens LaTeX (\(report.missingLatex.count))", action: onRenderLatex)
+                    }
+                    #endif
+                }
+
+                GlassFormSection(title: "Arquivos ausentes (\(report.missing.count))") {
+                    if report.missing.isEmpty {
+                        Text("Nenhum arquivo ausente.")
                             .font(.caption)
                             .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                        if let status {
-                            Text(status)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(AppTheme.good)
-                                .padding(.horizontal, 4)
-                        }
-                        toolButton("Verificar novamente", action: onRescan)
-                        #if os(macOS)
-                        if !report.missingLatex.isEmpty {
-                            toolButton("Gerar imagens LaTeX (\(report.missingLatex.count))", action: onRenderLatex)
-                        }
-                        #endif
+                    } else {
+                        fileList(report.missing)
+                        toolButton("Adicionar a tag missing-media às notas", action: onTagMissingNotes)
+                            .disabled(report.missingNoteIDs.isEmpty)
                     }
+                }
 
-                    GlassFormSection(title: "Arquivos ausentes (\(report.missing.count))") {
-                        if report.missing.isEmpty {
-                            Text("Nenhum arquivo ausente.")
-                                .font(.caption)
-                                .foregroundStyle(AppTheme.secondaryText)
-                        } else {
-                            fileList(report.missing)
-                            toolButton("Adicionar a tag missing-media às notas", action: onTagMissingNotes)
-                                .disabled(report.missingNoteIDs.isEmpty)
-                        }
-                    }
-
-                    GlassFormSection(title: "Arquivos não usados (\(report.unused.count))") {
-                        if report.unused.isEmpty {
-                            Text("Nenhum arquivo não usado.")
-                                .font(.caption)
-                                .foregroundStyle(AppTheme.secondaryText)
-                        } else {
-                            fileList(report.unused)
-                            Button("Mover arquivos não usados para a lixeira", systemImage: "trash") {
-                                showTrashUnusedConfirmation = true
-                            }
-                            .buttonStyle(GlassButtonStyle(tint: AppTheme.danger, prominent: false, tintStrength: 0.22, expands: true))
-                        }
-                    }
-
-                    GlassFormSection(title: "Lixeira de mídia (\(report.trashCount))") {
-                        Text("\(ByteCountFormatter.string(fromByteCount: report.trashBytes, countStyle: .file))")
+                GlassFormSection(title: "Arquivos não usados (\(report.unused.count))") {
+                    if report.unused.isEmpty {
+                        Text("Nenhum arquivo não usado.")
                             .font(.caption)
                             .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                        toolButton("Restaurar arquivos da lixeira", action: onRestoreTrash)
-                            .disabled(report.trashCount == 0)
-                        Button("Esvaziar lixeira", systemImage: "trash.slash", role: .destructive) {
-                            showEmptyTrashConfirmation = true
+                    } else {
+                        fileList(report.unused)
+                        Button("Mover arquivos não usados para a lixeira", systemImage: "trash") {
+                            showTrashUnusedConfirmation = true
                         }
                         .buttonStyle(GlassButtonStyle(tint: AppTheme.danger, prominent: false, tintStrength: 0.22, expands: true))
-                        .disabled(report.trashCount == 0)
                     }
+                }
 
-                    if !report.folders.isEmpty {
-                        GlassFormSection(title: "Subpastas (\(report.folders.count))") {
-                            fileList(report.folders)
-                            Text("Subpastas dentro da pasta de mídia não são suportadas pelo Anki.")
-                                .font(.caption)
-                                .foregroundStyle(AppTheme.secondaryText)
-                                .padding(.horizontal, 4)
-                        }
+                GlassFormSection(title: "Lixeira de mídia (\(report.trashCount))") {
+                    Text("\(ByteCountFormatter.string(fromByteCount: report.trashBytes, countStyle: .file))")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .padding(.horizontal, 4)
+                    toolButton("Restaurar arquivos da lixeira", action: onRestoreTrash)
+                        .disabled(report.trashCount == 0)
+                    Button("Esvaziar lixeira", systemImage: "trash.slash", role: .destructive) {
+                        showEmptyTrashConfirmation = true
+                    }
+                    .buttonStyle(GlassButtonStyle(tint: AppTheme.danger, prominent: false, tintStrength: 0.22, expands: true))
+                    .disabled(report.trashCount == 0)
+                }
+
+                if !report.folders.isEmpty {
+                    GlassFormSection(title: "Subpastas (\(report.folders.count))") {
+                        fileList(report.folders)
+                        Text("Subpastas dentro da pasta de mídia não são suportadas pelo Anki.")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.secondaryText)
+                            .padding(.horizontal, 4)
                     }
                 }
-                .padding(20)
-                .frame(maxWidth: 720)
-                .frame(maxWidth: .infinity)
             }
-            .background(AppBackground())
-            .navigationTitle("Verificar mídia")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Concluído") { dismiss() }
-                }
+            .padding(20)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+        }
+        .background(AppBackground())
+        .navigationTitle("Verificar mídia")
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Concluído") { dismiss() }
             }
-            .confirmationDialog("Mover mídia não usada para a lixeira?", isPresented: $showTrashUnusedConfirmation, titleVisibility: .visible) {
-                Button("Mover para a lixeira", role: .destructive, action: onTrashUnused)
-                Button("Cancelar", role: .cancel) {}
-            } message: {
-                Text("Os arquivos poderão ser restaurados ou apagados depois.")
-            }
-            .confirmationDialog("Esvaziar a lixeira de mídia?", isPresented: $showEmptyTrashConfirmation, titleVisibility: .visible) {
-                Button("Esvaziar lixeira", role: .destructive, action: onEmptyTrash)
-                Button("Cancelar", role: .cancel) {}
-            } message: {
-                Text("Os arquivos removidos não poderão ser restaurados pelo AnkiOS.")
-            }
+        }
+        .confirmationDialog("Mover mídia não usada para a lixeira?", isPresented: $showTrashUnusedConfirmation, titleVisibility: .visible) {
+            Button("Mover para a lixeira", role: .destructive, action: onTrashUnused)
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Os arquivos poderão ser restaurados ou apagados depois.")
+        }
+        .confirmationDialog("Esvaziar a lixeira de mídia?", isPresented: $showEmptyTrashConfirmation, titleVisibility: .visible) {
+            Button("Esvaziar lixeira", role: .destructive, action: onEmptyTrash)
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Os arquivos removidos não poderão ser restaurados pelo AnkiOS.")
         }
     }
 

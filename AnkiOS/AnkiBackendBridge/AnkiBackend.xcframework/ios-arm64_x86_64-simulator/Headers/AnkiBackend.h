@@ -6,6 +6,7 @@ typedef struct AnkiSyncBackend AnkiSyncBackend;
 char *ankios_anki_extract_latex(const char *text, int svg, char **error_out);
 char *ankios_anki_extract_latex_details(const char *text, int svg, int expand_clozes, char **error_out);
 AnkiSyncBackend *ankios_anki_backend_open(const char *collection_path, const char *media_folder_path, const char *media_db_path, char **error_out);
+char *ankios_anki_check_database(const char *collection_path, const char *media_folder_path, const char *media_db_path, char **error_out);
 char *ankios_anki_sync_login(AnkiSyncBackend *backend, const char *username, const char *password, const char *endpoint, char **error_out);
 char *ankios_anki_sync_status(AnkiSyncBackend *backend, const char *hkey, const char *endpoint, char **error_out);
 char *ankios_anki_sync_collection(AnkiSyncBackend *backend, const char *hkey, const char *endpoint, int sync_media, char **error_out);

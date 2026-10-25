@@ -25,6 +25,7 @@ struct StatsHomeView: View {
     @State private var hourlyBreakdown: [StatsHourlyBreakdown] = []
     @State private var added: [Int: Int] = [:]
     @State private var filterDeckID: Int64?
+    @State private var showStatsDeckPicker = false
     @State private var didSetInitialDeckSelection = false
     @State private var rangeDays = 365
     @State private var reviewDays: [CollectionStore.ReviewDayPoint] = []
@@ -43,28 +44,49 @@ struct StatsHomeView: View {
         store.fsrsEnabled
     }
 
+    private var selectedStatsDeckName: String {
+        guard let filterDeckID,
+              let deck = store.decks.first(where: { $0.id == filterDeckID }) else {
+            return String(localized: "Toda a coleção")
+        }
+        return deck.name
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    GlassCard {
-                        Picker("stats.deck.filter", selection: $filterDeckID) {
-                            Text("Toda a coleção").tag(Int64?.none)
-                            ForEach(store.decks) { deck in
-                                Text(deck.name).tag(Optional(deck.id))
+                    GlassCard(interactive: false) {
+                        VStack(spacing: 12) {
+                            Button {
+                                showStatsDeckPicker = true
+                            } label: {
+                                GlassInset {
+                                    HStack(spacing: 10) {
+                                        Text(selectedStatsDeckName)
+                                            .font(.body.weight(.medium))
+                                            .foregroundStyle(AppTheme.primaryText)
+                                            .multilineTextAlignment(.leading)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                            .layoutPriority(1)
+                                        Spacer(minLength: 8)
+                                        Image(systemName: "chevron.up.chevron.down")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(AppTheme.accent)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(Text(verbatim: selectedStatsDeckName))
+                            .accessibilityIdentifier("stats.deckFilter")
+
+                            HStack(spacing: 4) {
+                                statsPeriodButton("1 mês", days: 31)
+                                statsPeriodButton("3 meses", days: 90)
+                                statsPeriodButton("1 ano", days: 365)
+                                statsPeriodButton("Todo o histórico", days: 0)
                             }
                         }
-                        .accessibilityIdentifier("stats.deckFilter")
-                        .onChange(of: filterDeckID) { _, _ in reload() }
-                        Picker("Período", selection: $rangeDays) {
-                            Text("1 mês").tag(31)
-                            Text("3 meses").tag(90)
-                            Text("1 ano").tag(365)
-                            Text("Todo o histórico").tag(0)
-                        }
-                        .pickerStyle(.segmented)
-                        .accessibilityIdentifier("stats.period")
-                        .onChange(of: rangeDays) { _, _ in reload() }
                     }
 
                     GlassCard {
@@ -427,35 +449,65 @@ struct StatsHomeView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Calendário")
                                 .font(AppTheme.deckFont)
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 4) {
-                                ForEach(calendarWeekdays, id: \.weekday) { weekday in
-                                    Button {
-                                        firstWeekday = weekday.weekday
-                                    } label: {
-                                        Text(String(weekday.name.prefix(1)))
-                                            .font(.caption2.weight(.semibold))
-                                            .foregroundStyle(weekday.weekday == firstWeekday ? AppTheme.accent : AppTheme.secondaryText)
-                                            .frame(maxWidth: .infinity)
+                            HStack(alignment: .top, spacing: 8) {
+                                VStack(spacing: 3) {
+                                    Color.clear.frame(width: 12, height: 12)
+                                    ForEach(calendarWeekdays) { weekday in
+                                        Button {
+                                            firstWeekday = weekday.weekday
+                                        } label: {
+                                            Text(String(weekday.name.prefix(1)))
+                                                .font(.caption2.weight(.semibold))
+                                                .foregroundStyle(weekday.weekday == firstWeekday ? AppTheme.accent : AppTheme.secondaryText)
+                                                .frame(width: 12, height: 12)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .help("Começar a semana em \(weekday.name)")
+                                        .accessibilityLabel("Começar a semana em \(weekday.name)")
                                     }
-                                    .buttonStyle(.plain)
-                                    .help("Começar a semana em \(weekday.name)")
-                                    .accessibilityLabel("Começar a semana em \(weekday.name)")
                                 }
-                                ForEach(Array(calendarGridOffsets.enumerated()), id: \.offset) { _, dayOffset in
-                                    if let dayOffset {
-                                        let count = calendar[dayOffset] ?? 0
-                                        RoundedRectangle(cornerRadius: 3)
-                                            .fill(heatColor(count))
-                                            .aspectRatio(1, contentMode: .fit)
-                                            .help("\(calendarDateLabel(dayOffset)): \(count) revisões")
-                                            .accessibilityLabel("\(calendarDateLabel(dayOffset)): \(count) revisões")
-                                    } else {
-                                        Color.clear
-                                            .aspectRatio(1, contentMode: .fit)
+
+                                ScrollViewReader { proxy in
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(alignment: .top, spacing: 3) {
+                                            ForEach(Array(calendarWeeks.enumerated()), id: \.offset) { weekIndex, week in
+                                                VStack(spacing: 3) {
+                                                    Color.clear
+                                                        .frame(width: 11, height: 12)
+                                                        .overlay(alignment: .leading) {
+                                                            if let month = calendarMonthLabel(for: week) {
+                                                                Text(month)
+                                                                    .font(.caption2)
+                                                                    .foregroundStyle(AppTheme.secondaryText)
+                                                                    .fixedSize()
+                                                            }
+                                                        }
+                                                    ForEach(Array(week.enumerated()), id: \.offset) { _, dayOffset in
+                                                        if let dayOffset {
+                                                            let count = calendar[dayOffset] ?? 0
+                                                            RoundedRectangle(cornerRadius: 3)
+                                                                .fill(heatColor(count))
+                                                                .frame(width: 11, height: 11)
+                                                                .help("\(calendarDateLabel(dayOffset)): \(count) revisões")
+                                                                .accessibilityLabel("\(calendarDateLabel(dayOffset)): \(count) revisões")
+                                                                .accessibilityIdentifier("stats.calendar.day.\(dayOffset)")
+                                                        } else {
+                                                            Color.clear
+                                                                .frame(width: 11, height: 11)
+                                                        }
+                                                    }
+                                                }
+                                                .id(weekIndex)
+                                            }
+                                        }
+                                        .padding(.vertical, 1)
+                                    }
+                                    .onAppear {
+                                        proxy.scrollTo(calendarWeeks.count - 1, anchor: .trailing)
                                     }
                                 }
                             }
-                            Text("Últimos 12 meses · intensidade = revisões por dia. Toque em um dia da semana para mudar o início da semana.")
+                            Text("Últimos 12 meses · intensidade = revisões por dia. Deslize para ver as semanas. Toque no dia da semana para mudar o início da semana.")
                                 .font(.caption2)
                                 .foregroundStyle(AppTheme.secondaryText)
                         }
@@ -560,6 +612,44 @@ struct StatsHomeView: View {
             ) { result in
                 if case .failure(let error) = result { store.lastError = error.localizedDescription }
             }
+            .sheet(isPresented: $showStatsDeckPicker) {
+                NavigationStack {
+                    List {
+                        Button {
+                            selectStatsDeck(nil)
+                        } label: {
+                            statsDeckPickerLabel("Toda a coleção", selected: filterDeckID == nil)
+                        }
+                        .foregroundStyle(AppTheme.primaryText)
+                        .accessibilityLabel(Text("Toda a coleção"))
+                        .glassListRow(selected: filterDeckID == nil, tint: AppTheme.accent)
+
+                        ForEach(store.decks) { deck in
+                            Button {
+                                selectStatsDeck(deck.id)
+                            } label: {
+                                statsDeckPickerLabel(deck.name, selected: filterDeckID == deck.id)
+                            }
+                            .foregroundStyle(AppTheme.primaryText)
+                            .accessibilityLabel(Text(verbatim: deck.name))
+                            .glassListRow(selected: filterDeckID == deck.id, tint: AppTheme.accent)
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
+                    .background(AppBackground())
+                    .navigationTitle("stats.deck.filter")
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Fechar") { showStatsDeckPicker = false }
+                        }
+                    }
+                }
+                #if os(iOS)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                #endif
+            }
             .task {
                 if !didSetInitialDeckSelection {
                     didSetInitialDeckSelection = true
@@ -629,17 +719,32 @@ struct StatsHomeView: View {
         }
     }
 
-    private var calendarGridOffsets: [Int?] {
+    private var calendarWeeks: [[Int?]] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let oldest = calendar.date(byAdding: .day, value: -364, to: today) ?? today
         let weekday = calendar.component(.weekday, from: oldest)
         let leading = (weekday - normalizedFirstWeekday + 7) % 7
-        var offsets = [Int?](repeating: nil, count: leading)
-        offsets.append(contentsOf: (0..<365).reversed().map { Optional($0) })
-        let trailing = (7 - offsets.count % 7) % 7
-        offsets.append(contentsOf: [Int?](repeating: nil, count: trailing))
-        return offsets
+        let trailing = (7 - (leading + 365) % 7) % 7
+        let dayOffsets = [Int?](repeating: nil, count: leading)
+            + (0..<365).reversed().map { Optional($0) }
+            + [Int?](repeating: nil, count: trailing)
+        return stride(from: 0, to: dayOffsets.count, by: 7).map { start in
+            Array(dayOffsets[start..<(start + 7)])
+        }
+    }
+
+    private func calendarMonthLabel(for week: [Int?]) -> String? {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        for offset in week.compactMap({ $0 }) {
+            let date = calendar.date(byAdding: .day, value: -offset, to: today) ?? today
+            if calendar.component(.day, from: date) == 1 {
+                let month = calendar.component(.month, from: date)
+                return calendar.shortMonthSymbols[month - 1]
+            }
+        }
+        return nil
     }
 
     private func calendarDateLabel(_ offset: Int) -> String {
@@ -868,6 +973,41 @@ struct StatsHomeView: View {
         } catch {
             store.lastError = error.localizedDescription
         }
+    }
+
+    private func selectStatsDeck(_ deckID: Int64?) {
+        filterDeckID = deckID
+        showStatsDeckPicker = false
+        reload()
+    }
+
+    private func statsDeckPickerLabel(_ title: String, selected: Bool) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            if selected {
+                Image(systemName: "checkmark")
+                    .foregroundStyle(AppTheme.accent)
+            }
+        }
+    }
+
+    private func statsPeriodButton(_ title: LocalizedStringKey, days: Int) -> some View {
+        Button {
+            guard rangeDays != days else { return }
+            rangeDays = days
+            reload()
+        } label: {
+            Text(title)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .minimumScaleFactor(0.72)
+        }
+        .buttonStyle(GlassChipButtonStyle(tint: rangeDays == days ? AppTheme.accent.opacity(0.32) : .white.opacity(0.045)))
+        .accessibilityIdentifier("stats.period.\(days)")
+        .accessibilityAddTraits(rangeDays == days ? .isSelected : [])
     }
 }
 

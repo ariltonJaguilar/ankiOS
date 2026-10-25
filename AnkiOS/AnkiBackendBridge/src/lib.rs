@@ -1,6 +1,8 @@
 use anki::backend::Backend;
-use anki::prelude::I18n;
-use anki::services::{BackendCollectionService, BackendSyncService};
+use anki::collection::CollectionBuilder;
+use anki::prelude::{AnkiError, I18n};
+use anki::services::{BackendCollectionService, BackendSyncService, CollectionService};
+use anki::storage::SchemaVersion;
 use anki_proto::collection::{CloseCollectionRequest, OpenCollectionRequest};
 use anki_proto::sync::{
     FullUploadOrDownloadRequest, SyncAuth, SyncCollectionRequest, SyncLoginRequest,
@@ -12,6 +14,10 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 pub struct AnkiSyncBackend {
     backend: Backend,
     collection_open: bool,
+}
+
+fn error_message(error: AnkiError) -> String {
+    error.message(&I18n::new(&["pt-BR", "en"]))
 }
 
 unsafe fn read_string(value: *const c_char, name: &str) -> Result<String, String> {
@@ -151,7 +157,7 @@ pub unsafe extern "C" fn ankios_anki_backend_open(
                 media_folder_path,
                 media_db_path,
             })
-            .map_err(|error| error.to_string())?;
+            .map_err(error_message)?;
         Ok::<_, String>(AnkiSyncBackend {
             backend,
             collection_open: true,
@@ -168,6 +174,31 @@ pub unsafe extern "C" fn ankios_anki_backend_open(
             std::ptr::null_mut()
         }
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ankios_anki_check_database(
+    collection_path: *const c_char,
+    media_folder_path: *const c_char,
+    media_db_path: *const c_char,
+    error_out: *mut *mut c_char,
+) -> *mut c_char {
+    run_json(error_out, || {
+        let collection_path = read_string(collection_path, "collection path")?;
+        let media_folder_path = read_string(media_folder_path, "media folder path")?;
+        let media_db_path = read_string(media_db_path, "media database path")?;
+        let mut builder = CollectionBuilder::new(collection_path);
+        builder
+            .set_media_paths(media_folder_path, media_db_path)
+            .set_tr(I18n::new(&["pt-BR", "en"]));
+        let mut collection = builder.build().map_err(error_message)?;
+        let response = CollectionService::check_database(&mut collection).map_err(error_message)?;
+        let problems = response.problems;
+        collection
+            .close(Some(SchemaVersion::V11))
+            .map_err(error_message)?;
+        Ok(json!({"problems": problems}))
+    })
 }
 
 #[no_mangle]
@@ -190,7 +221,7 @@ pub unsafe extern "C" fn ankios_anki_sync_login(
                 password,
                 endpoint,
             })
-            .map_err(|error| error.to_string())?;
+            .map_err(error_message)?;
         Ok(json!({"hkey": response.hkey, "endpoint": response.endpoint}))
     })
 }
@@ -210,7 +241,7 @@ pub unsafe extern "C" fn ankios_anki_sync_status(
                 read_string(hkey, "sync key")?,
                 read_optional_string(endpoint)?,
             ))
-            .map_err(|error| error.to_string())?;
+            .map_err(error_message)?;
         Ok(json!({"required": response.required as i32, "newEndpoint": response.new_endpoint}))
     })
 }
@@ -234,7 +265,7 @@ pub unsafe extern "C" fn ankios_anki_sync_collection(
                 )),
                 sync_media: sync_media != 0,
             })
-            .map_err(|error| error.to_string())?;
+            .map_err(error_message)?;
         Ok(json!({
             "hostNumber": response.host_number,
             "serverMessage": response.server_message,
@@ -267,7 +298,7 @@ pub unsafe extern "C" fn ankios_anki_sync_full_upload_or_download(
                 upload: upload != 0,
                 server_usn: (has_server_usn != 0).then_some(server_usn),
             })
-            .map_err(|error| error.to_string())?;
+            .map_err(error_message)?;
         Ok(json!({"complete": true}))
     })
 }
@@ -282,7 +313,7 @@ pub unsafe extern "C" fn ankios_anki_media_sync_status(
         let response = handle
             .backend
             .media_sync_status()
-            .map_err(|error| error.to_string())?;
+            .map_err(error_message)?;
         let progress = response.progress.map(|progress| {
             json!({
                 "checked": progress.checked,
@@ -309,7 +340,7 @@ pub unsafe extern "C" fn ankios_anki_sync_media(
                 read_string(hkey, "sync key")?,
                 read_optional_string(endpoint)?,
             ))
-            .map_err(|error| error.to_string())?;
+            .map_err(error_message)?;
         Ok(json!({"started": true}))
     })
 }
@@ -324,15 +355,15 @@ pub unsafe extern "C" fn ankios_anki_sync_abort(
         handle
             .backend
             .set_wants_abort()
-            .map_err(|error| error.to_string())?;
+            .map_err(error_message)?;
         handle
             .backend
             .abort_sync()
-            .map_err(|error| error.to_string())?;
+            .map_err(error_message)?;
         handle
             .backend
             .abort_media_sync()
-            .map_err(|error| error.to_string())?;
+            .map_err(error_message)?;
         Ok(json!({"aborted": true}))
     })
 }
@@ -347,7 +378,7 @@ pub unsafe extern "C" fn ankios_anki_media_sync_abort(
         handle
             .backend
             .abort_media_sync()
-            .map_err(|error| error.to_string())?;
+            .map_err(error_message)?;
         Ok(json!({"aborted": true}))
     })
 }
@@ -365,7 +396,7 @@ pub unsafe extern "C" fn ankios_anki_backend_close(
                 .close_collection(CloseCollectionRequest {
                     downgrade_to_schema11: true,
                 })
-                .map_err(|error| error.to_string())?;
+                .map_err(error_message)?;
             handle.collection_open = false;
         }
         Ok(json!({"closed": true, "schema": 11}))
@@ -395,4 +426,21 @@ pub unsafe extern "C" fn ankios_anki_backend_free_string(value: *mut c_char) {
 
 mod fsrs_bridge {
     include!("../../FSRSBridge/lib.rs");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_error_message_keeps_the_backend_details() {
+        let error = AnkiError::SyncError {
+            source: anki::error::SyncError {
+                info: "The server rejected this collection".to_owned(),
+                kind: anki::error::SyncErrorKind::Other,
+            },
+        };
+
+        assert_eq!(error_message(error), "The server rejected this collection");
+    }
 }

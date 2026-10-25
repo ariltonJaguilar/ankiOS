@@ -12,6 +12,12 @@ struct ProfilesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
+                GlassCard(interactive: false) {
+                    Text("Cada perfil tem sua própria coleção, progresso, mídia e conta AnkiWeb. Trocar de perfil abre esses dados separados; criar um perfil começa uma coleção nova, sem copiar a atual.")
+                        .font(.callout)
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 GlassFormSection(title: "Perfil ativo") {
                     GlassOptionRow(title: "Em uso") {
                         Text(store.activeProfile)
@@ -57,7 +63,7 @@ struct ProfilesView: View {
                     Button("Novo perfil…") { showNew = true }
                         .buttonStyle(GlassButtonStyle(tint: .white, prominent: false, tintStrength: 0.16, expands: true))
                 }
-                Text("Cada perfil mantém sua própria coleção e suas credenciais AnkiWeb.")
+                Text("Para excluir um perfil, primeiro troque para outro. A exclusão remove a coleção e a mídia deste aparelho.")
                     .font(.caption)
                     .foregroundStyle(AppTheme.secondaryText)
                     .padding(.horizontal, 4)

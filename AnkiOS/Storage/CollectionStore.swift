@@ -21,7 +21,7 @@ enum SharedProfiles {
         #endif
     }
 
-    static var defaults: UserDefaults {
+    nonisolated(unsafe) private static let sharedDefaults: UserDefaults = {
         if let uiTestSession {
             return UserDefaults(suiteName: "com.bigbear.AnkiOS.uitests.\(uiTestSession)") ?? .standard
         }
@@ -30,6 +30,10 @@ enum SharedProfiles {
         #else
         return UserDefaults(suiteName: groupID) ?? .standard
         #endif
+    }()
+
+    static var defaults: UserDefaults {
+        sharedDefaults
     }
 
     static var profilesRoot: URL {
@@ -566,6 +570,7 @@ final class CollectionStore: ObservableObject {
     @Published var collectionSyncMessage: String?
     #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
     @Published var collectionSyncCanCancel = false
+    @Published var collectionSyncMediaProgress: AnkiWebMediaProgress?
     @Published var pendingAnkiWebFullSync: AnkiWebFullSyncPrompt?
     @Published var ankiWebStatus: String?
     @Published var pendingAnkiWebLoginPanel = false
@@ -873,12 +878,18 @@ final class CollectionStore: ObservableObject {
             return StudyToolAction.defaultFrequent
         }
         var seen = Set<StudyToolAction>()
-        return rawActions.compactMap(StudyToolAction.init(rawValue:)).filter { seen.insert($0).inserted }
+        return rawActions.compactMap(StudyToolAction.init(rawValue:)).compactMap { action in
+            let normalized = action == .deckOptions ? .studyOptions : action
+            return seen.insert(normalized).inserted ? normalized : nil
+        }
     }
 
     func saveFrequentStudyActions(_ actions: [StudyToolAction]) {
         var seen = Set<StudyToolAction>()
-        let uniqueActions = actions.filter { seen.insert($0).inserted }
+        let uniqueActions = actions.compactMap { action -> StudyToolAction? in
+            let normalized = action == .deckOptions ? .studyOptions : action
+            return seen.insert(normalized).inserted ? normalized : nil
+        }
         SharedProfiles.defaults.set(uniqueActions.map(\.rawValue), forKey: frequentStudyActionsKey)
     }
 
@@ -1234,6 +1245,7 @@ final class CollectionStore: ObservableObject {
         }
         collectionSyncing = true
         collectionSyncMessage = "Entrando no AnkiWeb…"
+        collectionSyncMediaProgress = nil
         let control = AnkiWebSyncControl()
         activeAnkiWebSyncControl = control
         collectionSyncCanCancel = true
@@ -1272,7 +1284,7 @@ final class CollectionStore: ObservableObject {
             }.value
             if control.isCancelled { throw CancellationError() }
             try AnkiWebCredentialStore.save(auth, profile: activeProfile)
-            ankiWebStatus = "Conectado como \(auth.username)."
+            ankiWebStatus = nil
             ankiWebSyncSettingsRevision += 1
             lastError = nil
         } catch {
@@ -1288,6 +1300,7 @@ final class CollectionStore: ObservableObject {
         collectionSyncCanCancel = false
         finishBackendCollectionOperation()
         collectionSyncMessage = nil
+        collectionSyncMediaProgress = nil
         collectionSyncing = false
         syncLock?.release()
     }
@@ -1315,6 +1328,7 @@ final class CollectionStore: ObservableObject {
         }
         collectionSyncing = true
         collectionSyncMessage = "Sincronizando com AnkiWeb…"
+        collectionSyncMediaProgress = nil
         let control = AnkiWebSyncControl()
         activeAnkiWebSyncControl = control
         collectionSyncCanCancel = true
@@ -1324,6 +1338,9 @@ final class CollectionStore: ObservableObject {
             try closeCollectionForBackend()
             let result = try await runAnkiWebSync(auth: auth, control: control)
             if control.isCancelled { throw CancellationError() }
+            if result.required <= 1 {
+                await normalizeAnkiWebMediaTimestamps()
+            }
             var updatedAuth = auth
             if let endpoint = result.newEndpoint {
                 updatedAuth.endpoint = endpoint
@@ -1351,6 +1368,7 @@ final class CollectionStore: ObservableObject {
         collectionSyncCanCancel = false
         finishBackendCollectionOperation()
         collectionSyncMessage = nil
+        collectionSyncMediaProgress = nil
         collectionSyncing = false
         syncLock?.release()
     }
@@ -1365,6 +1383,7 @@ final class CollectionStore: ObservableObject {
               let auth = AnkiWebCredentialStore.load(profile: activeProfile) else { return }
         collectionSyncing = true
         collectionSyncMessage = "Sincronizando mídia com AnkiWeb…"
+        collectionSyncMediaProgress = nil
         let control = AnkiWebSyncControl()
         activeAnkiWebSyncControl = control
         collectionSyncCanCancel = true
@@ -1374,6 +1393,7 @@ final class CollectionStore: ObservableObject {
             try closeCollectionForBackend()
             try await runAnkiWebMediaSync(auth: auth, control: control)
             if control.isCancelled { throw CancellationError() }
+            await normalizeAnkiWebMediaTimestamps()
             ankiWebStatus = "Mídia sincronizada com AnkiWeb."
             lastError = nil
         } catch {
@@ -1389,6 +1409,7 @@ final class CollectionStore: ObservableObject {
         collectionSyncCanCancel = false
         finishBackendCollectionOperation()
         collectionSyncMessage = nil
+        collectionSyncMediaProgress = nil
         collectionSyncing = false
         syncLock?.release()
     }
@@ -1412,6 +1433,7 @@ final class CollectionStore: ObservableObject {
         }
         collectionSyncing = true
         collectionSyncMessage = upload ? "Enviando coleção ao AnkiWeb…" : "Baixando coleção do AnkiWeb…"
+        collectionSyncMediaProgress = nil
         let control = AnkiWebSyncControl()
         activeAnkiWebSyncControl = control
         collectionSyncCanCancel = true
@@ -1423,6 +1445,7 @@ final class CollectionStore: ObservableObject {
             try closeCollectionForBackend()
             try await runAnkiWebFullSync(auth: auth, upload: upload, serverUSN: prompt.serverUSN, control: control)
             if control.isCancelled { throw CancellationError() }
+            await normalizeAnkiWebMediaTimestamps()
             ankiWebStatus = upload
                 ? "Coleção enviada ao AnkiWeb."
                 : "Coleção baixada do AnkiWeb."
@@ -1440,9 +1463,43 @@ final class CollectionStore: ObservableObject {
         collectionSyncCanCancel = false
         finishBackendCollectionOperation()
         collectionSyncMessage = nil
+        collectionSyncMediaProgress = nil
         collectionSyncing = false
         syncLock?.release()
     }
+
+    #if os(iOS) && !ANKIOS_PARITY_HARNESS
+    func checkDatabaseWithAnki() async {
+        guard !collectionSyncing else { return }
+        collectionSyncing = true
+        collectionSyncMessage = "Verificando banco de dados…"
+        var syncLock: SharedCollectionFileLock.Token?
+        do {
+            syncLock = try SharedCollectionFileLock.acquire(profilesRoot: profilesRoot)
+            _ = try createCollectionBackup()
+            try closeCollectionForBackend()
+            let collection = collectionPath
+            let media = mediaRoot
+            let mediaDatabase = profileDirectory.appendingPathComponent("collection.media.db")
+            let problems = try await Task.detached(priority: .userInitiated) {
+                try AnkiBackendSession.checkDatabase(
+                    collectionPath: collection,
+                    mediaPath: media,
+                    mediaDatabasePath: mediaDatabase
+                )
+            }.value
+            lastError = problems.isEmpty
+                ? "Banco de dados verificado. Nenhum problema encontrado."
+                : "Banco de dados verificado. Problemas corrigidos:\n\(problems.joined(separator: "\n"))"
+        } catch {
+            lastError = error.localizedDescription
+        }
+        finishBackendCollectionOperation()
+        collectionSyncMessage = nil
+        collectionSyncing = false
+        syncLock?.release()
+    }
+    #endif
 
     func cancelAnkiWebSync() {
         guard collectionSyncCanCancel else { return }
@@ -1472,12 +1529,9 @@ final class CollectionStore: ObservableObject {
             }
             let response = try backend.sync(auth: auth, syncMedia: syncMedia) { [weak self] progress in
                 Task { @MainActor [weak self] in
-                    guard let self, self.collectionSyncing else { return }
-                    if let checked = progress?.checked, !checked.isEmpty {
-                        self.collectionSyncMessage = "Sincronizando mídia: \(checked)"
-                    } else {
-                        self.collectionSyncMessage = "Sincronizando mídia com AnkiWeb…"
-                    }
+                    guard let self, self.collectionSyncing,
+                          self.collectionSyncMediaProgress != progress else { return }
+                    self.collectionSyncMediaProgress = progress
                 }
             }
             control.finish()
@@ -1503,10 +1557,9 @@ final class CollectionStore: ObservableObject {
             }
             try backend.syncMedia(auth: auth) { [weak self] progress in
                 Task { @MainActor [weak self] in
-                    guard let self, self.collectionSyncing else { return }
-                    if let checked = progress?.checked, !checked.isEmpty {
-                        self.collectionSyncMessage = "Sincronizando mídia: \(checked)"
-                    }
+                    guard let self, self.collectionSyncing,
+                          self.collectionSyncMediaProgress != progress else { return }
+                    self.collectionSyncMediaProgress = progress
                 }
             }
             control.finish()
@@ -1531,14 +1584,38 @@ final class CollectionStore: ObservableObject {
             }
             try backend.fullSync(auth: auth, upload: upload, serverUSN: serverUSN) { [weak self] progress in
                 Task { @MainActor [weak self] in
-                    guard let self, self.collectionSyncing else { return }
-                    if let checked = progress?.checked, !checked.isEmpty {
-                        self.collectionSyncMessage = "Sincronizando mídia: \(checked)"
-                    }
+                    guard let self, self.collectionSyncing,
+                          self.collectionSyncMediaProgress != progress else { return }
+                    self.collectionSyncMediaProgress = progress
                 }
             }
             control.finish()
             try backend.close()
+        }.value
+    }
+
+    private func normalizeAnkiWebMediaTimestamps() async {
+        let mediaDatabase = profileDirectory.appendingPathComponent("collection.media.db")
+        await Task.detached(priority: .utility) {
+            guard FileManager.default.fileExists(atPath: mediaDatabase.path) else { return }
+            do {
+                let database = try SQLiteDatabase(path: mediaDatabase.path)
+                defer { database.closeConnection() }
+                try database.exec("BEGIN IMMEDIATE;")
+                do {
+                    try database.run("""
+                        UPDATE media
+                        SET mtime = mtime / 1000
+                        WHERE dirty = 0 AND csum IS NOT NULL AND mtime >= 100000000000
+                        """)
+                    try database.exec("COMMIT;")
+                } catch {
+                    try? database.exec("ROLLBACK;")
+                    throw error
+                }
+            } catch {
+                NSLog("AnkiWeb media timestamp normalization failed: %@", error.localizedDescription)
+            }
         }.value
     }
 

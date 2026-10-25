@@ -221,7 +221,7 @@ enum CardHTMLRenderer {
     private static func playbackItems(in html: String) -> [PlaybackItem] {
         var indexed: [(location: Int, item: PlaybackItem)] = []
         if let soundRegex = try? NSRegularExpression(
-            pattern: #"<div\s+class="sound"\s+data-file="([^"]+)"[^>]*>[\s\S]*?</div>"#
+            pattern: #"<(?:div|button)\s+class="sound"\s+data-file="([^"]+)"[^>]*>[\s\S]*?</(?:div|button)>"#
         ) {
             for match in soundRegex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
                 guard let range = Range(match.range(at: 1), in: html) else { continue }
@@ -274,6 +274,40 @@ enum CardHTMLRenderer {
         return (String(html[..<range.lowerBound]), String(html[range.upperBound...]))
     }
 
+    private static func faceMarkup(_ html: String, name: String) -> String {
+        """
+        <div class="ankios-card-face ankios-\(name)-face">
+        <div class="card">\(normalizeMathJax(html))</div>
+        </div>
+        """
+    }
+
+    private static func isBalancedHTMLFragment(_ html: String) -> Bool {
+        let source = html.replacingOccurrences(
+            of: #"(?is)<!--.*?-->|<(script|style)\b[^>]*>[\s\S]*?</\1\s*>"#,
+            with: "",
+            options: .regularExpression
+        )
+        guard let regex = try? NSRegularExpression(
+            pattern: #"<\s*(/)?\s*([A-Za-z][A-Za-z0-9:-]*)\b[^>]*>"#
+        ) else { return false }
+        let voidElements: Set<String> = ["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]
+        var stack: [String] = []
+        for match in regex.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
+            guard let tagRange = Range(match.range(at: 2), in: source),
+                  let tokenRange = Range(match.range, in: source) else { return false }
+            let tag = String(source[tagRange]).lowercased()
+            let token = String(source[tokenRange])
+            if match.range(at: 1).location != NSNotFound {
+                guard stack.last == tag else { return false }
+                stack.removeLast()
+            } else if !voidElements.contains(tag), !token.hasSuffix("/>") {
+                stack.append(tag)
+            }
+        }
+        return stack.isEmpty
+    }
+
     private static func visibleText(_ html: String) -> String {
         let withoutNonVisibleCode = html.replacingOccurrences(
             of: #"(?is)<!--.*?-->|<script\b[^>]*>.*?</script>|<style\b[^>]*>.*?</style>"#,
@@ -281,7 +315,7 @@ enum CardHTMLRenderer {
             options: .regularExpression
         )
         let stripped = withoutNonVisibleCode
-            .replacingOccurrences(of: #"<div class="sound"[^>]*>[\s\S]*?</div>"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"<(?:div|button)\s+class="sound"[^>]*>[\s\S]*?</(?:div|button)>"#, with: " ", options: .regularExpression)
             .replacingOccurrences(of: "▶", with: "")
             .replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)
         return (TemplateEngine.decodeHTMLEntities(stripped) ?? stripped)
@@ -309,6 +343,7 @@ enum CardHTMLRenderer {
         let deviceClass = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
         let platformClasses = "mobile \(deviceClass)"
         #endif
+        let isMobile = platformClasses.contains("mobile")
         let sideName: String
         let themeClasses = nightMode ? "nightMode night_mode" : ""
         switch side {
@@ -328,6 +363,57 @@ enum CardHTMLRenderer {
         )
         renderedBody += errors.map { "<br>\($0)" }.joined()
         #endif
+        let renderedCards: String
+        if isMobile {
+            if side == .answer,
+               !Self.containsOcclusion(renderedBody),
+               !renderedBody.localizedCaseInsensitiveContains("<script"),
+               let split = Self.splitAnswer(renderedBody),
+               Self.isBalancedHTMLFragment(split.front),
+               Self.isBalancedHTMLFragment(split.answer) {
+                renderedCards = Self.faceMarkup(split.front, name: "question")
+                    + Self.faceMarkup(split.answer, name: "answer")
+            } else {
+                renderedCards = Self.faceMarkup(renderedBody, name: "question")
+            }
+        } else {
+            renderedCards = "<div class=\"card\">\(Self.normalizeMathJax(renderedBody))</div>"
+        }
+        let layoutStyle: String
+        if isMobile {
+            layoutStyle = """
+            .ankios-card-frame {
+              box-sizing: border-box;
+              display: flex;
+              flex-direction: column;
+              gap: 12px;
+              min-height: 100vh;
+              padding: 8px;
+              zoom: \(zoom);
+            }
+            .ankios-card-face {
+              box-sizing: border-box;
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+              min-height: calc((100vh - 28px) / 2);
+              border-radius: 24px;
+            }
+            """
+        } else {
+            layoutStyle = """
+            .ankios-card-frame {
+              box-sizing: border-box;
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+              min-height: 100vh;
+              padding: 8px;
+              zoom: \(zoom);
+              border-radius: 24px;
+            }
+            """
+        }
         return """
         <!DOCTYPE html>
         <html class="\(themeClasses) \(platformClasses)">
@@ -346,12 +432,29 @@ enum CardHTMLRenderer {
           min-height: 100%;
           background: transparent;
         }
-        .ankios-card-frame {
+        \(layoutStyle)
+        .ankios-card-frame .sound {
           box-sizing: border-box;
-          min-height: 100vh;
-          padding: 8px;
-          zoom: \(zoom);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 40px;
+          height: 40px;
+          margin: 12px 4px;
+          padding: 0;
+          border: 1px solid rgba(255,255,255,0.32);
+          border-radius: 50%;
+          color: #fff;
+          background: linear-gradient(145deg, #29b8c5, #087d89);
+          box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
+          vertical-align: middle;
+          -webkit-appearance: none;
+          appearance: none;
+          cursor: pointer;
+          -webkit-tap-highlight-color: transparent;
         }
+        .ankios-card-frame .sound svg { display: block; width: 19px; height: 19px; }
+        .ankios-card-frame .sound:active { transform: scale(0.94); }
         img { max-width: 100%; height: auto; }
         .io-stage { position: relative !important; display: inline-block !important; max-width: 100% !important; }
         .io-mask { box-sizing: border-box !important; }
@@ -365,10 +468,25 @@ enum CardHTMLRenderer {
         </head>
         <body class="\(themeClasses) \(platformClasses)" data-side="\(sideName)">
         <div class="ankios-card-frame">
-        <div class="card">
-        \(Self.normalizeMathJax(renderedBody))
+        \(renderedCards)
         </div>
-        </div>
+        <script>
+        (function(){
+          var frame = document.querySelector('.ankios-card-frame');
+          if (!frame) return;
+          var faces = frame.querySelectorAll('.ankios-card-face');
+          var targets = faces.length ? faces : [frame];
+          Array.prototype.forEach.call(targets, function(target){
+            var card = target.querySelector('.card');
+            if (!card) return;
+            var style = getComputedStyle(card);
+            ['background-color', 'background-image', 'background-position', 'background-size', 'background-repeat', 'background-origin', 'background-clip', 'background-attachment'].forEach(function(property){
+              target.style.setProperty(property, style.getPropertyValue(property));
+            });
+            card.style.setProperty('background', 'transparent', 'important');
+          });
+        })();
+        </script>
         \(Self.containsOcclusion(body) ? Self.occlusionScript : "")
         </body>
         </html>

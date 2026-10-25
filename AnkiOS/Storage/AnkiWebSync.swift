@@ -16,10 +16,48 @@ struct AnkiWebSyncResponse: Decodable, Sendable {
     var serverMediaUsn: Int
 }
 
-struct AnkiWebMediaProgress: Decodable, Sendable {
+#if os(iOS)
+private struct AnkiDatabaseCheckResponse: Decodable {
+    var problems: [String]
+}
+#endif
+
+struct AnkiWebMediaProgress: Decodable, Sendable, Equatable {
     var checked: String?
     var added: String?
     var removed: String?
+
+    var checkedCount: Int? {
+        Self.integer(in: checked)
+    }
+
+    var addedCounts: (uploaded: Int, downloaded: Int)? {
+        Self.directionalCounts(in: added)
+    }
+
+    var removedCounts: (uploaded: Int, downloaded: Int)? {
+        Self.directionalCounts(in: removed)
+    }
+
+    private static func directionalCounts(in value: String?) -> (uploaded: Int, downloaded: Int)? {
+        guard let value else { return nil }
+        let parts = value.split(whereSeparator: { $0 == "↑" || $0 == "↓" })
+        guard parts.count >= 2,
+              let uploaded = integer(in: String(parts[0])),
+              let downloaded = integer(in: String(parts[1])) else {
+            return nil
+        }
+        return (uploaded, downloaded)
+    }
+
+    private static func integer(in value: String?) -> Int? {
+        guard let value else { return nil }
+        let digits = value.compactMap { character in
+            guard let number = character.wholeNumberValue else { return nil }
+            return String(number)
+        }.joined()
+        return Int(digits)
+    }
 }
 
 private struct AnkiWebMediaStatus: Decodable {
@@ -142,7 +180,10 @@ enum AnkiWebCredentialStore {
     }
 
     static func username(profile: String) -> String? {
-        SharedProfiles.defaults.string(forKey: "ankios.ankiweb.username.\(profile)")
+        let stored = SharedProfiles.defaults.string(forKey: "ankios.ankiweb.username.\(profile)")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let stored, !stored.isEmpty { return stored }
+        return load(profile: profile)?.username
     }
 
     static func endpoint(profile: String) -> String {
@@ -175,6 +216,23 @@ final class AnkiBackendSession: @unchecked Sendable {
         handle = opened
     }
 
+    #if os(iOS)
+    static func checkDatabase(collectionPath: URL, mediaPath: URL, mediaDatabasePath: URL) throws -> [String] {
+        var error: UnsafeMutablePointer<CChar>?
+        let result = collectionPath.path.withCString { collection in
+            mediaPath.path.withCString { media in
+                mediaDatabasePath.path.withCString { mediaDatabase in
+                    ankios_anki_check_database(collection, media, mediaDatabase, &error)
+                }
+            }
+        }
+        guard let result else { throw takeError(&error) }
+        defer { ankios_anki_backend_free_string(result) }
+        let data = Data(String(cString: result).utf8)
+        return try JSONDecoder().decode(AnkiDatabaseCheckResponse.self, from: data).problems
+    }
+    #endif
+
     func login(username: String, password: String, endpoint: String?) throws -> AnkiWebAuth {
         let response: LoginResponse = try withError { error in
             username.withCString { user in
@@ -185,7 +243,7 @@ final class AnkiBackendSession: @unchecked Sendable {
                 }
             }
         }
-        return AnkiWebAuth(hkey: response.hkey, endpoint: response.endpoint, username: username)
+        return AnkiWebAuth(hkey: response.hkey, endpoint: endpoint ?? response.endpoint, username: username)
     }
 
     func sync(
@@ -195,7 +253,7 @@ final class AnkiBackendSession: @unchecked Sendable {
     ) throws -> AnkiWebSyncResponse {
         let response: AnkiWebSyncResponse = try withError { error in
             auth.hkey.withCString { key in
-                Self.withOptionalCString(auth.endpoint) { endpointPointer in
+                Self.withOptionalCString(syncEndpoint(for: auth)) { endpointPointer in
                     ankios_anki_sync_collection(handle, key, endpointPointer, syncMedia ? 1 : 0, error)
                 }
             }
@@ -209,7 +267,7 @@ final class AnkiBackendSession: @unchecked Sendable {
     func syncMedia(auth: AnkiWebAuth, progress: @Sendable (AnkiWebMediaProgress?) -> Void) throws {
         let _: EmptyResponse = try withError { error in
             auth.hkey.withCString { key in
-                Self.withOptionalCString(auth.endpoint) { endpointPointer in
+                Self.withOptionalCString(syncEndpoint(for: auth)) { endpointPointer in
                     ankios_anki_sync_media(handle, key, endpointPointer, error)
                 }
             }
@@ -220,7 +278,7 @@ final class AnkiBackendSession: @unchecked Sendable {
     func fullSync(auth: AnkiWebAuth, upload: Bool, serverUSN: Int?, progress: @Sendable (AnkiWebMediaProgress?) -> Void) throws {
         let _: EmptyResponse = try withError { error in
             auth.hkey.withCString { key in
-                Self.withOptionalCString(auth.endpoint) { endpointPointer in
+                Self.withOptionalCString(syncEndpoint(for: auth)) { endpointPointer in
                     ankios_anki_sync_full_upload_or_download(
                         handle,
                         key,
@@ -250,6 +308,16 @@ final class AnkiBackendSession: @unchecked Sendable {
             ankios_anki_backend_close(handle, error)
         }
         isClosed = true
+    }
+
+    private func syncEndpoint(for auth: AnkiWebAuth) -> String? {
+        #if DEBUG
+        if let endpoint = ProcessInfo.processInfo.environment["ANKIOS_UI_SYNC_ENDPOINT"],
+           URL(string: endpoint)?.host == "127.0.0.1" {
+            return endpoint
+        }
+        #endif
+        return auth.endpoint
     }
 
     deinit {

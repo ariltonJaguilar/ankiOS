@@ -8,6 +8,7 @@ struct DecksHomeView: View {
     @State private var path = NavigationPath()
     @State private var showImport = false
     @State private var showCSVImport = false
+    @State private var showSharedDeckBrowser = false
     @State private var pendingCSVName: String?
     @State private var pendingCSVText: String?
     @State private var offerTutorialAfterCSVImport = false
@@ -31,6 +32,7 @@ struct DecksHomeView: View {
     @State private var pendingDeckPackageScoped = false
     @State private var showDeckImportOptions = false
     @State private var importingDeckPackage = false
+    @State private var sharedDeckImportMessage: String?
 
     init(studyRequested: Binding<Bool> = .constant(false)) {
         _studyRequested = studyRequested
@@ -39,7 +41,7 @@ struct DecksHomeView: View {
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
-                LazyVStack(spacing: 12) {
+                LazyVStack(spacing: deckListSpacing) {
                     header
                     ForEach(visibleDeckRows) { row in
                         DeckRowView(
@@ -89,19 +91,34 @@ struct DecksHomeView: View {
                 #endif
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        Button("Importar coleção…", systemImage: "square.and.arrow.down") { showImport = true }
-                        Button("Importar CSV", systemImage: "tablecells") { showCSVImport = true }
-                        Button("Shared Deck List", systemImage: "books.vertical") {
-                            if let url = URL(string: "https://ankiweb.net/shared/decks/") {
-                                openURL(url)
-                            }
-                        }
-                        .accessibilityIdentifier("decks.sharedDeckList")
                         Button("Novo baralho", systemImage: "folder.badge.plus") {
                             newDeckName = ""
                             newDeckParent = nil
                             showNewDeck = true
                         }
+                        .accessibilityIdentifier("decks.newDeck")
+                        Divider()
+                        Button("Importar APKG…", systemImage: "square.and.arrow.down") { showImport = true }
+                        Button("Importar CSV", systemImage: "tablecells") { showCSVImport = true }
+                        Divider()
+                        Button("Buscar baralho compartilhado", systemImage: "books.vertical") {
+                            #if os(iOS)
+                            showSharedDeckBrowser = true
+                            #else
+                            if let url = URL(string: "https://ankiweb.net/shared/decks/") {
+                                openURL(url)
+                            }
+                            #endif
+                        }
+                        .accessibilityIdentifier("decks.sharedDeckList")
+                    } label: {
+                        Image(systemName: "folder.badge.plus")
+                    }
+                    .accessibilityLabel("Criar ou importar baralhos")
+                    .accessibilityIdentifier("decks.importActions")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
                         Button("Baralho filtrado", systemImage: "line.3.horizontal.decrease.circle") {
                             do {
                                 let created = try store.createFilteredDeck()
@@ -125,9 +142,10 @@ struct DecksHomeView: View {
                             collapseAll(false)
                         }
                     } label: {
-                        Image(systemName: "plus")
+                        Image(systemName: "ellipsis")
                     }
-                    .accessibilityLabel("Ações dos baralhos")
+                    .accessibilityLabel("Mais ações dos baralhos")
+                    .accessibilityIdentifier("decks.moreActions")
                 }
             }
             .navigationDestination(for: EditorRoute.self) { route in
@@ -139,6 +157,35 @@ struct DecksHomeView: View {
                 case .noteTypes:
                     NoteTypesView()
                 }
+            }
+        }
+        #if os(iOS)
+        .sheet(isPresented: $showSharedDeckBrowser) {
+            SharedDeckBrowserView { url in
+                showSharedDeckBrowser = false
+                importSharedDeck(at: url)
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        #endif
+        .overlay {
+            if importingDeckPackage {
+                ZStack {
+                    Color.black.opacity(0.28).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .tint(AppTheme.accent)
+                        Text("Importando baralho compartilhado…")
+                            .font(.headline)
+                            .foregroundStyle(AppTheme.primaryText)
+                    }
+                    .padding(24)
+                    .ankiGlass(in: RoundedRectangle(cornerRadius: 22))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .accessibilityIdentifier("decks.sharedImporting")
             }
         }
         .fileImporter(
@@ -239,6 +286,14 @@ struct DecksHomeView: View {
                 renameTarget = nil
             }
             Button("Cancelar", role: .cancel) { renameTarget = nil }
+        }
+        .alert("Baralho importado", isPresented: Binding(
+            get: { sharedDeckImportMessage != nil },
+            set: { if !$0 { sharedDeckImportMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { sharedDeckImportMessage = nil }
+        } message: {
+            Text(sharedDeckImportMessage ?? "")
         }
         .confirmationDialog(
             deleteTarget.map { "Apagar \($0.displayName)?" } ?? "Apagar baralho?",
@@ -363,6 +418,21 @@ struct DecksHomeView: View {
         store.lastError = result
     }
 
+    private func importSharedDeck(at url: URL) {
+        importingDeckPackage = true
+        Task {
+            let result: String
+            do {
+                result = try await ApkgImporter(store: store).importPackage(at: url)
+                sharedDeckImportMessage = result
+            } catch {
+                store.lastError = error.localizedDescription
+            }
+            try? FileManager.default.removeItem(at: url)
+            importingDeckPackage = false
+        }
+    }
+
     private func releasePendingDeckPackage() {
         if pendingDeckPackageScoped, let pendingDeckPackage {
             pendingDeckPackage.stopAccessingSecurityScopedResource()
@@ -390,6 +460,14 @@ struct DecksHomeView: View {
                 .padding(.top, 2)
             }
         }
+    }
+
+    private var deckListSpacing: CGFloat {
+        #if os(iOS)
+        6
+        #else
+        12
+        #endif
     }
 
     /// Root decks like Anki: alphabetical, with Default always last.

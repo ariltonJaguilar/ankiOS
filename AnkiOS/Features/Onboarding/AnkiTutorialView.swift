@@ -14,6 +14,11 @@ struct AnkiTutorialView: View {
                 body: "Um baralho é uma pasta de cartões (pergunta + resposta).\n\nNa lista, cada linha é um baralho. Os números à direita são:\n• Azul = Novo (ainda não viu)\n• Vermelho = Aprender (repetindo hoje)\n• Verde = Revisar (voltou depois de dias)\n\nToque numa linha para abrir o resumo e estudar."
             ),
             TutorialPage(
+                icon: "books.vertical",
+                title: "Crie ou encontre baralhos",
+                body: "Você pode começar de dois jeitos:\n\n• Crie o seu: em Baralhos, toque no ícone de pasta com +. Depois, use Adicionar para criar cartões nele.\n\n• Use um pronto: toque em ••• (Mais ações) → Lista de baralhos compartilhados, escolha um e toque em Download. O AnkiOS importa o pacote automaticamente."
+            ),
+            TutorialPage(
                 icon: "star.circle.fill",
                 title: "Qual é o seu baralho principal?",
                 body: "É o baralho que você quer estudar agora — em geral o primeiro da lista com cartões a fazer.\n\nToque nele para ver o resumo (novos, aprender, revisar) e depois em Estudar.\n\nDica: estudar um baralho-pai também inclui os sub-baralhos (as linhas indentadas)."
@@ -151,6 +156,11 @@ enum TutorialGate {
     @MainActor
     static func shouldPresent(store: CollectionStore) -> Bool {
         guard !hasSeen else { return false }
-        return store.hasStudyContent
+        #if DEBUG
+        if SharedProfiles.uiTestSession != nil {
+            return store.hasStudyContent
+        }
+        #endif
+        return true
     }
 }

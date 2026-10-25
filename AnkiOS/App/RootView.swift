@@ -42,10 +42,21 @@ struct RootView: View {
                         ProgressView()
                             .controlSize(.large)
                             .tint(AppTheme.accent)
+                        #if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+                        if let progress = store.collectionSyncMediaProgress {
+                            AnkiWebMediaProgressView(progress: progress)
+                        } else {
+                            Text(store.collectionSyncMessage ?? "Sincronizando coleção…")
+                                .font(.headline)
+                                .foregroundStyle(AppTheme.primaryText)
+                                .multilineTextAlignment(.center)
+                        }
+                        #else
                         Text(store.collectionSyncMessage ?? "Sincronizando coleção…")
                             .font(.headline)
                             .foregroundStyle(AppTheme.primaryText)
                             .multilineTextAlignment(.center)
+                        #endif
                         #if !ANKIOS_PARITY_HARNESS
                         if store.collectionSyncCanCancel {
                             Button("Cancelar sincronização", systemImage: "xmark") {
@@ -493,6 +504,41 @@ struct RootView: View {
     }
     #endif
 }
+
+#if !WIDGET_EXTENSION && !ANKIOS_PARITY_HARNESS
+private struct AnkiWebMediaProgressView: View {
+    let progress: AnkiWebMediaProgress
+
+    var body: some View {
+        VStack(spacing: 7) {
+            Text("Sincronizando mídia…")
+                .font(.headline)
+                .foregroundStyle(AppTheme.primaryText)
+                .multilineTextAlignment(.center)
+
+            if let count = progress.checkedCount {
+                Text("Verificado: \(count)")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+
+            if let counts = progress.addedCounts {
+                Text("Adicionado: \(counts.uploaded)↑ \(counts.downloaded)↓")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+
+            if let counts = progress.removedCounts {
+                Text("Removido: \(counts.uploaded)↑ \(counts.downloaded)↓")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .contain)
+    }
+}
+#endif
 
 enum AppTab: String, Hashable {
     case decks, add, browse, stats, tools

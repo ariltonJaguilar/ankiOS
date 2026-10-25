@@ -14,6 +14,7 @@
 		A11CE100000000000000A8 /* MathJax in Resources */ = {isa = PBXBuildFile; fileRef = A11CE100000000000000A9 /* MathJax */; };
 		D6A8B1E74A3C5F2098C14005 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D6A8B1E74A3C5F2098C14004 /* Localizable.xcstrings */; };
 		A11CE5000000000000000011 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A11CE5000000000000000012 /* InfoPlist.xcstrings */; };
+		C0FFEE02A1C10D0000000003 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C0FFEE02A1C10D0000000002 /* AppIcon.icon */; };
 		081BBCDA901D5366A8FACA21 /* CardOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85BE8C079F04536BA23F9896 /* CardOperations.swift */; };
 		13937688BE4D53479AA91BC2 /* NoteEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A3DCC23BBE8572893689D0F /* NoteEditorView.swift */; };
 		20C3037D296C576DB250ED25 /* FilteredDeckSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D5A37A8829E52E1BC2451A3 /* FilteredDeckSupport.swift */; };
@@ -53,6 +54,7 @@
 		BC3F32CA864E529C862CE77D /* TemplateEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE3D6BFBE725474A3394D9D /* TemplateEngine.swift */; };
 		C5EE5F0A7E5B0A7C5EE5F001 /* CSVExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5EE5F0A7E5B0A7C5EE5F002 /* CSVExporter.swift */; };
 		C6005EC5F60E5CF59DCC538D /* DeckRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB732BA9C7E75593A2611C3E /* DeckRowView.swift */; };
+		A11CE7000000000000000002 /* SharedDeckBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE7000000000000000003 /* SharedDeckBrowserView.swift */; };
 		C8455FD80FED5BD49CC781F3 /* DeckOverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6DF20BC80C5221988E506D /* DeckOverviewView.swift */; };
 		CF02B39F0F4C59B5AC21140C /* AnkiModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 514363C6D7D858F090764008 /* AnkiModels.swift */; };
 		CFF30B7A18795E72BCD00D99 /* FieldFormatBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90182949E4D65D698B9F5900 /* FieldFormatBar.swift */; };
@@ -140,6 +142,7 @@
 		90182949E4D65D698B9F5900 /* FieldFormatBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldFormatBar.swift; sourceTree = "<group>"; };
 		A5FD0001F11E5EF000000001 /* Zstd.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zstd.swift; sourceTree = "<group>"; };
 		AB732BA9C7E75593A2611C3E /* DeckRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckRowView.swift; sourceTree = "<group>"; };
+		A11CE7000000000000000003 /* SharedDeckBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedDeckBrowserView.swift; sourceTree = "<group>"; };
 		B1C8F1E1DED170B000000002 /* RichFieldEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichFieldEditor.swift; sourceTree = "<group>"; };
 		B2D9DE7C3453558FBF3C54A9 /* AddNoteHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddNoteHomeView.swift; sourceTree = "<group>"; };
 		BD6DF20BC80C5221988E506D /* DeckOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckOverviewView.swift; sourceTree = "<group>"; };
@@ -210,6 +213,7 @@
 				BD6DF20BC80C5221988E506D /* DeckOverviewView.swift */,
 				AB732BA9C7E75593A2611C3E /* DeckRowView.swift */,
 				29143AFE48E75A73A2337FFF /* DecksHomeView.swift */,
+				A11CE7000000000000000003 /* SharedDeckBrowserView.swift */,
 				7D5A37A8829E52E1BC2451A3 /* FilteredDeckSupport.swift */,
 			);
 			path = Decks;
@@ -545,6 +549,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				07726071E0A157099FAEDD8F /* Assets.xcassets in Resources */,
+				C0FFEE02A1C10D0000000003 /* AppIcon.icon in Resources */,
 				C0FFEE01A1C10D0000000001 /* LaunchScreen.storyboard in Resources */,
 				A11CE100000000000000A8 /* MathJax in Resources */,
 				D6A8B1E74A3C5F2098C14005 /* Localizable.xcstrings in Resources */,
@@ -574,6 +579,7 @@
 				C8455FD80FED5BD49CC781F3 /* DeckOverviewView.swift in Sources */,
 				C6005EC5F60E5CF59DCC538D /* DeckRowView.swift in Sources */,
 				B135A0CE20715B02AEE9CCCE /* DecksHomeView.swift in Sources */,
+				A11CE7000000000000000002 /* SharedDeckBrowserView.swift in Sources */,
 				20C3037D296C576DB250ED25 /* FilteredDeckSupport.swift in Sources */,
 				6F0B0AEC5B285361B79D6313 /* AddNoteHomeView.swift in Sources */,
 				CFF30B7A18795E72BCD00D99 /* FieldFormatBar.swift in Sources */,
@@ -709,7 +715,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 6GY2KMR4QD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnkiOS/Info.plist;
@@ -727,7 +733,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				CODE_SIGN_ENTITLEMENTS = AnkiOS/AnkiOS.entitlements;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
@@ -774,7 +780,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 6GY2KMR4QD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnkiOS/Info.plist;
@@ -792,7 +798,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				CODE_SIGN_ENTITLEMENTS = AnkiOS/AnkiOS.entitlements;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
@@ -843,7 +849,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = AnkiWidget/AnkiWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 6GY2KMR4QD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnkiWidget/Info.plist;
@@ -855,7 +861,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bigbear.AnkiOS.AnkiWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
@@ -875,7 +881,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = AnkiWidget/AnkiWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 6GY2KMR4QD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnkiWidget/Info.plist;
@@ -887,7 +893,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bigbear.AnkiOS.AnkiWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;

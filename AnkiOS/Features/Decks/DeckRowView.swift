@@ -33,84 +33,12 @@ struct DeckRowView: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            if hasChildren {
-                Button {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                        do { try store.setDeckCollapsed(liveDeck, collapsed: !liveDeck.collapsed) }
-                        catch { store.lastError = error.localizedDescription }
-                    }
-                } label: {
-                    Image(systemName: liveDeck.collapsed ? "chevron.right" : "chevron.down")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(AppTheme.mist)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(GlassIconButtonStyle(tint: AppTheme.mist))
-                .accessibilityLabel(liveDeck.collapsed ? "Expand deck" : "Collapse deck")
-            } else {
-                Image(systemName: liveDeck.isFiltered ? "line.3.horizontal.decrease.circle" : "rectangle.stack")
-                    .foregroundStyle(AppTheme.accent)
-                    .frame(width: 28, height: 28)
-            }
-
-            Button { onStudy(liveDeck) } label: {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(liveDeck.displayName)
-                            .font(AppTheme.deckFont)
-                            .foregroundStyle(AppTheme.primaryText)
-                            .lineLimit(3)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if !liveDeck.desc.isEmpty {
-                            Text(liveDeck.desc)
-                                .font(.caption)
-                                .foregroundStyle(AppTheme.secondaryText)
-                                .lineLimit(1)
-                        }
-                    }
-
-                    Spacer(minLength: 8)
-
-                    HStack(spacing: 10) {
-                        CountDigit(value: counts.new, color: AppTheme.easy)
-                            .accessibilityIdentifier("deck.count.\(deck.name).new")
-                        CountDigit(value: counts.learn, color: AppTheme.danger)
-                            .accessibilityIdentifier("deck.count.\(deck.name).learn")
-                        CountDigit(value: counts.review, color: AppTheme.good)
-                            .accessibilityIdentifier("deck.count.\(deck.name).review")
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("deck.open.\(deck.name)")
-
-            // Anki gear affordance (options) — also available in context menu.
-            Button {
-                onOptions(liveDeck)
-            } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.primaryText.opacity(0.75))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(GlassIconButtonStyle(tint: AppTheme.accent))
-            .accessibilityLabel("deck-options.action")
-            .accessibilityIdentifier("deck.options.\(deck.name)")
-        }
-        .padding(.leading, CGFloat(depth) * 14 + 14)
-        .padding(.trailing, 14)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .ankiGlass(tint: .white.opacity(0.08), interactive: true, in: RoundedRectangle(cornerRadius: 18))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(AppTheme.primaryText.opacity(0.10), lineWidth: 1)
+        Group {
+            #if os(iOS)
+            compactRow
+            #else
+            desktopRow
+            #endif
         }
         .contextMenu {
             Button("Estudar", systemImage: "play.fill") { onStudy(liveDeck) }
@@ -162,5 +90,173 @@ struct DeckRowView: View {
                 return false
             }
         }
+    }
+
+    private var compactRow: some View {
+        HStack(alignment: .center, spacing: 8) {
+            leadingControl
+
+            Button { onStudy(liveDeck) } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(liveDeck.displayName)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(AppTheme.primaryText)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !liveDeck.desc.isEmpty {
+                        Text(liveDeck.desc)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.secondaryText)
+                            .lineLimit(1)
+                    }
+                    HStack(alignment: .top, spacing: 6) {
+                        DeckRowMetric(
+                            label: "stats.new-cards",
+                            value: counts.new,
+                            color: AppTheme.easy,
+                            identifier: "deck.count.\(deck.name).new"
+                        )
+                        DeckRowMetric(
+                            label: "decks.learn-count",
+                            value: counts.learn,
+                            color: AppTheme.danger,
+                            identifier: "deck.count.\(deck.name).learn"
+                        )
+                        DeckRowMetric(
+                            label: "Revisar",
+                            value: counts.review,
+                            color: AppTheme.good,
+                            identifier: "deck.count.\(deck.name).review"
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("deck.open.\(deck.name)")
+
+            optionsButton
+        }
+        .padding(.leading, min(CGFloat(depth) * 9 + 14, 50))
+        .padding(.trailing, 10)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .ankiGlass(tint: .white.opacity(0.045), interactive: true, in: RoundedRectangle(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(AppTheme.primaryText.opacity(0.06), lineWidth: 1)
+        }
+    }
+
+    private var desktopRow: some View {
+        HStack(spacing: 12) {
+            leadingControl
+
+            Button { onStudy(liveDeck) } label: {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(liveDeck.displayName)
+                            .font(AppTheme.deckFont)
+                            .foregroundStyle(AppTheme.primaryText)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !liveDeck.desc.isEmpty {
+                            Text(liveDeck.desc)
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.secondaryText)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    HStack(spacing: 10) {
+                        CountDigit(value: counts.new, color: AppTheme.easy)
+                            .accessibilityIdentifier("deck.count.\(deck.name).new")
+                        CountDigit(value: counts.learn, color: AppTheme.danger)
+                            .accessibilityIdentifier("deck.count.\(deck.name).learn")
+                        CountDigit(value: counts.review, color: AppTheme.good)
+                            .accessibilityIdentifier("deck.count.\(deck.name).review")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("deck.open.\(deck.name)")
+
+            optionsButton
+        }
+        .padding(.leading, CGFloat(depth) * 14 + 14)
+        .padding(.trailing, 14)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .ankiGlass(tint: .white.opacity(0.08), interactive: true, in: RoundedRectangle(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(AppTheme.primaryText.opacity(0.10), lineWidth: 1)
+        }
+    }
+
+    @ViewBuilder
+    private var leadingControl: some View {
+        if hasChildren {
+            Button {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                    do { try store.setDeckCollapsed(liveDeck, collapsed: !liveDeck.collapsed) }
+                    catch { store.lastError = error.localizedDescription }
+                }
+            } label: {
+                Image(systemName: liveDeck.collapsed ? "chevron.right" : "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.mist)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(GlassIconButtonStyle(tint: AppTheme.mist))
+            .accessibilityLabel(liveDeck.collapsed ? "Expand deck" : "Collapse deck")
+        } else {
+            Image(systemName: liveDeck.isFiltered ? "line.3.horizontal.decrease.circle" : "rectangle.stack")
+                .foregroundStyle(AppTheme.accent)
+                .frame(width: 28, height: 28)
+        }
+    }
+
+    private var optionsButton: some View {
+        Button {
+            onOptions(liveDeck)
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.primaryText.opacity(0.75))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(GlassIconButtonStyle(tint: AppTheme.accent))
+        .accessibilityLabel("deck-options.action")
+        .accessibilityIdentifier("deck.options.\(deck.name)")
+    }
+}
+
+private struct DeckRowMetric: View {
+    let label: LocalizedStringKey
+    let value: Int
+    let color: Color
+    let identifier: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(AppTheme.secondaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Text("\(value)")
+                .font(.caption.monospacedDigit().weight(.bold))
+                .foregroundStyle(color)
+                .accessibilityIdentifier(identifier)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

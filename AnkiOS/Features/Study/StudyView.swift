@@ -363,7 +363,7 @@ struct StudyView: View {
                         }
                     }
                     GlassFormSection(title: "Todas as ações") {
-                        ForEach(StudyToolAction.allCases) { action in
+                        ForEach(StudyToolAction.allCases.filter { $0 != .deckOptions }) { action in
                             studyToolRow(action, frequent: false, index: nil)
                         }
                     }
@@ -963,7 +963,9 @@ struct StudyView: View {
 
 #if os(iOS)
     private var showToolsOverlayButton: Bool {
-        store.conf["showToolsOverlayButton"] as? Bool ?? true
+        let isEnabled = store.conf["showToolsOverlayButton"] as? Bool ?? true
+        let topBarAlreadyOpensTools = studyTopBarVisible && store.reviewGesturePreferences.topBarAction == .openTools
+        return isEnabled && !topBarAlreadyOpensTools
     }
 
     private var toolsOverlayButtonOnLeft: Bool {
@@ -1514,10 +1516,8 @@ struct StudyView: View {
                             .onSubmit { revealAnswer() }
                     }
 
-                    // Anki study bar: Editar · Mostrar resposta · Mais ▾ — same width and height.
                     GlassEffectContainer(spacing: 10) {
                         HStack(spacing: 10) {
-                            studyBarButton("study.edit", tint: .white, tintStrength: 0.16) { showEdit = true }
                             studyBarButton(typeAnswerInputEnabled ? "Verificar" : "Mostrar resposta", tint: AppTheme.accent, tintStrength: 0.38, identifier: "study.revealAnswer") {
                                 revealAnswer()
                             }
@@ -1547,7 +1547,6 @@ struct StudyView: View {
                     }
                     GlassEffectContainer(spacing: 10) {
                         HStack(spacing: 10) {
-                            studyBarButton("study.edit", tint: .white, tintStrength: 0.16) { showEdit = true }
                             moreMenuLabel(tintStrength: 0.16)
                         }
                     }
@@ -1640,6 +1639,8 @@ struct StudyView: View {
 
         Divider()
 
+        Button("study.edit", systemImage: "pencil") { showEdit = true }
+            .accessibilityIdentifier("study.edit")
         Button("Opções…", systemImage: "gearshape") { showDeckOptions = true }
         Button("Info do cartão", systemImage: "info.circle") { showInfo() }
         Button("Info do cartão anterior", systemImage: "info.circle.fill") { showPreviousInfo() }

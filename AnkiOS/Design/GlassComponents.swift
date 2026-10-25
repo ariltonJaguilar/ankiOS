@@ -3,13 +3,14 @@ import SwiftUI
 struct GlassCard<Content: View>: View {
     var cornerRadius: CGFloat = 20
     var tint: Color = .white.opacity(0.07)
+    var interactive = true
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         content()
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .ankiGlass(tint: tint, interactive: true, in: RoundedRectangle(cornerRadius: cornerRadius))
+            .ankiGlass(tint: tint, interactive: interactive, in: RoundedRectangle(cornerRadius: cornerRadius))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(AppTheme.primaryText.opacity(0.10), lineWidth: 1)
@@ -179,15 +180,18 @@ struct GlassListRowBackground: View {
 struct GlassOptionRow<Trailing: View>: View {
     let title: Text
     let trailing: Trailing
+    let interactive: Bool
 
-    init(title: LocalizedStringKey, @ViewBuilder trailing: () -> Trailing) {
+    init(title: LocalizedStringKey, interactive: Bool = true, @ViewBuilder trailing: () -> Trailing) {
         self.title = Text(title)
         self.trailing = trailing()
+        self.interactive = interactive
     }
 
-    init(verbatimTitle: String, @ViewBuilder trailing: () -> Trailing) {
+    init(verbatimTitle: String, interactive: Bool = true, @ViewBuilder trailing: () -> Trailing) {
         self.title = Text(verbatim: verbatimTitle)
         self.trailing = trailing()
+        self.interactive = interactive
     }
 
     var body: some View {
@@ -209,7 +213,7 @@ struct GlassOptionRow<Trailing: View>: View {
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .clipped()
-        .ankiGlass(tint: .white.opacity(0.06), interactive: true, in: RoundedRectangle(cornerRadius: 14))
+        .ankiGlass(tint: .white.opacity(0.06), interactive: interactive, in: RoundedRectangle(cornerRadius: 14))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(AppTheme.primaryText.opacity(0.10), lineWidth: 1)

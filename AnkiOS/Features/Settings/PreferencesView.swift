@@ -4,9 +4,41 @@ import UserNotifications
 #endif
 
 struct PreferencesView: View {
+    enum Category: String, Equatable {
+        case appearance
+        case study
+        case notifications
+        case editing
+        case sync
+
+        var title: LocalizedStringKey {
+            switch self {
+            case .appearance: return "Aparência"
+            case .study: return "Opções de estudo"
+            case .notifications: return "Notificações"
+            case .editing: return "Edição e navegação"
+            case .sync: return "Opções de sincronização"
+            }
+        }
+
+        var description: LocalizedStringKey {
+            switch self {
+            case .appearance: return "Personalize o visual do AnkiOS e a forma como os cartões são exibidos."
+            case .study: return "Configure os controles, gestos e informações disponíveis durante o estudo."
+            case .notifications: return "Escolha quando receber lembretes dos cartões pendentes."
+            case .editing: return "Defina opções para adicionar notas, navegar pela coleção e colar imagens."
+            case .sync: return "Configure a sincronização automática da coleção e da mídia com o AnkiWeb."
+            }
+        }
+    }
+
     @EnvironmentObject private var store: CollectionStore
-    @State private var rollday: Double = 4
-    @State private var useFSRS = false
+    let category: Category
+
+    init(category: Category = .study) {
+        self.category = category
+    }
+
     @State private var showDueCounts = true
     @State private var estTimes = true
     @State private var showAudioPlayButtons = true
@@ -34,16 +66,9 @@ struct PreferencesView: View {
     @State private var scratchpadUndoClearsAll = false
     @State private var scratchpadBelowButtons = false
     @State private var studyUserActionScripts = Array(repeating: "", count: 8)
-    @State private var learnAheadMinutes = 20
-    @State private var newSpread = 0
     @State private var addToCur = true
-    @State private var timeboxMinutes = 0
-    @State private var schedVer = 2
     @State private var cardZoom: Double = 1.0
-    @State private var applyParents = true
     @State private var interruptAudio = true
-    @State private var fsrsShortTerm = false
-    @State private var cardStateCustomizer = ""
     @State private var deckPerNoteType = false
     @State private var browserDefaultSearch = ""
     @State private var ignoreAccentsInSearch = false
@@ -56,11 +81,7 @@ struct PreferencesView: View {
     @State private var forceOneWaySyncNext = false
     @State private var periodicAnkiWebMediaSync = true
     @State private var renderLatex = false
-    @State private var backupInterval = 30
-    @State private var backupDaily = 12
-    @State private var backupWeekly = 10
-    @State private var backupMonthly = 9
-    @State private var themeMode = 0
+    @AppStorage("ankios.themeMode", store: SharedProfiles.defaults) private var themeMode = 0
     @State private var languageCode = AnkiLanguageCatalog.defaultLanguageCode
     #if os(macOS)
     @State private var showLanguageRestartAlert = false
@@ -70,339 +91,313 @@ struct PreferencesView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    GlassFormSection(title: "Agendamento") {
-                        glassToggle("Usar FSRS", isOn: $useFSRS)
-                        glassToggle("FSRS com passos de curto prazo", isOn: $fsrsShortTerm)
-                        GlassInset {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Próximo dia começa às \(Int(rollday)):00")
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(AppTheme.primaryText)
-                                Slider(value: $rollday, in: 0...23, step: 1)
-                            }
-                        }
-                        glassStepper("Limite para antecipar aprendizagem (min)", value: $learnAheadMinutes, range: 0...999, step: 1, display: "\(learnAheadMinutes)")
-                        glassStepper("Limite de tempo da sessão (min)", value: $timeboxMinutes, range: 0...9999, step: 1, display: timeboxMinutes == 0 ? "off" : "\(timeboxMinutes)")
-                        glassToggle("Aplicar limites dos baralhos pai", isOn: $applyParents)
-                        glassPicker("Distribuição de novos", selection: $newSpread) {
-                            Text("Misturar com revisões").tag(0)
-                            Text("Novos depois das revisões").tag(1)
-                            Text("Novos antes das revisões").tag(2)
-                        }
+                    GlassCard(interactive: false) {
+                        Text(category.description)
+                            .font(.callout)
+                            .foregroundStyle(AppTheme.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    GlassFormSection(title: "Interface") {
-                        glassPicker("Tema", selection: $themeMode) {
-                            Text("Seguir sistema").tag(0)
-                            Text("Claro").tag(1)
-                            Text("Escuro").tag(2)
-                        }
-                        #if os(macOS)
-                        GlassOptionRow(title: "Idioma") {
-                            Picker("", selection: languageSelection) {
-                                ForEach(AnkiLanguageCatalog.languages) { language in
-                                    Text(language.name).tag(language.code)
+                    if category == .appearance {
+                        GlassFormSection(title: "Interface") {
+                            glassPicker("Tema", selection: $themeMode) {
+                                Text("Seguir sistema").tag(0)
+                                Text("Claro").tag(1)
+                                Text("Escuro").tag(2)
+                            }
+                            Text("O tema muda assim que você seleciona uma opção.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.secondaryText)
+                                .padding(.horizontal, 4)
+                            #if os(macOS)
+                            GlassOptionRow(title: "Idioma") {
+                                Picker("", selection: languageSelection) {
+                                    ForEach(AnkiLanguageCatalog.languages) { language in
+                                        Text(language.name).tag(language.code)
+                                    }
+                                }
+                                .labelsHidden()
+                                .accessibilityLabel("Idioma")
+                                .accessibilityValue(AnkiLanguageCatalog.language(for: languageCode).name)
+                                .accessibilityIdentifier("preferences.language")
+                                .pickerStyle(.menu)
+                                .menuIndicator(.hidden)
+                                .buttonStyle(GlassChipButtonStyle())
+                            }
+                            #endif
+    #if os(macOS)
+                            glassToggle("Mostrar contagem de cartões restantes", isOn: $showDueCounts)
+    #endif
+                            glassToggle("Reduzir movimento", isOn: $reduceMotion)
+                            glassToggle("Modo minimalista", isOn: $minimalistMode)
+    #if os(macOS)
+                            glassToggle("Mostrar próxima revisão nos botões", isOn: $estTimes)
+    #endif
+                            #if os(macOS)
+                            glassToggle("Gerar imagens LaTeX ao exibir cartões", isOn: $renderLatex)
+                            #endif
+                            GlassInset {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Zoom dos cartões: \(String(format: "%.0f%%", cardZoom * 100))")
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(AppTheme.primaryText)
+                                    Slider(value: $cardZoom, in: 0.7...1.6, step: 0.05)
                                 }
                             }
-                            .labelsHidden()
-                            .accessibilityLabel("Idioma")
-                            .accessibilityValue(AnkiLanguageCatalog.language(for: languageCode).name)
-                            .accessibilityIdentifier("preferences.language")
-                            .pickerStyle(.menu)
-                            .menuIndicator(.hidden)
-                            .buttonStyle(GlassChipButtonStyle())
-                        }
-                        #endif
-#if os(macOS)
-                        glassToggle("Mostrar contagem de cartões restantes", isOn: $showDueCounts)
-#endif
-                        glassToggle("Mostrar botões de áudio nos cartões", isOn: $showAudioPlayButtons)
-                        glassToggle("Reduzir movimento", isOn: $reduceMotion)
-                        glassToggle("Modo minimalista", isOn: $minimalistMode)
-                        glassToggle("Interromper áudio ao responder", isOn: $interruptAudio)
-#if os(macOS)
-                        glassToggle("Mostrar próxima revisão nos botões", isOn: $estTimes)
-#endif
-                        glassToggle("Barra de espaço avalia cartão", isOn: $spacebarRatesCard)
-                        glassToggle("Adicionar ao baralho atual", isOn: $addToCur)
-                        #if os(macOS)
-                        glassToggle("Gerar imagens LaTeX ao exibir cartões", isOn: $renderLatex)
-                        #endif
-                        GlassInset {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Zoom dos cartões: \(String(format: "%.0f%%", cardZoom * 100))")
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(AppTheme.primaryText)
-                                Slider(value: $cardZoom, in: 0.7...1.6, step: 0.05)
-                            }
                         }
                     }
-                    GlassFormSection(title: "Teclas de resposta") {
-                        ForEach(0..<4, id: \.self) { index in
-                            GlassOptionRow(title: ["De novo", "Difícil", "Bom", "Fácil"][index]) {
-                                TextField("Desativado", text: $answerKeyTexts[index])
-                                    .textFieldStyle(.plain)
-                                    .multilineTextAlignment(.trailing)
-                                    .frame(width: 140)
-                                    .autocorrectionDisabled()
+                    if category == .study {
+                        GlassFormSection(title: "Teclas de resposta") {
+                            ForEach(0..<4, id: \.self) { index in
+                                GlassOptionRow(title: ["De novo", "Difícil", "Bom", "Fácil"][index]) {
+                                    TextField("Desativado", text: $answerKeyTexts[index])
+                                        .textFieldStyle(.plain)
+                                        .multilineTextAlignment(.trailing)
+                                        .frame(width: 140)
+                                        .autocorrectionDisabled()
+                                }
                             }
-                        }
-                        Text("Use uma tecla ou uma combinação, como Ctrl+1. Deixe vazio para desativar.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                    }
-                    #if os(iOS)
-                    GlassFormSection(title: "preferences.review.section") {
-                        glassToggle("Mostrar confirmação da avaliação", isOn: $reviewFeedbackTicks, identifier: "preferences.review.feedbackTicks")
-                        glassToggle("Reduzir música e ignorar modo silencioso", isOn: $alwaysDuckAndIgnoreMute, identifier: "preferences.review.duckIgnoreMute")
-                        glassToggle("Manter zoom ao mostrar resposta", isOn: $answerKeepsZoom, identifier: "preferences.review.answerKeepsZoom")
-                        glassToggle("Nunca digitar resposta", isOn: $neverTypeAnswer, identifier: "preferences.review.neverTypeAnswer")
-                        glassToggle("Ignorar toque duplo", isOn: $doubleTapPrevention, identifier: "preferences.review.doubleTapPrevention")
-                        GlassInset {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Intervalo: \(String(format: "%.2f", doubleTapPreventionDelay)) s")
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(AppTheme.primaryText)
-                                Slider(value: $doubleTapPreventionDelay, in: 0.1...1.0, step: 0.05)
-                                    .accessibilityIdentifier("preferences.review.doubleTapDelay")
-                                    .disabled(!doubleTapPrevention)
-                            }
-                        }
-                    }
-                    GlassFormSection(title: "Notificações") {
-                        glassToggle("preferences.notifications.alertWhenDue", isOn: $studyReminderEnabled, identifier: "preferences.notifications.enabled")
-                        GlassOptionRow(title: "Horário de alerta") {
-                            DatePicker("Horário de alerta", selection: $studyReminderTime, displayedComponents: .hourAndMinute)
-                                .labelsHidden()
-                                .datePickerStyle(.compact)
-                                .accessibilityIdentifier("preferences.notifications.time")
-                                .disabled(!studyReminderEnabled)
-                        }
-                        Text("Receba um lembrete diário com a quantidade de cartões pendentes.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                        if studyReminderPermissionDenied && studyReminderEnabled {
-                            Text("Permita notificações do AnkiOS nos Ajustes do sistema para receber lembretes.")
+                            Text("Use uma tecla ou uma combinação, como Ctrl+1. Deixe vazio para desativar.")
                                 .font(.caption)
-                                .foregroundStyle(AppTheme.danger)
+                                .foregroundStyle(AppTheme.secondaryText)
                                 .padding(.horizontal, 4)
                         }
-                        if studyReminderScheduled && studyReminderEnabled {
-                            Text("Lembrete agendado")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(AppTheme.good)
-                                .padding(.horizontal, 4)
-                                .accessibilityIdentifier("preferences.notifications.status")
+                        GlassFormSection(title: "Reprodução e avaliação") {
+                            glassToggle("Mostrar botões de áudio nos cartões", isOn: $showAudioPlayButtons)
+                            glassToggle("Interromper áudio ao responder", isOn: $interruptAudio)
+                            glassToggle("Barra de espaço avalia cartão", isOn: $spacebarRatesCard)
                         }
+                        #if os(iOS)
+                        GlassFormSection(title: "preferences.review.section") {
+                            glassToggle("Mostrar confirmação da avaliação", isOn: $reviewFeedbackTicks, identifier: "preferences.review.feedbackTicks")
+                            glassToggle("Reduzir música e ignorar modo silencioso", isOn: $alwaysDuckAndIgnoreMute, identifier: "preferences.review.duckIgnoreMute")
+                            glassToggle("Manter zoom ao mostrar resposta", isOn: $answerKeepsZoom, identifier: "preferences.review.answerKeepsZoom")
+                            glassToggle("Nunca digitar resposta", isOn: $neverTypeAnswer, identifier: "preferences.review.neverTypeAnswer")
+                            glassToggle("Ignorar toque duplo", isOn: $doubleTapPrevention, identifier: "preferences.review.doubleTapPrevention")
+                            GlassInset {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Intervalo: \(String(format: "%.2f", doubleTapPreventionDelay)) s")
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(AppTheme.primaryText)
+                                    Slider(value: $doubleTapPreventionDelay, in: 0.1...1.0, step: 0.05)
+                                        .accessibilityIdentifier("preferences.review.doubleTapDelay")
+                                        .disabled(!doubleTapPrevention)
+                                }
+                            }
+                        }
+                        #endif
                     }
-                    GlassFormSection(title: "Toques no cartão") {
-                        Text("Configure ações para as nove áreas do cartão. Na pergunta, todas mostram a resposta. Na resposta, as laterais avaliam De novo ou Bom.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                        tapActionGrid(isAnswerShown: false)
-                        tapActionGrid(isAnswerShown: true)
+                    if category == .notifications {
+                        #if os(iOS)
+                        GlassFormSection(title: "Notificações") {
+                            glassToggle("preferences.notifications.alertWhenDue", isOn: $studyReminderEnabled, identifier: "preferences.notifications.enabled")
+                            GlassOptionRow(title: "Horário de alerta") {
+                                DatePicker("Horário de alerta", selection: $studyReminderTime, displayedComponents: .hourAndMinute)
+                                    .labelsHidden()
+                                    .datePickerStyle(.compact)
+                                    .accessibilityIdentifier("preferences.notifications.time")
+                                    .disabled(!studyReminderEnabled)
+                            }
+                            Text("Receba um lembrete diário com a quantidade de cartões pendentes.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.secondaryText)
+                                .padding(.horizontal, 4)
+                            if studyReminderPermissionDenied && studyReminderEnabled {
+                                Text("Permita notificações do AnkiOS nos Ajustes do sistema para receber lembretes.")
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.danger)
+                                    .padding(.horizontal, 4)
+                            }
+                            if studyReminderScheduled && studyReminderEnabled {
+                                Text("Lembrete agendado")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(AppTheme.good)
+                                    .padding(.horizontal, 4)
+                                    .accessibilityIdentifier("preferences.notifications.status")
+                            }
+                        }
+                        #endif
                     }
-                    GlassFormSection(title: "Deslizes no cartão") {
-                        Text("Atribua uma ação a cada direção do gesto. Por padrão, deslizar à esquerda abre as ferramentas e à direita volta aos baralhos.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                        ForEach(0..<ReviewGesturePreferences.swipeDirections.count, id: \.self) { index in
-                            let direction = ReviewGesturePreferences.swipeDirections[index]
-                            GlassOptionRow(title: "Deslizar \(ReviewGesturePreferences.swipeTitles[index])") {
+                    if category == .study {
+                        #if os(iOS)
+                        GlassFormSection(title: "Toques no cartão") {
+                            Text("Configure ações para as nove áreas do cartão. Na pergunta, todas mostram a resposta. Na resposta, as laterais avaliam De novo ou Bom.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.secondaryText)
+                                .padding(.horizontal, 4)
+                            tapActionGrid(isAnswerShown: false)
+                            tapActionGrid(isAnswerShown: true)
+                        }
+                        GlassFormSection(title: "Deslizes no cartão") {
+                            Text("Atribua uma ação a cada direção do gesto. Por padrão, deslizar à esquerda abre as ferramentas e à direita volta aos baralhos.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.secondaryText)
+                                .padding(.horizontal, 4)
+                            ForEach(0..<ReviewGesturePreferences.swipeDirections.count, id: \.self) { index in
+                                let direction = ReviewGesturePreferences.swipeDirections[index]
+                                GlassOptionRow(title: "Deslizar \(ReviewGesturePreferences.swipeTitles[index])") {
+                                    Picker(selection: Binding<String>(
+                                        get: { gesturePreferences.swipeAction(for: direction).rawValue },
+                                        set: { rawValue in
+                                            guard let action = ReviewGestureAction(rawValue: rawValue) else { return }
+                                            gesturePreferences.setSwipe(action, direction: direction)
+                                        }
+                                    ), label: Text(gesturePreferences.swipeAction(for: direction).title)) {
+                                        ForEach(ReviewGestureAction.allCases) { action in
+                                            Text(action.title).tag(action.rawValue)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                    .accessibilityIdentifier("preferences.swipe.\(direction)")
+                                }
+                            }
+                        }
+                        GlassFormSection(title: "mobile.scratchpad.name") {
+                            glassToggle("mobile.scratchpad.ignoresFingers", isOn: $scratchpadIgnoresFingers, identifier: "preferences.scratchpad.ignoreFingers")
+                            glassToggle("mobile.scratchpad.undoClearsAll", isOn: $scratchpadUndoClearsAll, identifier: "preferences.scratchpad.undoClearsAll")
+                            glassToggle("mobile.scratchpad.belowButtons", isOn: $scratchpadBelowButtons, identifier: "preferences.scratchpad.belowButtons")
+                            Text("Configure quais entradas desenham, o que o botão Desfazer faz e a posição do bloco durante o estudo.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.secondaryText)
+                                .padding(.horizontal, 4)
+                        }
+                        GlassFormSection(title: "Barra superior do estudo") {
+                            GlassOptionRow(title: "Ação do botão") {
                                 Picker(selection: Binding<String>(
-                                    get: { gesturePreferences.swipeAction(for: direction).rawValue },
+                                    get: { gesturePreferences.topBarAction.rawValue },
                                     set: { rawValue in
                                         guard let action = ReviewGestureAction(rawValue: rawValue) else { return }
-                                        gesturePreferences.setSwipe(action, direction: direction)
+                                        gesturePreferences.topBarAction = action
                                     }
-                                ), label: Text(gesturePreferences.swipeAction(for: direction).title)) {
+                                ), label: Text(gesturePreferences.topBarAction.title)) {
                                     ForEach(ReviewGestureAction.allCases) { action in
                                         Text(action.title).tag(action.rawValue)
                                     }
                                 }
                                 .labelsHidden()
                                 .pickerStyle(.menu)
-                                .accessibilityIdentifier("preferences.swipe.\(direction)")
+                                .accessibilityIdentifier("preferences.topBar.action")
                             }
-                        }
-                    }
-                    GlassFormSection(title: "mobile.scratchpad.name") {
-                        glassToggle("mobile.scratchpad.ignoresFingers", isOn: $scratchpadIgnoresFingers, identifier: "preferences.scratchpad.ignoreFingers")
-                        glassToggle("mobile.scratchpad.undoClearsAll", isOn: $scratchpadUndoClearsAll, identifier: "preferences.scratchpad.undoClearsAll")
-                        glassToggle("mobile.scratchpad.belowButtons", isOn: $scratchpadBelowButtons, identifier: "preferences.scratchpad.belowButtons")
-                        Text("Configure quais entradas desenham, o que o botão Desfazer faz e a posição do bloco durante o estudo.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                    }
-                    GlassFormSection(title: "Barra superior do estudo") {
-                        GlassOptionRow(title: "Ação do botão") {
-                            Picker(selection: Binding<String>(
-                                get: { gesturePreferences.topBarAction.rawValue },
-                                set: { rawValue in
-                                    guard let action = ReviewGestureAction(rawValue: rawValue) else { return }
-                                    gesturePreferences.topBarAction = action
-                                }
-                            ), label: Text(gesturePreferences.topBarAction.title)) {
-                                ForEach(ReviewGestureAction.allCases) { action in
-                                    Text(action.title).tag(action.rawValue)
-                                }
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                            .accessibilityIdentifier("preferences.topBar.action")
-                        }
-                        Text("Escolha a ação do botão no canto superior da tela de estudo.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                    }
-                    #if os(iOS)
-                    GlassFormSection(title: "mobile.preferences.toolsOverlayButton") {
-                        Text("Mostre o ícone de ferramentas sobre o cartão ou use a ação Ferramentas na barra superior.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                        glassToggle("Mostrar botão sobre o cartão", isOn: $showToolsOverlayButton, identifier: "preferences.topBar.showTools")
-                        glassToggle("Posicionar à esquerda", isOn: $toolsOverlayButtonOnLeft, identifier: "preferences.topBar.positionLeft")
-                            .disabled(!showToolsOverlayButton)
-                    }
-                    GlassFormSection(title: "Barra inferior") {
-                        glassToggle("Mostrar barra inferior", isOn: $showStudyBottomBar, identifier: "preferences.bottomBar.show")
-                        glassToggle("Mostrar contagem restante", isOn: $showDueCounts, identifier: "preferences.bottomBar.remainingCount")
-                        glassToggle("Mostrar botões de resposta", isOn: $showStudyAnswerButtons, identifier: "preferences.bottomBar.answerButtons")
-                        glassToggle("Mostrar próximos horários", isOn: $estTimes, identifier: "preferences.bottomBar.nextTimes")
-                    }
-                    #endif
-                    GlassFormSection(title: "Ação ao sacudir") {
-                        GlassOptionRow(title: "Ação") {
-                            Picker(selection: Binding<String>(
-                                get: { gesturePreferences.shakeAction.rawValue },
-                                set: { rawValue in
-                                    guard let action = ReviewGestureAction(rawValue: rawValue) else { return }
-                                    gesturePreferences.shakeAction = action
-                                }
-                            ), label: Text(gesturePreferences.shakeAction.title)) {
-                                ForEach(ReviewGestureAction.allCases) { action in
-                                    Text(action.title).tag(action.rawValue)
-                                }
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                            .accessibilityIdentifier("preferences.shake.action")
-                        }
-                        Text("Escolha a ação executada ao sacudir o iPhone durante o estudo. O padrão é Desfazer.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                    }
-                    GlassFormSection(title: "Ações do usuário") {
-                        ForEach(0..<8, id: \.self) { index in
-                            GlassOptionRow(title: "Ação \(index + 1)") {
-                                TextField("var userJs\(index + 1) = minhaFunção;", text: $studyUserActionScripts[index], axis: .vertical)
-                                    .textFieldStyle(.plain)
-                                    .lineLimit(1...3)
-                                    .autocorrectionDisabled()
-                                    .accessibilityIdentifier("preferences.userAction.\(index + 1)")
-                            }
-                        }
-                        Text("Defina uma ação JavaScript fornecida pelo template do cartão, como var userJs1 = revealNext;. Deixe vazio para desativar.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                    }
-                    gamepadPreferencesSection
-                    #endif
-                    GlassFormSection(title: "Edição e navegação") {
-                        glassPicker("Baralho padrão", selection: Binding(
-                            get: { deckPerNoteType ? 1 : 0 },
-                            set: { deckPerNoteType = $0 == 1 }
-                        )) {
-                            Text("Baralho atual").tag(0)
-                            Text("Último por tipo de nota").tag(1)
-                        }
-                        GlassInset {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Busca inicial do navegador")
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(AppTheme.primaryText)
-                                TextField("Ex.: deck:current", text: $browserDefaultSearch)
-                                    .textFieldStyle(.plain)
-                                    .foregroundStyle(AppTheme.primaryText)
-                                    .autocorrectionDisabled()
-                            }
+                            Text("Escolha a ação do botão no canto superior da tela de estudo.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.secondaryText)
+                                .padding(.horizontal, 4)
                         }
                         #if os(iOS)
-                        GlassInset {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text("Max Image Size (Long Edge)")
+                        GlassFormSection(title: "mobile.preferences.toolsOverlayButton") {
+                            Text("Mostre o ícone de ferramentas sobre o cartão ou use a ação Ferramentas na barra superior.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.secondaryText)
+                                .padding(.horizontal, 4)
+                            glassToggle("Mostrar botão sobre o cartão", isOn: $showToolsOverlayButton, identifier: "preferences.topBar.showTools")
+                            glassToggle("Posicionar à esquerda", isOn: $toolsOverlayButtonOnLeft, identifier: "preferences.topBar.positionLeft")
+                                .disabled(!showToolsOverlayButton)
+                        }
+                        GlassFormSection(title: "Barra inferior") {
+                            glassToggle("Mostrar barra inferior", isOn: $showStudyBottomBar, identifier: "preferences.bottomBar.show")
+                            glassToggle("Mostrar contagem restante", isOn: $showDueCounts, identifier: "preferences.bottomBar.remainingCount")
+                            glassToggle("Mostrar botões de resposta", isOn: $showStudyAnswerButtons, identifier: "preferences.bottomBar.answerButtons")
+                            glassToggle("Mostrar próximos horários", isOn: $estTimes, identifier: "preferences.bottomBar.nextTimes")
+                        }
+                        #endif
+                        GlassFormSection(title: "Ação ao sacudir") {
+                            GlassOptionRow(title: "Ação") {
+                                Picker(selection: Binding<String>(
+                                    get: { gesturePreferences.shakeAction.rawValue },
+                                    set: { rawValue in
+                                        guard let action = ReviewGestureAction(rawValue: rawValue) else { return }
+                                        gesturePreferences.shakeAction = action
+                                    }
+                                ), label: Text(gesturePreferences.shakeAction.title)) {
+                                    ForEach(ReviewGestureAction.allCases) { action in
+                                        Text(action.title).tag(action.rawValue)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .accessibilityIdentifier("preferences.shake.action")
+                            }
+                            Text("Escolha a ação executada ao sacudir o iPhone durante o estudo. O padrão é Desfazer.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.secondaryText)
+                                .padding(.horizontal, 4)
+                        }
+                        GlassFormSection(title: "Ações do usuário") {
+                            ForEach(0..<8, id: \.self) { index in
+                                GlassOptionRow(title: "Ação \(index + 1)") {
+                                    TextField("var userJs\(index + 1) = minhaFunção;", text: $studyUserActionScripts[index], axis: .vertical)
+                                        .textFieldStyle(.plain)
+                                        .lineLimit(1...3)
+                                        .autocorrectionDisabled()
+                                        .accessibilityIdentifier("preferences.userAction.\(index + 1)")
+                                }
+                            }
+                            Text("Defina uma ação JavaScript fornecida pelo template do cartão, como var userJs1 = revealNext;. Deixe vazio para desativar.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.secondaryText)
+                                .padding(.horizontal, 4)
+                        }
+                        gamepadPreferencesSection
+                        #endif
+                    }
+                    if category == .editing {
+                        GlassFormSection(title: "Edição e navegação") {
+                            glassPicker("Baralho padrão", selection: Binding(
+                                get: { deckPerNoteType ? 1 : 0 },
+                                set: { deckPerNoteType = $0 == 1 }
+                            )) {
+                                Text("Baralho atual").tag(0)
+                                Text("Último por tipo de nota").tag(1)
+                            }
+                            GlassInset {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Busca inicial do navegador")
                                         .font(.subheadline.weight(.medium))
                                         .foregroundStyle(AppTheme.primaryText)
-                                    Spacer(minLength: 12)
-                                    Text("\(imageMaxDimension) px")
-                                        .font(.subheadline.monospacedDigit())
-                                        .foregroundStyle(AppTheme.secondaryText)
+                                    TextField("Ex.: deck:current", text: $browserDefaultSearch)
+                                        .textFieldStyle(.plain)
+                                        .foregroundStyle(AppTheme.primaryText)
+                                        .autocorrectionDisabled()
                                 }
-                                Stepper("", value: $imageMaxDimension, in: 256...4096, step: 128)
-                                    .labelsHidden()
-                                    .accessibilityLabel("Max Image Size (Long Edge)")
-                                    .accessibilityValue("\(imageMaxDimension) px")
-                                    .accessibilityIdentifier("preferences.imageMaxDimension")
                             }
+                            #if os(iOS)
+                            GlassInset {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text("Max Image Size (Long Edge)")
+                                            .font(.subheadline.weight(.medium))
+                                            .foregroundStyle(AppTheme.primaryText)
+                                        Spacer(minLength: 12)
+                                        Text("\(imageMaxDimension) px")
+                                            .font(.subheadline.monospacedDigit())
+                                            .foregroundStyle(AppTheme.secondaryText)
+                                    }
+                                    Stepper("", value: $imageMaxDimension, in: 256...4096, step: 128)
+                                        .labelsHidden()
+                                        .accessibilityLabel("Max Image Size (Long Edge)")
+                                        .accessibilityValue("\(imageMaxDimension) px")
+                                        .accessibilityIdentifier("preferences.imageMaxDimension")
+                                }
+                            }
+                            glassToggle("Resize When Pasting", isOn: $resizePastedImages, identifier: "preferences.resizePastedImages")
+                            #endif
+                            glassToggle("Colar imagens da área de transferência como PNG", isOn: $pasteImagesAsPNG)
+                            glassToggle("Colar sem Shift remove a formatação", isOn: $pasteStripsFormatting)
+                            glassToggle("Ignorar acentos nas buscas simples", isOn: $ignoreAccentsInSearch)
+                            glassToggle("Adicionar ao baralho atual", isOn: $addToCur)
                         }
-                        glassToggle("Resize When Pasting", isOn: $resizePastedImages, identifier: "preferences.resizePastedImages")
-                        #endif
-                        glassToggle("Colar imagens da área de transferência como PNG", isOn: $pasteImagesAsPNG)
-                        glassToggle("Colar sem Shift remove a formatação", isOn: $pasteStripsFormatting)
-                        glassToggle("Ignorar acentos nas buscas simples", isOn: $ignoreAccentsInSearch)
                     }
-                    GlassFormSection(title: "Sincronização com AnkiWeb") {
-                        glassToggle("Sincronizar áudio e imagens", isOn: $syncAnkiWebMedia)
-                        glassToggle("Sincronizar ao abrir e fechar o perfil", isOn: $autoSyncAnkiWeb)
-                        glassToggle("Sincronizar mídia a cada 15 minutos", isOn: $periodicAnkiWebMediaSync)
-                        glassToggle("Na próxima sincronização, escolher enviar ou baixar", isOn: $forceOneWaySyncNext)
-                        Text("A sincronização automática só funciona quando uma conta AnkiWeb está conectada.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                    }
-                    GlassFormSection(title: "Avançado") {
-                        GlassOptionRow(title: "Versão do agendador") {
-                            Text("v\(schedVer)")
-                                .font(.body.monospacedDigit().weight(.semibold))
-                                .foregroundStyle(AppTheme.primaryText)
+                    if category == .sync {
+                        GlassFormSection(title: "Sincronização com AnkiWeb") {
+                            glassToggle("Sincronizar áudio e imagens", isOn: $syncAnkiWebMedia)
+                            glassToggle("Sincronizar ao abrir e fechar o perfil", isOn: $autoSyncAnkiWeb)
+                            glassToggle("Sincronizar mídia a cada 15 minutos", isOn: $periodicAnkiWebMediaSync)
+                            glassToggle("Na próxima sincronização, escolher enviar ou baixar", isOn: $forceOneWaySyncNext)
+                            Text("A sincronização automática só funciona quando uma conta AnkiWeb está conectada.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.secondaryText)
+                                .padding(.horizontal, 4)
                         }
-                        Text("O agendador segue o modelo de filas do Anki 2.1. A sincronização com AnkiWeb fica em Ferramentas.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                    }
-                    GlassFormSection(title: "Backups automáticos") {
-                        glassStepper("Intervalo mínimo (min)", value: $backupInterval, range: 5...9999, step: 5, display: "\(backupInterval)")
-                        glassStepper("Diários", value: $backupDaily, range: 0...9999, step: 1, display: "\(backupDaily)")
-                        glassStepper("Semanais", value: $backupWeekly, range: 0...9999, step: 1, display: "\(backupWeekly)")
-                        glassStepper("Mensais", value: $backupMonthly, range: 0...9999, step: 1, display: "\(backupMonthly)")
-                        Text("O Anki guarda todos os backups recentes e depois mantém versões diárias, semanais e mensais. Eles não incluem mídia.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                    }
-                    GlassFormSection(title: "Agendamento personalizado") {
-                        Text("JavaScript global que pode ajustar os estados previstos dos botões de resposta. O código recebe states, customData e ctx.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .padding(.horizontal, 4)
-                        TextEditor(text: $cardStateCustomizer)
-                            .font(.system(.body, design: .monospaced))
-                            .scrollContentBackground(.hidden)
-                            .foregroundStyle(AppTheme.primaryText)
-                            .padding(8)
-                            .frame(minHeight: 180)
-                            .ankiGlass(tint: .white.opacity(0.06), interactive: true, in: RoundedRectangle(cornerRadius: 14))
                     }
                 }
                 .padding(20)
@@ -416,7 +411,7 @@ struct PreferencesView: View {
                 .padding(.vertical, 14)
         }
         .background(AppBackground())
-        .navigationTitle("Preferências")
+        .navigationTitle(category.title)
         .onAppear(perform: load)
         #if os(macOS)
         .alert("Idioma alterado", isPresented: $showLanguageRestartAlert) {
@@ -492,25 +487,10 @@ struct PreferencesView: View {
     }
 
     private func glassToggle(_ title: String, isOn: Binding<Bool>, identifier: String? = nil) -> some View {
-        GlassOptionRow(title: LocalizedStringKey(title)) {
+        GlassOptionRow(title: LocalizedStringKey(title), interactive: false) {
             Toggle("", isOn: isOn).labelsHidden().tint(AppTheme.accent)
                 .accessibilityLabel(LocalizedStringKey(title))
                 .accessibilityIdentifier(identifier ?? "preferences.\(title)")
-        }
-    }
-
-    private func glassStepper(_ title: String, value: Binding<Int>, range: ClosedRange<Int>, step: Int, display: String) -> some View {
-        GlassOptionRow(title: LocalizedStringKey(title)) {
-            HStack(spacing: 8) {
-                Text(display)
-                    .font(.body.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(AppTheme.primaryText)
-                    .frame(minWidth: 44, alignment: .trailing)
-                Stepper("", value: value, in: range, step: step)
-                    .labelsHidden()
-                    .accessibilityLabel(title)
-                    .frame(width: 100)
-            }
         }
     }
 
@@ -558,8 +538,6 @@ struct PreferencesView: View {
     }
 
     private func load() {
-        rollday = Double(store.rolloverHour)
-        useFSRS = store.fsrsEnabled
         showDueCounts = store.conf["dueCounts"] as? Bool ?? true
         estTimes = store.conf["estTimes"] as? Bool ?? true
         showAudioPlayButtons = !(store.conf["hideAudioPlayButtons"] as? Bool ?? false)
@@ -571,18 +549,10 @@ struct PreferencesView: View {
         doubleTapPreventionDelay = store.conf["doubleTapPreventionDelay"] as? Double ?? 0.3
         reduceMotion = SharedProfiles.defaults.object(forKey: "ankios.reduceMotion") as? Bool ?? true
         minimalistMode = SharedProfiles.defaults.bool(forKey: "ankios.minimalistMode")
-        learnAheadMinutes = (store.conf["collapseTime"] as? Int ?? 1200) / 60
-        newSpread = store.conf["newSpread"] as? Int ?? 0
         addToCur = store.conf["addToCur"] as? Bool ?? true
-        timeboxMinutes = (store.conf["timeLim"] as? Int ?? 0) / 60
-        schedVer = store.conf["schedVer"] as? Int ?? 2
         cardZoom = store.conf["cardZoom"] as? Double ?? 1.0
-        applyParents = store.conf["applyAllParentLimits"] as? Bool ?? false
         interruptAudio = store.conf["interruptAudioWhenAnswering"] as? Bool
             ?? store.conf["interruptAudio"] as? Bool ?? true
-        fsrsShortTerm = store.conf["fsrsShortTermWithStepsEnabled"] as? Bool
-            ?? store.conf["fsrsShortTermWithSteps"] as? Bool ?? false
-        cardStateCustomizer = store.conf["cardStateCustomizer"] as? String ?? ""
         deckPerNoteType = store.conf["deckSelectionBehavior"] as? String == "noteType"
         browserDefaultSearch = store.conf["defaultSearchText"] as? String
             ?? store.conf["browserDefaultSearch"] as? String ?? ""
@@ -596,12 +566,6 @@ struct PreferencesView: View {
         forceOneWaySyncNext = store.ankiWebForceOneWaySyncNext
         periodicAnkiWebMediaSync = store.ankiWebPeriodicMediaSyncMinutes != 0
         renderLatex = store.conf["renderLatex"] as? Bool ?? false
-        let backups = store.conf["backups"] as? [String: Any] ?? [:]
-        backupInterval = CollectionStore.int(backups["minimum_interval_mins"]) ?? 30
-        backupDaily = CollectionStore.int(backups["daily"]) ?? 12
-        backupWeekly = CollectionStore.int(backups["weekly"]) ?? 10
-        backupMonthly = CollectionStore.int(backups["monthly"]) ?? 9
-        themeMode = SharedProfiles.defaults.object(forKey: "ankios.themeMode") as? Int ?? 0
         #if os(macOS)
         languageCode = SharedProfiles.defaults.string(forKey: AnkiLanguageCatalog.preferenceKey)
             .flatMap(AnkiLanguageCatalog.normalizedCode) ?? AnkiLanguageCatalog.defaultLanguageCode
@@ -638,17 +602,10 @@ struct PreferencesView: View {
     }
 
     private func save() {
-        let previousFSRS = store.fsrsEnabled
         var conf = store.conf
-        conf["rollover"] = Int(rollday)
-        conf.removeValue(forKey: "rollday")
-        conf["fsrs"] = useFSRS
         conf["dueCounts"] = showDueCounts
         conf["estTimes"] = estTimes
-        conf["collapseTime"] = learnAheadMinutes * 60
-        conf["newSpread"] = newSpread
         conf["addToCur"] = addToCur
-        conf["timeLim"] = timeboxMinutes * 60
         conf["hideAudioPlayButtons"] = !showAudioPlayButtons
         #if os(iOS)
         conf["reviewFeedbackTicks"] = reviewFeedbackTicks
@@ -662,14 +619,9 @@ struct PreferencesView: View {
         conf["showBottomBar"] = showStudyBottomBar
         conf["showAnswerButtons"] = showStudyAnswerButtons
         #endif
-        conf["schedVer"] = schedVer
         conf["cardZoom"] = cardZoom
-        conf["applyAllParentLimits"] = applyParents
         conf["interruptAudioWhenAnswering"] = interruptAudio
         conf.removeValue(forKey: "interruptAudio")
-        conf["fsrsShortTermWithStepsEnabled"] = fsrsShortTerm
-        conf.removeValue(forKey: "fsrsShortTermWithSteps")
-        conf["cardStateCustomizer"] = cardStateCustomizer
         conf["deckSelectionBehavior"] = deckPerNoteType ? "noteType" : "current"
         conf["defaultSearchText"] = browserDefaultSearch.trimmingCharacters(in: .whitespacesAndNewlines)
         conf.removeValue(forKey: "browserDefaultSearch")
@@ -683,17 +635,10 @@ struct PreferencesView: View {
         #if os(macOS)
         conf["renderLatex"] = renderLatex
         #endif
-        conf["backups"] = [
-            "minimum_interval_mins": max(5, backupInterval),
-            "daily": max(0, backupDaily),
-            "weekly": max(0, backupWeekly),
-            "monthly": max(0, backupMonthly)
-        ]
         do {
             try store.saveConf(conf)
             SharedProfiles.defaults.set(reduceMotion, forKey: "ankios.reduceMotion")
             SharedProfiles.defaults.set(minimalistMode, forKey: "ankios.minimalistMode")
-            SharedProfiles.defaults.set(themeMode, forKey: "ankios.themeMode")
             #if os(macOS)
             SharedProfiles.defaults.set(languageCode, forKey: AnkiLanguageCatalog.preferenceKey)
             #endif
@@ -745,9 +690,6 @@ struct PreferencesView: View {
                 forceOneWay: forceOneWaySyncNext,
                 periodicMediaMinutes: periodicAnkiWebMediaSync ? 15 : 0
             )
-            if previousFSRS != useFSRS {
-                try store.rebuildFSRSMemoryStates(enabled: useFSRS)
-            }
             store.lastError = nil
         } catch {
             store.lastError = error.localizedDescription

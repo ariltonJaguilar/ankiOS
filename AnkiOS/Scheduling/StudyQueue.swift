@@ -870,19 +870,19 @@ extension CollectionStore {
                 DELETE FROM temp.ankios_study_changes;
                 INSERT INTO temp.ankios_study_changes VALUES (0);
                 CREATE TEMP TRIGGER IF NOT EXISTS ankios_cards_insert AFTER INSERT ON main.cards
-                BEGIN UPDATE temp.ankios_study_changes SET n = n + 1; END;
+                BEGIN UPDATE ankios_study_changes SET n = n + 1; END;
                 CREATE TEMP TRIGGER IF NOT EXISTS ankios_cards_delete AFTER DELETE ON main.cards
-                BEGIN UPDATE temp.ankios_study_changes SET n = n + 1; END;
+                BEGIN UPDATE ankios_study_changes SET n = n + 1; END;
                 CREATE TEMP TRIGGER IF NOT EXISTS ankios_cards_update AFTER UPDATE ON main.cards
                 WHEN NEW.nid IS NOT OLD.nid OR NEW.did IS NOT OLD.did OR NEW.ord IS NOT OLD.ord
                   OR NEW.type IS NOT OLD.type OR NEW.queue IS NOT OLD.queue OR NEW.due IS NOT OLD.due
                   OR NEW.ivl IS NOT OLD.ivl OR NEW.factor IS NOT OLD.factor OR NEW.reps IS NOT OLD.reps
                   OR NEW.lapses IS NOT OLD.lapses OR NEW.left IS NOT OLD.left OR NEW.odue IS NOT OLD.odue
                   OR NEW.odid IS NOT OLD.odid OR NEW.data IS NOT OLD.data
-                BEGIN UPDATE temp.ankios_study_changes SET n = n + 1; END;
+                BEGIN UPDATE ankios_study_changes SET n = n + 1; END;
                 CREATE TEMP TRIGGER IF NOT EXISTS ankios_col_update AFTER UPDATE OF decks, dconf ON main.col
                 WHEN NEW.decks IS NOT OLD.decks OR NEW.dconf IS NOT OLD.dconf
-                BEGIN UPDATE temp.ankios_study_changes SET n = n + 1; END;
+                BEGIN UPDATE ankios_study_changes SET n = n + 1; END;
             """)
             token = 0
         }

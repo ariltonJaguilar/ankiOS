@@ -8161,6 +8161,356 @@
     "Adicionadas primeiro" : {
 
     },
+    "Adicionado: %@↑ %@↓" : {
+      "localizations" : {
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Adicionado: %1$@↑ %2$@↓"
+          }
+        }
+      }
+    },
+    "Adicionado: %lld↑ %lld↓" : {
+      "localizations" : {
+        "af-ZA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ar-SA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أُضيف: %1$lld↑ %2$lld↓"
+          }
+        },
+        "be-BY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дададзена: %1$lld↑ %2$lld↓"
+          }
+        },
+        "bg-BG" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ca-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afegits: %1$lld↑ %2$lld↓"
+          }
+        },
+        "cs-CZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přidáno: %1$lld↑ %2$lld↓"
+          }
+        },
+        "da-DK" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "de-DE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hinzugefügt: %1$lld↑ %2$lld↓"
+          }
+        },
+        "el-GR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Προστέθηκαν: %1$lld↑ %2$lld↓"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "en-US" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "eo-UY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aldonis: %1$lld↑ %2$lld↓"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadido: %1$lld↑ %2$lld↓"
+          }
+        },
+        "et-EE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "eu-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "fa-IR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اضافه شد: %1$lld ↓ %2$lld ↑"
+          }
+        },
+        "fi-FI" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lisätty: %1$lld↑ %2$lld↓"
+          }
+        },
+        "fil" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "fr-FR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajoutés : %1$lld↑ %2$lld↓"
+          }
+        },
+        "ga-IE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Curtha leis: %1$lld↑ %2$lld↓"
+          }
+        },
+        "gl-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Engadidos: %1$lld↑ %2$lld↓"
+          }
+        },
+        "he-IL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "נוסף: ↓%1$lld↑ %2$lld"
+          }
+        },
+        "hr-HR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dodano: %1$lld↑ %2$lld↓"
+          }
+        },
+        "hu-HU" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hozzáadva: %1$lld↑ %2$lld↓"
+          }
+        },
+        "hy-AM" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "it-IT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aggiunte: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ja-JP" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "追加: %1$lld↑ %2$lld↓"
+          }
+        },
+        "jbo-EN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "jmina %1$lld↑ %2$lld↓"
+          }
+        },
+        "kk-KZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Қосылды: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ko-KR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "추가: %1$lld↑ %2$lld↓"
+          }
+        },
+        "la-LA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ml-IN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ചേർത്തു: %1$lld↑ %2$lld↓"
+          }
+        },
+        "mn-MN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ms-MY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "nb-NO" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lagt til: %1$lld↑ %2$lld↓"
+          }
+        },
+        "nl-NL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "oc-FR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "or-OR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ଯୋଗ କରାଯାଇଛି: %1$lld↑%2$lld↓"
+          }
+        },
+        "pl-PL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dodano: %1$lld↑ %2$lld↓"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adicionado: %1$lld↑ %2$lld↓"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ro-RO" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adăugat(e): %1$lld↑ %2$lld↓"
+          }
+        },
+        "ru-RU" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавлено: %1$lld↑ %2$lld↓"
+          }
+        },
+        "sk-SK" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "sl-SI" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dodano: %1$lld↑ %2$lld↓"
+          }
+        },
+        "sr-SP" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added: %1$lld↑ %2$lld↓"
+          }
+        },
+        "sv-SE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tillagt: %1$lld↑ %2$lld↓"
+          }
+        },
+        "th-TH" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เพิ่ม: %1$lld↑ %2$lld↓"
+          }
+        },
+        "tr-TR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eklendi: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ug" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "قوشۇلدى: %1$lld↑ %2$lld↓"
+          }
+        },
+        "uk-UA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Додано: %1$lld↑ %2$lld↓"
+          }
+        },
+        "uz-UZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Qoʻshildi: %1$lld↑ %2$lld↓"
+          }
+        },
+        "vi-VN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã thêm: %1$lld↑ %2$lld↓"
+          }
+        },
+        "yi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "צוגעשטעלט: %1$lld↑ %2$lld↓"
+          }
+        },
+        "zh-CN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已新增：%1$lld↑ %2$lld↓"
+          }
+        },
+        "zh-TW" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已新增：%1$lld↑ %2$lld↓"
+          }
+        }
+      }
+    },
     "Adicionados · %@" : {
 
     },
@@ -9414,6 +9764,7 @@
       }
     },
     "Agendamento personalizado" : {
+      "extractionState" : "stale",
       "localizations" : {
         "ar-SA" : {
           "stringUnit" : {
@@ -25004,7 +25355,7 @@
         }
       }
     },
-    "Cada perfil mantém sua própria coleção e suas credenciais AnkiWeb." : {
+    "Cada perfil tem sua própria coleção, progresso, mídia e conta AnkiWeb. Trocar de perfil abre esses dados separados; criar um perfil começa uma coleção nova, sem copiar a atual." : {
 
     },
     "Calendário" : {
@@ -27791,6 +28142,15 @@
     "Configure ações para as nove áreas do cartão. Na pergunta, todas mostram a resposta. Na resposta, as laterais avaliam De novo ou Bom." : {
 
     },
+    "Configure controles, gestos e informações da tela de estudo." : {
+
+    },
+    "Configure lembretes para estudar os cartões pendentes." : {
+
+    },
+    "Configure o FSRS, os limites de estudo e a distribuição dos cartões novos." : {
+
+    },
     "Configure quais entradas desenham, o que o botão Desfazer faz e a posição do bloco durante o estudo." : {
       "localizations" : {
         "en-US" : {
@@ -27800,6 +28160,15 @@
           }
         }
       }
+    },
+    "Confira o banco de dados, a mídia e os campos duplicados." : {
+
+    },
+    "Conta vinculada ao perfil ativo." : {
+
+    },
+    "Conta: %@" : {
+
     },
     "Continuar editando" : {
       "extractionState" : "manual",
@@ -29557,6 +29926,12 @@
           }
         }
       }
+    },
+    "Crie uma cópia local ou restaure um backup deste perfil." : {
+
+    },
+    "Crie uma nota e escolha em qual baralho ela será estudada." : {
+
     },
     "custom-study.select" : {
       "localizations" : {
@@ -34306,6 +34681,9 @@
           }
         }
       }
+    },
+    "Defina opções para adicionar notas e navegar pela coleção." : {
+
     },
     "Defina uma ação JavaScript fornecida pelo template do cartão, como var userJs1 = revealNext;. Deixe vazio para desativar." : {
 
@@ -40064,6 +40442,9 @@
         }
       }
     },
+    "Edite tipos de nota, campos e modelos de cartão." : {
+
+    },
     "Editor HTML por padrão" : {
       "localizations" : {
         "ar-SA" : {
@@ -41186,6 +41567,12 @@
         }
       }
     },
+    "Entre no AnkiWeb para continuar" : {
+
+    },
+    "Entre para sincronizar coleção e mídia." : {
+
+    },
     "Error" : {
       "localizations" : {
         "ar-SA" : {
@@ -41733,6 +42120,9 @@
           }
         }
       }
+    },
+    "Escolha quando sincronizar a coleção e a mídia com o AnkiWeb." : {
+
     },
     "Escuro" : {
       "extractionState" : "manual",
@@ -49253,6 +49643,9 @@
         }
       }
     },
+    "Gerencie modelos e campos usados para criar cartões." : {
+
+    },
     "Gravar" : {
       "localizations" : {
         "ar-SA" : {
@@ -51418,6 +51811,9 @@
         }
       }
     },
+    "Importando baralho compartilhado…" : {
+
+    },
     "Importar" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -51728,6 +52124,9 @@
           }
         }
       }
+    },
+    "Importe baralhos e notas, ou exporte sua coleção em diferentes formatos." : {
+
     },
     "Inclui intervalos, histórico, cartões marcados e suspensões. Desativado, os cartões novos entram como novos e o progresso local existente é mantido." : {
 
@@ -54859,7 +55258,7 @@
     "is:new · is:learn · is:review · is:due · is:suspended · is:buried · is:buried-sibling · is:buried-manually" : {
 
     },
-    "JavaScript global que pode ajustar os estados previstos dos botões de resposta. O código recebe states, customData e ctx." : {
+    "JavaScript global para ajustar os estados previstos dos botões de resposta. O código recebe states, customData e ctx." : {
 
     },
     "Jovem" : {
@@ -66791,16 +67190,19 @@
         }
       }
     },
-    "O agendador segue o modelo de filas do Anki 2.1. A sincronização com AnkiWeb fica em Ferramentas." : {
+    "O agendador segue o modelo de filas do Anki 2.1." : {
 
     },
-    "O Anki guarda todos os backups recentes e depois mantém versões diárias, semanais e mensais. Eles não incluem mídia." : {
+    "O Anki conserva os backups recentes e depois mantém versões diárias, semanais e mensais. Eles não incluem mídia." : {
 
     },
     "O histórico de revisões será mantido. Essas opções serão lembradas para a próxima vez." : {
 
     },
     "O limite de revisão de hoje foi alcançado, porém ainda existem cartões a serem revisados. Para melhorar sua memória, considere aumentar o limite diário nas opções." : {
+
+    },
+    "O login de sincronização do app não inicia a sessão do site. Entre no AnkiWeb nesta tela e depois volte à lista para buscar e baixar baralhos." : {
 
     },
     "O preset padrão não pode ser apagado." : {
@@ -67065,6 +67467,9 @@
           }
         }
       }
+    },
+    "O tema muda assim que você seleciona uma opção." : {
+
     },
     "Oclusão" : {
       "localizations" : {
@@ -71233,6 +71638,9 @@
         }
       }
     },
+    "Para excluir um perfil, primeiro troque para outro. A exclusão remove a coleção e a mídia deste aparelho." : {
+
+    },
     "Parabéns! Você terminou este baralho por enquanto." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -72293,6 +72701,9 @@
           }
         }
       }
+    },
+    "Personalize o visual e a exibição dos cartões." : {
+
     },
     "Pesos FSRS (separados por espaço)" : {
 
@@ -75839,9 +76250,6 @@
     "Próximas revisões · %@" : {
 
     },
-    "Próximo dia começa às %@:00" : {
-
-    },
     "Quando desativado, os baralhos importados usam a predefinição padrão desta coleção." : {
 
     },
@@ -77767,6 +78175,356 @@
     "Reinicie o AnkiOS para concluir a alteração do idioma." : {
 
     },
+    "Removido: %@↑ %@↓" : {
+      "localizations" : {
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Removido: %1$@↑ %2$@↓"
+          }
+        }
+      }
+    },
+    "Removido: %lld↑ %lld↓" : {
+      "localizations" : {
+        "af-ZA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ar-SA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "حُذِف: %1$lld↑ %2$lld↓"
+          }
+        },
+        "be-BY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выдалена: %1$lld↑ %2$lld↓"
+          }
+        },
+        "bg-BG" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ca-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminats: %1$lld↑ %2$lld↓"
+          }
+        },
+        "cs-CZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odstraněno: %1$lld↑ %2$lld↓"
+          }
+        },
+        "da-DK" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "de-DE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entfernt: %1$lld↑ %2$lld↓"
+          }
+        },
+        "el-GR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Αφαιρέθηκαν: %1$lld↑ %2$lld↓"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "en-US" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "eo-UY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Forigis: %1$lld↑ %2$lld↓"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminados: %1$lld↑ %2$lld↓"
+          }
+        },
+        "et-EE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "eu-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "fa-IR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "حذف شد: %1$lld ↓ %2$lld ↑"
+          }
+        },
+        "fi-FI" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poistettu: %1$lld↑ %2$lld↓"
+          }
+        },
+        "fil" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "fr-FR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimés : %1$lld↑ %2$lld↓"
+          }
+        },
+        "ga-IE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scriosta: %1$lld↑ %2$lld↓"
+          }
+        },
+        "gl-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminados: %1$lld↑ %2$lld↓"
+          }
+        },
+        "he-IL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "נמחק: ↓%1$lld↑ %2$lld"
+          }
+        },
+        "hr-HR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uklonjeno: %1$lld↑ %2$lld↓"
+          }
+        },
+        "hu-HU" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Törölve: %1$lld↑ %2$lld↓"
+          }
+        },
+        "hy-AM" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "it-IT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rimosse: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ja-JP" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "削除: %1$lld↑ %2$lld↓"
+          }
+        },
+        "jbo-EN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "vimcu %1$lld↑ %2$lld↓"
+          }
+        },
+        "kk-KZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Жойылды: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ko-KR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "삭제:%1$lld↑ %2$lld↓"
+          }
+        },
+        "la-LA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ml-IN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "നീക്കംചെയ്‌തു: %1$lld↑ %2$lld↓"
+          }
+        },
+        "mn-MN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ms-MY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "nb-NO" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fjernet: %1$lld↑ %2$lld↓"
+          }
+        },
+        "nl-NL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "oc-FR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "or-OR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ଅପସାରଣ କରାଯାଇଛି: %1$lld↑ %2$lld↓"
+          }
+        },
+        "pl-PL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usunięto: %1$lld↑ %2$lld↓"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removido: %1$lld↑ %2$lld↓"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ro-RO" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminat(e): %1$lld↑ %2$lld↓"
+          }
+        },
+        "ru-RU" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалено: %1$lld↑ %2$lld↓"
+          }
+        },
+        "sk-SK" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "sl-SI" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odstranjeno: %1$lld↑ %2$lld↓"
+          }
+        },
+        "sr-SP" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed: %1$lld↑ %2$lld↓"
+          }
+        },
+        "sv-SE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tog bort: %1$lld↑ %2$lld↓"
+          }
+        },
+        "th-TH" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "นำออก: %1$lld↑ %2$lld↓"
+          }
+        },
+        "tr-TR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kaldırıldı: %1$lld↑ %2$lld↓"
+          }
+        },
+        "ug" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "چىقىرىۋېتىلدى: %1$lld↑ %2$lld↓"
+          }
+        },
+        "uk-UA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Прибрано: %1$lld↑ %2$lld↓"
+          }
+        },
+        "uz-UZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oʻchirildi: %1$lld↑ %2$lld↓"
+          }
+        },
+        "vi-VN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã xóa: %1$lld↑ %2$lld↓"
+          }
+        },
+        "yi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "צוגענומען: %1$lld↑ %2$lld↓"
+          }
+        },
+        "zh-CN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已删除：%1$lld↑ %2$lld↓"
+          }
+        },
+        "zh-TW" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已移除：%1$lld↑ %2$lld↓"
+          }
+        }
+      }
+    },
     "Renomear" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -79552,6 +80310,9 @@
 
     },
     "Respostas no período selecionado." : {
+
+    },
+    "Restaure cartões ocultos ou remova cartões vazios." : {
 
     },
     "Retângulo" : {
@@ -83986,6 +84747,9 @@
         }
       }
     },
+    "Separe coleções, progresso e contas do AnkiWeb." : {
+
+    },
     "Sessão de Estudo Personalizado" : {
       "localizations" : {
         "af-ZA" : {
@@ -84327,6 +85091,7 @@
       }
     },
     "settings.cards.section" : {
+      "extractionState" : "stale",
       "localizations" : {
         "af-ZA" : {
           "stringUnit" : {
@@ -84667,6 +85432,7 @@
       }
     },
     "settings.collection.section" : {
+      "extractionState" : "stale",
       "localizations" : {
         "af-ZA" : {
           "stringUnit" : {
@@ -85007,6 +85773,7 @@
       }
     },
     "Shared Deck List" : {
+      "extractionState" : "stale",
       "localizations" : {
         "af-ZA" : {
           "stringUnit" : {
@@ -85720,6 +86487,346 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "同步"
+          }
+        }
+      }
+    },
+    "Sincronizando mídia…" : {
+      "localizations" : {
+        "af-ZA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "ar-SA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "بدء مزامنة الوسائط..."
+          }
+        },
+        "be-BY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запуск сінхранізацыі медыя..."
+          }
+        },
+        "bg-BG" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "ca-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iniciant la sincronizació dels fitxers multimèdia…"
+          }
+        },
+        "cs-CZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spouští se synchronizace multimédií..."
+          }
+        },
+        "da-DK" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "de-DE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mediensynchronisierung startet …"
+          }
+        },
+        "el-GR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Εκκίνηση συγχρονισμού πολυμέσων..."
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Syncing media…"
+          }
+        },
+        "en-US" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Syncing media…"
+          }
+        },
+        "eo-UY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekigado de samtempigado de aŭdvidaĵoj…"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Empezando la sincronización de multimedia...."
+          }
+        },
+        "et-EE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "eu-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "fa-IR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شروع همگام‌سازی رسانه..."
+          }
+        },
+        "fi-FI" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Median synkronointi alkaa..."
+          }
+        },
+        "fil" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "fr-FR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Démarrage de la synchronisation des médias..."
+          }
+        },
+        "ga-IE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sioncronú meán ag tosú.."
+          }
+        },
+        "gl-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comezando a sincronización de multimedia..."
+          }
+        },
+        "he-IL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מתחיל סינכרון מדיה..."
+          }
+        },
+        "hr-HR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Početak sinkronizacije medijskih datoteka..."
+          }
+        },
+        "hu-HU" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Médiaszinkronizálás indítása..."
+          }
+        },
+        "hy-AM" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "it-IT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avvio della sincronizzazione dei file multimediali..."
+          }
+        },
+        "ja-JP" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メディアの同期を開始しています..."
+          }
+        },
+        "jbo-EN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : ".i ca'o co'a datni sarxe fa ro te ganvi"
+          }
+        },
+        "kk-KZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Медиа үйлестіруді бастау..."
+          }
+        },
+        "ko-KR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "미디어 동기화 시작 중..."
+          }
+        },
+        "la-LA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "ml-IN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "മീഡിയ സമന്വയം ആരംഭിക്കുന്നു ..."
+          }
+        },
+        "mn-MN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "ms-MY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "nb-NO" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starter mediasynkronisering..."
+          }
+        },
+        "nl-NL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "oc-FR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "or-OR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ମିଡ଼ିଆ ସିଙ୍କ୍ ଆରମ୍ଭ ହେଉଛି..."
+          }
+        },
+        "pl-PL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Początek synchronizacji plików..."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincronizando mídia…"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "ro-RO" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Începe sincronizarea media..."
+          }
+        },
+        "ru-RU" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запускается синхронизация медиафайлов..."
+          }
+        },
+        "sk-SK" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "sl-SI" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Začetek sinhronizacije medijskih datotek..."
+          }
+        },
+        "sr-SP" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media sync starting..."
+          }
+        },
+        "sv-SE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mediasynkronisering startar ..."
+          }
+        },
+        "th-TH" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เริ่มซิงก์สื่อ..."
+          }
+        },
+        "tr-TR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medya senkronizasyonu başlıyor..."
+          }
+        },
+        "ug" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ۋاسىتە قەدەمداشلاش باشلاندى…"
+          }
+        },
+        "uk-UA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Почалась синхронізація медіа…"
+          }
+        },
+        "uz-UZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media fayllarni sinxronlash boshlanmoqda..."
+          }
+        },
+        "vi-VN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đang khởi chạy đồng bộ hóa phương tiện..."
+          }
+        },
+        "yi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מעדיע-סינכראָניזירונג הײבט זיך אָן…"
+          }
+        },
+        "zh-CN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "媒体同步开始…"
+          }
+        },
+        "zh-TW" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開始同步媒體..."
           }
         }
       }
@@ -87871,6 +88978,7 @@
       }
     },
     "stats.deck.filter" : {
+      "extractionState" : "stale",
       "localizations" : {
         "af-ZA" : {
           "stringUnit" : {
@@ -96453,13 +97561,13 @@
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "todo histórico"
+            "value" : "Tudo"
           }
         },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "histórico completo"
+            "value" : "Tudo"
           }
         },
         "ro-RO" : {
@@ -98311,7 +99419,7 @@
     "Último por tipo de nota" : {
 
     },
-    "Últimos 12 meses · intensidade = revisões por dia. Toque em um dia da semana para mudar o início da semana." : {
+    "Últimos 12 meses · intensidade = revisões por dia. Deslize para ver as semanas. Toque no dia da semana para mudar o início da semana." : {
 
     },
     "Um ou mais cartões foram ocultados, e serão mostrados amanhã. Você pode [mostrá-las](anki://unbury) caso queira vê-los imediatamente." : {
@@ -98675,6 +99783,9 @@
     "v%@" : {
 
     },
+    "Veja como organizar, importar e estudar baralhos." : {
+
+    },
     "Veja no Painel cartões que correspondem às buscas, mas estão suspensos, ocultos ou em outro baralho filtrado." : {
 
     },
@@ -98969,6 +100080,349 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "綠色"
+          }
+        }
+      }
+    },
+    "Verificado: %@" : {
+
+    },
+    "Verificado: %lld" : {
+      "localizations" : {
+        "af-ZA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "ar-SA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "فُحِص: %1$lld"
+          }
+        },
+        "be-BY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Праверана: %1$lld"
+          }
+        },
+        "bg-BG" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "ca-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comprovats: %1$lld"
+          }
+        },
+        "cs-CZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkontrolováno: %1$lld"
+          }
+        },
+        "da-DK" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "de-DE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Überprüft: %1$lld"
+          }
+        },
+        "el-GR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ελέγθηκαν: %1$lld"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "en-US" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "eo-UY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kontrolis: %1$lld"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comprobados: %1$lld"
+          }
+        },
+        "et-EE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "eu-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "fa-IR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "بررسی شد: %1$lld"
+          }
+        },
+        "fi-FI" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tarkistettu: %1$lld"
+          }
+        },
+        "fil" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "fr-FR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérifiés : %1$lld"
+          }
+        },
+        "ga-IE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : ""
+          }
+        },
+        "gl-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comprobados: %1$lld"
+          }
+        },
+        "he-IL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "נבדקו: %1$lld"
+          }
+        },
+        "hr-HR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Provjereno: %1$lld"
+          }
+        },
+        "hu-HU" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ellenőrizve: %1$lld"
+          }
+        },
+        "hy-AM" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "it-IT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verificate: %1$lld"
+          }
+        },
+        "ja-JP" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "確認済み: %1$lld"
+          }
+        },
+        "jbo-EN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : ".i mo'u cipcta %1$lld da"
+          }
+        },
+        "kk-KZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тексерілген: %1$lld"
+          }
+        },
+        "ko-KR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "확인됨: %1$lld"
+          }
+        },
+        "la-LA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "ml-IN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "പരിശോധിച്ചു: %1$lld"
+          }
+        },
+        "mn-MN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "ms-MY" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "nb-NO" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sjekket: %1$lld"
+          }
+        },
+        "nl-NL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "oc-FR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "or-OR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ଯାଞ୍ଚ କରାଯାଇଛି: %1$lld"
+          }
+        },
+        "pl-PL" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sprawdzono: %1$lld"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verificado: %1$lld"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "ro-RO" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verificat(e): %1$lld"
+          }
+        },
+        "ru-RU" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверено: %1$lld"
+          }
+        },
+        "sk-SK" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "sl-SI" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preverjeno: %1$lld"
+          }
+        },
+        "sr-SP" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked: %1$lld"
+          }
+        },
+        "sv-SE" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kontrollerade: %1$lld"
+          }
+        },
+        "th-TH" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ตรวจสอบแล้ว: %1$lld"
+          }
+        },
+        "tr-TR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kontrol Edildi: %1$lld"
+          }
+        },
+        "ug" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تەكشۈرۈلدى: %1$lld"
+          }
+        },
+        "uk-UA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перевірено: %1$lld"
+          }
+        },
+        "uz-UZ" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tekshirildi: %1$lld"
+          }
+        },
+        "vi-VN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã kiểm tra: %1$lld"
+          }
+        },
+        "yi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "איבערגעקוקט: %1$lld"
+          }
+        },
+        "zh-CN" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已检查：%1$lld"
+          }
+        },
+        "zh-TW" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已檢查：%1$lld"
           }
         }
       }

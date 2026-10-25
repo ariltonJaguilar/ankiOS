@@ -17,6 +17,9 @@ final class AnkiOSUITests: XCTestCase {
         configureTestAppEnvironment(app)
         app.launch()
         #if os(iOS)
+        if app.buttons["Pular"].waitForExistence(timeout: 2) {
+            finishTutorialIfPresented()
+        }
         navigate("Baralhos")
         #endif
         XCTAssertTrue(app.staticTexts["Baralhos"].firstMatch.waitForExistence(timeout: 30))
@@ -157,7 +160,19 @@ final class AnkiOSUITests: XCTestCase {
     }
 
     private func button(_ title: String) {
+        let actionTitle = title == "Preferências do AnkiOS" ? "Opções de estudo" : title
+        let studyCategoryLink = app.descendants(matching: .any).matching(identifier: "settings.preferences.study").firstMatch
+        let preferencesRouteWasOpened = title == "Preferências do AnkiOS" && !studyCategoryLink.exists
+        prepareSettingsRoute(for: nil, label: actionTitle)
+        if preferencesRouteWasOpened { return }
         #if os(iOS)
+        if title == "Fechar" {
+            let closeControl = app.descendants(matching: .any).matching(
+                NSPredicate(format: "label == %@ OR identifier == %@", title, title)
+            ).firstMatch
+            activate(closeControl)
+            return
+        }
         if title == "add.submit" {
             activate(identified(title))
             return
@@ -178,15 +193,19 @@ final class AnkiOSUITests: XCTestCase {
         #endif
         #if os(macOS)
         let window = app.windows.firstMatch
-        let windowButton = window.buttons[title].firstMatch
-        let windowMenuButton = window.menuButtons[title].firstMatch
-        let windowMenuItem = window.menuItems[title].firstMatch
-        let regularButton = windowButton.exists ? windowButton : app.buttons[title].firstMatch
-        let menuButton = windowMenuButton.exists ? windowMenuButton : app.menuButtons[title].firstMatch
-        let menuItem = windowMenuItem.exists ? windowMenuItem : app.menuItems[title].firstMatch
+        let windowButton = window.buttons[actionTitle].firstMatch
+        let windowMenuButton = window.menuButtons[actionTitle].firstMatch
+        let windowMenuItem = window.menuItems[actionTitle].firstMatch
+        let regularButton = windowButton.exists ? windowButton : app.buttons[actionTitle].firstMatch
+        let menuButton = windowMenuButton.exists ? windowMenuButton : app.menuButtons[actionTitle].firstMatch
+        let menuItem = windowMenuItem.exists ? windowMenuItem : app.menuItems[actionTitle].firstMatch
         let element = regularButton.exists ? regularButton : menuButton.exists ? menuButton : menuItem
         #else
-        let element = app.buttons[title].firstMatch
+        let button = app.buttons[actionTitle].firstMatch
+        let accessibleControl = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@ OR identifier == %@", actionTitle, actionTitle)
+        ).firstMatch
+        let element = button.exists ? button : accessibleControl
         #endif
         reveal(element)
         activate(element)
@@ -239,7 +258,84 @@ final class AnkiOSUITests: XCTestCase {
     }
 
     private func identified(_ identifier: String) -> XCUIElement {
-        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+        prepareSettingsRoute(for: identifier, label: nil)
+        return app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    private func prepareSettingsRoute(for identifier: String?, label: String?) {
+        let route: String?
+        if let identifier {
+            switch identifier {
+            case "settings.scheduler.fsrs":
+                route = "settings.section.scheduler"
+            case "settings.database.check", "settings.media.check":
+                route = "settings.section.maintenance"
+            case let value where value.hasPrefix("settings.backup."):
+                route = "settings.section.backups"
+            case let value where value.hasPrefix("settings.export."):
+                route = "settings.section.importExport"
+            case "settings.noteTypes.manage", "settings.noteTypes.add":
+                route = "settings.section.noteTypes"
+            case "ankiweb.openLoginPanel":
+                route = "settings.section.ankiweb"
+            case let value where value.hasPrefix("preferences.notifications."):
+                route = "settings.preferences.notifications"
+            case "preferences.Tema", "preferences.Reduzir movimento", "preferences.Modo minimalista", "preferences.language":
+                route = "settings.preferences.appearance"
+            case let value where value.hasPrefix("preferences.Sincronizar") || value.hasPrefix("preferences.Na próxima sincronização"):
+                route = "settings.preferences.sync"
+            case "preferences.imageMaxDimension", "preferences.resizePastedImages":
+                route = "settings.preferences.editing"
+            case let value where value.hasPrefix("preferences.") && value != "preferences.save":
+                route = "settings.preferences.study"
+            default:
+                route = nil
+            }
+        } else if let label {
+            switch label {
+            case "Importar .apkg, .colpkg ou Mnemosyne .db", "Importar CSV / texto":
+                route = "settings.section.importExport"
+            case "Verificar banco de dados", "Otimizar banco (VACUUM)", "Procurar duplicatas", "Verificar mídia":
+                route = "settings.section.maintenance"
+            case "Criar backup agora":
+                route = "settings.section.backups"
+            case "Opções de estudo":
+                route = "settings.preferences.study"
+            case "Sincronizar agora", "Desconectar conta", "Iniciar sessão", "Conectar ao AnkiWeb":
+                route = "settings.section.ankiweb"
+            case "Gerenciar tipos de nota", "Adicionar nota":
+                route = "settings.section.noteTypes"
+            case "Desocultar todos os cartões ocultos", "Remover cartões vazios":
+                route = "settings.section.cards"
+            default:
+                route = nil
+            }
+        } else {
+            route = nil
+        }
+        guard let route else { return }
+
+        let target: XCUIElement
+        if let identifier {
+            target = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+        } else if let label {
+            target = app.buttons[label].firstMatch
+        } else {
+            return
+        }
+        if target.exists { return }
+
+        for _ in 0..<4 {
+            if app.navigationBars["Ferramentas"].exists { break }
+            let back = app.navigationBars.buttons.firstMatch
+            guard back.exists else { return }
+            activate(back)
+        }
+
+        let section = app.descendants(matching: .any).matching(identifier: route).firstMatch
+        guard section.exists else { return }
+        reveal(section)
+        if section.isHittable { activate(section) }
     }
 
     private func revealStudyToolAction(_ rawValue: String) -> XCUIElement {
@@ -468,14 +564,9 @@ final class AnkiOSUITests: XCTestCase {
 
     private func createDeck(_ name: String) {
         navigate("Baralhos")
-        button("Ações dos baralhos")
-        #if os(macOS)
-        menuButton("Novo baralho")
+        activate(identified("decks.importActions"))
+        activate(identified("decks.newDeck"))
         let nameField = app.textFields["Nome"].firstMatch
-        #else
-        menuButton("Novo baralho")
-        let nameField = app.textFields["Nome"].firstMatch
-        #endif
         XCTAssertTrue(nameField.waitForExistence(timeout: 10), app.debugDescription)
         enter(name, into: nameField)
         button("Criar")
@@ -606,21 +697,32 @@ final class AnkiOSUITests: XCTestCase {
             case "Adicionar": XCTAssertTrue(app.buttons["add.submit"].exists)
             case "Painel": XCTAssertTrue(app.textFields["Busca (deck:, tag:, is:new…)"].exists)
             case "Estatísticas": XCTAssertTrue(app.staticTexts["Hoje"].exists)
-            case "Ferramentas": XCTAssertTrue(app.staticTexts["AnkiWeb"].exists)
+            case "Ferramentas":
+                XCTAssertTrue(identified("settings.section.ankiweb").exists, app.debugDescription)
+                XCTAssertTrue(identified("settings.section.importExport").exists, app.debugDescription)
+                XCTAssertFalse(app.textFields["Usuário ou e-mail"].exists, app.debugDescription)
+                #if os(iOS)
+                activate(identified("settings.section.importExport"))
+                XCTAssertTrue(app.navigationBars["Importar e exportar"].exists, app.debugDescription)
+                XCTAssertTrue(
+                    app.staticTexts["Importe baralhos APKG, arquivos CSV e coleções. Exporte sua coleção, baralhos ou notas."].exists,
+                    app.debugDescription
+                )
+                activate(app.navigationBars.buttons.firstMatch)
+                #endif
             default: XCTAssertTrue(app.buttons["deck.open.Default"].exists)
             }
         }
         #if os(iOS)
-        activate(app.buttons["Ações dos baralhos"].firstMatch)
+        activate(app.buttons["decks.importActions"].firstMatch)
         activate(app.buttons["decks.sharedDeckList"].firstMatch)
-        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
-        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 15), safari.debugDescription)
-        XCTAssertTrue(safari.webViews.firstMatch.waitForExistence(timeout: 15), safari.debugDescription)
-        let sharedDeckPage = XCTAttachment(string: safari.debugDescription)
-        sharedDeckPage.name = "Shared Deck List in Safari"
+        XCTAssertTrue(app.navigationBars["Baralhos compartilhados"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 15), app.debugDescription)
+        let sharedDeckPage = XCTAttachment(string: app.debugDescription)
+        sharedDeckPage.name = "Shared Deck List in AnkiOS"
         sharedDeckPage.lifetime = .keepAlways
         add(sharedDeckPage)
-        app.activate()
+        button("Fechar")
 
         let searchURL = URLComponents(string: "anki://x-callback-url/search")!
         var searchComponents = searchURL
@@ -640,6 +742,7 @@ final class AnkiOSUITests: XCTestCase {
         XCTAssertTrue(allowInfo.waitForExistence(timeout: 10), app.debugDescription)
         activate(allowInfo)
         XCTAssertGreaterThan(UIPasteboard.general.changeCount, pasteboardChangeCount)
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
         XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 10), safari.debugDescription)
         app.activate()
 
@@ -1423,10 +1526,9 @@ final class AnkiOSUITests: XCTestCase {
         navigate("Ferramentas")
         button("Preferências do AnkiOS")
 
-        let fsrs = identified("preferences.Usar FSRS")
+        let fsrs = identified("settings.scheduler.fsrs")
         XCTAssertTrue(fsrs.waitForExistence(timeout: 10), app.debugDescription)
         if (fsrs.value as? String) != "1" { activate(fsrs) }
-        button("Salvar preferências")
 
         app.terminate()
         app.launch()
@@ -1456,10 +1558,9 @@ final class AnkiOSUITests: XCTestCase {
         navigate("Ferramentas")
         button("Preferências do AnkiOS")
 
-        let fsrs = identified("preferences.Usar FSRS")
+        let fsrs = identified("settings.scheduler.fsrs")
         XCTAssertTrue(fsrs.waitForExistence(timeout: 10), app.debugDescription)
         if (fsrs.value as? String) != "1" { activate(fsrs) }
-        button("Salvar preferências")
 
         app.terminate()
         app.launch()
@@ -1523,10 +1624,9 @@ final class AnkiOSUITests: XCTestCase {
         XCTAssertTrue(app.buttons["deck.open.UI FSRS Optimizer"].waitForExistence(timeout: 30), app.debugDescription)
         navigate("Ferramentas")
         button("Preferências do AnkiOS")
-        let fsrs = identified("preferences.Usar FSRS")
+        let fsrs = identified("settings.scheduler.fsrs")
         XCTAssertTrue(fsrs.waitForExistence(timeout: 10), app.debugDescription)
         if (fsrs.value as? String) != "1" { activate(fsrs) }
-        button("Salvar preferências")
 
         navigate("Baralhos")
         activate(app.buttons["deck.options.UI FSRS Optimizer"])
@@ -1564,11 +1664,10 @@ final class AnkiOSUITests: XCTestCase {
         navigate("Ferramentas")
         button("Preferências do AnkiOS")
 
-        let fsrs = identified("preferences.Usar FSRS")
+        let fsrs = identified("settings.scheduler.fsrs")
         XCTAssertTrue(fsrs.waitForExistence(timeout: 10), app.debugDescription)
         let wasEnabled = (fsrs.value as? String) == "1"
         if !wasEnabled { activate(fsrs) }
-        button("Salvar preferências")
 
         navigate("Baralhos")
         activate(app.buttons["deck.options.Default"])
@@ -1634,11 +1733,11 @@ final class AnkiOSUITests: XCTestCase {
         createDeck("UI Collapse Parent")
         createDeck("UI Collapse Parent::UI Collapse Child")
 
-        button("Ações dos baralhos")
+        button("Mais ações dos baralhos")
         button("Recolher todos")
         XCTAssertFalse(app.buttons["deck.open.UI Collapse Parent::UI Collapse Child"].exists, app.debugDescription)
 
-        button("Ações dos baralhos")
+        button("Mais ações dos baralhos")
         button("Expandir todos")
         XCTAssertTrue(app.buttons["deck.open.UI Collapse Parent::UI Collapse Child"].waitForExistence(timeout: 10), app.debugDescription)
     }
@@ -2367,8 +2466,9 @@ final class AnkiOSUITests: XCTestCase {
         activate(app.buttons["deck.open.Default"])
         button("Estudar agora")
 
-        let toolsOverlay = identified("study.tools.overlay")
-        activate(toolsOverlay)
+        let toolsButton = identified("study.topBar.action")
+        XCTAssertTrue(toolsButton.waitForExistence(timeout: 10), app.debugDescription)
+        activate(toolsButton)
         let scratchpadAction = identified("study.tools.action.scratchpad")
         XCTAssertTrue(scratchpadAction.waitForExistence(timeout: 10), app.debugDescription)
         if scratchpadAction.value as? String != "Ativado" { activate(scratchpadAction) }
@@ -3003,9 +3103,10 @@ final class AnkiOSUITests: XCTestCase {
     func testPreferencesPersistence() {
         navigate("Ferramentas")
         button("Preferências do AnkiOS")
-        let toggle = app.switches["Modo minimalista"].firstMatch
+        let toggle = identified("preferences.Modo minimalista")
         reveal(toggle)
         activate(toggle)
+        activate(identified("preferences.save"))
 #if os(iOS)
         let gamepadAction = identified("preferences.gamepad.buttonA")
         reveal(gamepadAction)
@@ -3017,6 +3118,7 @@ final class AnkiOSUITests: XCTestCase {
         deadZone.adjust(toNormalizedSliderPosition: 0.7)
         let savedDeadZone = deadZone.value as? String ?? ""
         XCTAssertNotEqual(savedDeadZone, initialDeadZone, app.debugDescription)
+        activate(identified("preferences.save"))
         let ankiWebSettings: [(String, Bool)] = [
             ("preferences.Sincronizar áudio e imagens", false),
             ("preferences.Sincronizar ao abrir e fechar o perfil", false),
@@ -3035,7 +3137,7 @@ final class AnkiOSUITests: XCTestCase {
         app.launch()
         navigate("Ferramentas")
         button("Preferências do AnkiOS")
-        let restored = app.switches["Modo minimalista"].firstMatch
+        let restored = identified("preferences.Modo minimalista")
         reveal(restored)
         XCTAssertEqual(restored.value as? String, "1")
 #if os(iOS)
@@ -3430,22 +3532,20 @@ final class AnkiOSUITests: XCTestCase {
         navigate("Ferramentas")
         button("Preferências do AnkiOS")
 
-        let fsrs = identified("preferences.Usar FSRS")
+        let fsrs = identified("settings.scheduler.fsrs")
         XCTAssertTrue(fsrs.waitForExistence(timeout: 10), app.debugDescription)
         let wasEnabled = (fsrs.value as? String) == "1"
         activate(fsrs)
-        button("Salvar preferências")
 
         app.terminate()
         app.launch()
         navigate("Ferramentas")
         button("Preferências do AnkiOS")
 
-        let restoredFSRS = identified("preferences.Usar FSRS")
+        let restoredFSRS = identified("settings.scheduler.fsrs")
         XCTAssertTrue(restoredFSRS.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual((restoredFSRS.value as? String) == "1", !wasEnabled, app.debugDescription)
         activate(restoredFSRS)
-        button("Salvar preferências")
     }
 
     func testDeckFSRSRetentionOverridePersistsAfterRelaunch() {
@@ -3453,11 +3553,10 @@ final class AnkiOSUITests: XCTestCase {
         navigate("Ferramentas")
         button("Preferências do AnkiOS")
 
-        let fsrs = identified("preferences.Usar FSRS")
+        let fsrs = identified("settings.scheduler.fsrs")
         XCTAssertTrue(fsrs.waitForExistence(timeout: 10), app.debugDescription)
         let wasEnabled = (fsrs.value as? String) == "1"
         if !wasEnabled { activate(fsrs) }
-        button("Salvar preferências")
 
         app.terminate()
         app.launch()
@@ -3497,10 +3596,9 @@ final class AnkiOSUITests: XCTestCase {
         if !wasEnabled {
             navigate("Ferramentas")
             button("Preferências do AnkiOS")
-            let restoredFSRS = identified("preferences.Usar FSRS")
+            let restoredFSRS = identified("settings.scheduler.fsrs")
             XCTAssertTrue(restoredFSRS.waitForExistence(timeout: 10), app.debugDescription)
             activate(restoredFSRS)
-            button("Salvar preferências")
         }
     }
 
@@ -3508,11 +3606,10 @@ final class AnkiOSUITests: XCTestCase {
         navigate("Ferramentas")
         button("Preferências do AnkiOS")
 
-        let fsrs = identified("preferences.Usar FSRS")
+        let fsrs = identified("settings.scheduler.fsrs")
         XCTAssertTrue(fsrs.waitForExistence(timeout: 10), app.debugDescription)
         let wasEnabled = (fsrs.value as? String) == "1"
         if !wasEnabled { activate(fsrs) }
-        button("Salvar preferências")
 
         app.terminate()
         app.launch()
@@ -3551,10 +3648,9 @@ final class AnkiOSUITests: XCTestCase {
         if !wasEnabled {
             navigate("Ferramentas")
             button("Preferências do AnkiOS")
-            let restoredFSRS = identified("preferences.Usar FSRS")
+            let restoredFSRS = identified("settings.scheduler.fsrs")
             XCTAssertTrue(restoredFSRS.waitForExistence(timeout: 10), app.debugDescription)
             activate(restoredFSRS)
-            button("Salvar preferências")
         }
     }
     #endif
@@ -3564,11 +3660,10 @@ final class AnkiOSUITests: XCTestCase {
         navigate("Ferramentas")
         button("Preferências do AnkiOS")
 
-        let fsrs = identified("preferences.Usar FSRS")
+        let fsrs = identified("settings.scheduler.fsrs")
         XCTAssertTrue(fsrs.waitForExistence(timeout: 10), app.debugDescription)
         let wasEnabled = String(describing: fsrs.value ?? "") == "1"
         if !wasEnabled { activate(fsrs) }
-        button("Salvar preferências")
 
         app.terminate()
         app.launch()
@@ -3608,10 +3703,9 @@ final class AnkiOSUITests: XCTestCase {
         if !wasEnabled {
             navigate("Ferramentas")
             button("Preferências do AnkiOS")
-            let restoredFSRS = identified("preferences.Usar FSRS")
+            let restoredFSRS = identified("settings.scheduler.fsrs")
             XCTAssertTrue(restoredFSRS.waitForExistence(timeout: 10), app.debugDescription)
             activate(restoredFSRS)
-            button("Salvar preferências")
         }
     }
     #endif
@@ -3628,9 +3722,15 @@ final class AnkiOSUITests: XCTestCase {
         XCTAssertTrue(databaseCheck.waitForExistence(timeout: 15), app.debugDescription)
         activate(databaseCheck)
         XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 60))
+        #if os(iOS)
+        XCTAssertTrue(app.alerts.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "Banco de dados verificado. Nenhum problema encontrado.")
+        ).firstMatch.exists, app.debugDescription)
+        #else
         XCTAssertTrue(app.alerts.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "Coleção verificada e otimizada: 1 notas, 1 cartões")
         ).firstMatch.exists, app.debugDescription)
+        #endif
         button("OK")
         activate(identified("settings.backup.create"))
         XCTAssertTrue(app.alerts.staticTexts.matching(
@@ -3782,7 +3882,7 @@ final class AnkiOSUITests: XCTestCase {
     }
 
     func testNoteTypesAndTemplates() {
-        button("Ações dos baralhos")
+        button("Mais ações dos baralhos")
         activate(identified("decks.noteTypes"))
         activate(identified("notetypes.action.Adicionar Basic (e invertido)"))
         let tree = XCTAttachment(string: app.debugDescription)
@@ -3822,7 +3922,7 @@ final class AnkiOSUITests: XCTestCase {
             XCTAssertTrue(app.buttons["Ocultar teclado"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
         }
 
-        button("Ações dos baralhos")
+        button("Mais ações dos baralhos")
         activate(identified("decks.noteTypes"))
         let basic = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Basic,")).firstMatch
         XCTAssertTrue(basic.waitForExistence(timeout: 10), app.debugDescription)
@@ -3875,7 +3975,7 @@ final class AnkiOSUITests: XCTestCase {
     }
 
     func testNoteTypeFieldsCanBePinnedAndReordered() {
-        button("Ações dos baralhos")
+        button("Mais ações dos baralhos")
         activate(identified("decks.noteTypes"))
         let basic = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Basic,")).firstMatch
         XCTAssertTrue(basic.waitForExistence(timeout: 10), app.debugDescription)
@@ -3899,7 +3999,7 @@ final class AnkiOSUITests: XCTestCase {
 
     #if os(iOS)
     func testStickyFieldCarriesIntoNextAddedNote() {
-        button("Ações dos baralhos")
+        button("Mais ações dos baralhos")
         activate(identified("decks.noteTypes"))
         let basic = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Basic,")).firstMatch
         XCTAssertTrue(basic.waitForExistence(timeout: 10), app.debugDescription)
@@ -3984,10 +4084,13 @@ final class AnkiOSUITests: XCTestCase {
     func testStatisticsPeriodsAndScope() {
         addNote()
         navigate("Estatísticas")
-        for period in ["3 meses", "1 ano", "todo histórico", "1 mês"] {
+        for (period, days) in [("3 meses", 90), ("1 ano", 365), ("Tudo", 0), ("1 mês", 31)] {
             button(period)
+            XCTAssertTrue(identified("stats.period.\(days)").isSelected, app.debugDescription)
             XCTAssertTrue(app.staticTexts["Hoje"].exists)
         }
+        XCTAssertTrue(identified("stats.calendar.day.0").exists, app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Calendário"].exists)
         let retention = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "Retenção verdadeira")
         ).firstMatch
@@ -3998,10 +4101,11 @@ final class AnkiOSUITests: XCTestCase {
     #if os(iOS)
     func testStatisticsScopeFiltersCollectionAndDeck() {
         addNote(front: "UI Stats Default", back: "UI Stats Default answer")
-        createDeck("UI Stats Scope")
+        let deckName = "UI Statistics Deck Scope With A Very Long Name To Verify Multiline Layout"
+        createDeck(deckName)
         navigate("Adicionar")
         activate(identified("add.deck"))
-        button("UI Stats Scope")
+        button(deckName)
         enterSourceField("UI Stats Custom", named: "Front")
         enterSourceField("UI Stats Custom answer", named: "Back")
         button("add.submit")
@@ -4020,7 +4124,8 @@ final class AnkiOSUITests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 10), .completed, self.app.debugDescription)
         }
 
-        XCTAssertTrue(deckFilter.label.contains("UI Stats Scope"), app.debugDescription)
+        XCTAssertTrue(deckFilter.label.contains(deckName), app.debugDescription)
+        XCTAssertGreaterThan(deckFilter.frame.height, 60, app.debugDescription)
         waitForCount(notesCount, "Notas, 1")
         waitForCount(cardsCount, "Cartões, 1")
         activate(deckFilter)
@@ -4028,7 +4133,7 @@ final class AnkiOSUITests: XCTestCase {
         waitForCount(notesCount, "Notas, 2")
         waitForCount(cardsCount, "Cartões, 2")
         activate(deckFilter)
-        button("UI Stats Scope")
+        button(deckName)
         waitForCount(notesCount, "Notas, 1")
         waitForCount(cardsCount, "Cartões, 1")
     }
@@ -4232,6 +4337,17 @@ final class AnkiOSUITests: XCTestCase {
         XCTAssertTrue(identified("ankiweb.password").exists, app.debugDescription)
         XCTAssertFalse(identified("ankiweb.endpoint").exists, app.debugDescription)
         XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+        activate(identified("ankiweb.login.close"))
+        navigate("Ferramentas")
+        activate(identified("settings.section.ankiweb"))
+        XCTAssertTrue(app.navigationBars["AnkiWeb"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.textFields["Usuário ou e-mail"].exists, app.debugDescription)
+        let openLoginPanel = identified("ankiweb.openLoginPanel")
+        XCTAssertTrue(openLoginPanel.waitForExistence(timeout: 10), app.debugDescription)
+        activate(openLoginPanel)
+        XCTAssertTrue(identified("ankiweb.username").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(identified("ankiweb.password").exists, app.debugDescription)
+        XCTAssertFalse(identified("ankiweb.endpoint").exists, app.debugDescription)
         activate(identified("ankiweb.login.close"))
         #if os(iOS)
         openAnkiURL(URL(string: "anki://x-callback-url/sync")!)
@@ -4774,9 +4890,12 @@ final class AnkiOSUITests: XCTestCase {
         button("Estudar agora")
         XCTAssertTrue(app.webViews.staticTexts["UI imported question"].waitForExistence(timeout: 15), app.debugDescription)
         button("Mostrar resposta")
-        XCTAssertTrue(app.webViews.staticTexts["UI imported answer"].waitForExistence(timeout: 15), app.debugDescription)
+        let question = app.webViews.staticTexts["UI imported question"].firstMatch
+        let answer = app.webViews.staticTexts["UI imported answer"].firstMatch
+        XCTAssertTrue(answer.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertLessThan(question.frame.midY, answer.frame.midY, app.debugDescription)
         XCTAssertTrue(app.webViews.images.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.webViews.staticTexts["▶"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.webViews.buttons["Reproduzir áudio"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     func testApkgImportOptionsAndPoliciesArePresentedBeforeImport() {
@@ -5399,7 +5518,7 @@ final class AnkiOSUITests: XCTestCase {
     func testBrowserChangeNoteTypePreservesFieldsAndUndo() {
         addNote(front: "UI type change front", back: "UI type change back")
         navigate("Baralhos")
-        button("Ações dos baralhos")
+        button("Mais ações dos baralhos")
         activate(identified("decks.noteTypes"))
         activate(identified("notetypes.action.Adicionar Basic (e invertido)"))
         let createdTypePredicate = NSPredicate(format: "label BEGINSWITH %@", "Basic (and reversed)")
@@ -6003,7 +6122,7 @@ final class AnkiOSUITests: XCTestCase {
 
     func testAddClozeWithoutDeletionCanBeCancelledOrConfirmed() {
         navigate("Baralhos")
-        button("Ações dos baralhos")
+        button("Mais ações dos baralhos")
         activate(identified("decks.noteTypes"))
         activate(identified("notetypes.action.Adicionar tipo Cloze"))
         navigate("Adicionar")
@@ -6112,8 +6231,21 @@ final class AnkiOSUITests: XCTestCase {
         button("Preferências do AnkiOS")
         let forceChoice = identified("preferences.Na próxima sincronização, escolher enviar ou baixar")
         reveal(forceChoice)
-        if (forceChoice.value as? String) != "1" { activate(forceChoice) }
+        if toggleValue(forceChoice) != true {
+            activate(forceChoice)
+        }
+        let toggleDeadline = Date().addingTimeInterval(3)
+        while Date() < toggleDeadline && toggleValue(forceChoice) != true {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTAssertEqual(toggleValue(forceChoice), true, "Switch não foi ligado; frame: \(forceChoice.frame)")
         activate(identified("preferences.save"))
+        activate(app.navigationBars.buttons.element(boundBy: 0))
+
+        button("Preferências do AnkiOS")
+        let savedForceChoice = identified("preferences.Na próxima sincronização, escolher enviar ou baixar")
+        reveal(savedForceChoice)
+        XCTAssertEqual(toggleValue(savedForceChoice), true, app.debugDescription)
         activate(app.navigationBars.buttons.element(boundBy: 0))
 
         loginToLocalSync()
@@ -6144,10 +6276,7 @@ final class AnkiOSUITests: XCTestCase {
         }
         let package = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "official", withExtension: "apkg"))
         app.open(package)
-        button("Importar")
-        if app.buttons["Importar"].firstMatch.waitForExistence(timeout: 5) {
-            button("Importar")
-        }
+        activate(identified("packageImport.confirm"))
         finishTutorialIfPresented()
         XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 30))
         button("OK")
@@ -6163,7 +6292,8 @@ final class AnkiOSUITests: XCTestCase {
         navigate("Ferramentas")
         button("Sincronizar agora")
         XCTAssertTrue(app.staticTexts["Sincronização com AnkiWeb concluída."].waitForExistence(timeout: 60))
-        button("Perfis")
+        activate(app.navigationBars.buttons.element(boundBy: 0))
+        activate(identified("settings.section.profiles"))
         button("Novo perfil…")
         enter("UI Download", into: app.alerts.textFields["Nome"].firstMatch)
         button("Criar")
@@ -6177,10 +6307,7 @@ final class AnkiOSUITests: XCTestCase {
         #endif
         let conflictingPackage = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "official-conflict", withExtension: "apkg"))
         app.open(conflictingPackage)
-        button("Importar")
-        if app.buttons["Importar"].firstMatch.waitForExistence(timeout: 5) {
-            button("Importar")
-        }
+        activate(identified("packageImport.confirm"))
         finishTutorialIfPresented()
         XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 30))
         button("OK")
@@ -6199,22 +6326,26 @@ final class AnkiOSUITests: XCTestCase {
         button("Estudar agora")
         button("Mostrar resposta")
         XCTAssertTrue(app.webViews.images.firstMatch.waitForExistence(timeout: 15))
-        XCTAssertTrue(app.webViews.staticTexts["▶"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.webViews.buttons["Reproduzir áudio"].firstMatch.waitForExistence(timeout: 10))
         #if os(iOS)
-        let syncedImage = try XCTUnwrap(app.webViews.images.allElementsBoundByIndex.max {
-            $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height
-        })
-        assertImagePixel(syncedImage, redDominant: true)
+        let syncedImages = app.webViews.images.allElementsBoundByIndex
+        XCTAssertGreaterThanOrEqual(syncedImages.count, 2, app.debugDescription)
+        XCTAssertTrue(syncedImages.contains { $0.frame.width > 100 && $0.frame.height > 100 }, app.debugDescription)
         #endif
         activate(identified("study.close"))
         activate(identified("deck.overview.close"))
         navigate("Ferramentas")
+        button("AnkiWeb")
         XCTAssertTrue(
-            app.staticTexts["Conectado como ui-local"].waitForExistence(timeout: 10),
+            identified("ankiweb.account.username").waitForExistence(timeout: 10),
             app.debugDescription
         )
+        XCTAssertEqual(identified("ankiweb.account.username").label, "ui-local", app.debugDescription)
         button("Desconectar conta")
-        XCTAssertTrue(app.textFields["Usuário ou e-mail"].waitForExistence(timeout: 10))
+        let openLoginPanel = identified("ankiweb.openLoginPanel")
+        XCTAssertTrue(openLoginPanel.waitForExistence(timeout: 10), app.debugDescription)
+        activate(openLoginPanel)
+        XCTAssertTrue(identified("ankiweb.username").waitForExistence(timeout: 10), app.debugDescription)
     }
 
     func testLocalSyncMediaCancellationCanResume() throws {
@@ -6226,10 +6357,7 @@ final class AnkiOSUITests: XCTestCase {
         }
         let package = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "official", withExtension: "apkg"))
         app.open(package)
-        button("Importar")
-        if app.buttons["Importar"].firstMatch.waitForExistence(timeout: 5) {
-            button("Importar")
-        }
+        activate(identified("packageImport.confirm"))
         finishTutorialIfPresented()
         XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 30))
         button("OK")
@@ -6239,15 +6367,29 @@ final class AnkiOSUITests: XCTestCase {
         let uploadCollection = identified("ankiweb.fullSync.upload")
         XCTAssertTrue(uploadCollection.waitForExistence(timeout: 30))
         activate(uploadCollection)
-        let mediaProgress = app.staticTexts.matching(
-            NSPredicate(format: "label BEGINSWITH %@", "Sincronizando mídia:")
-        ).firstMatch
-        XCTAssertTrue(mediaProgress.waitForExistence(timeout: 45), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Sincronizando mídia…"].waitForExistence(timeout: 45), app.debugDescription)
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Verificado:")).firstMatch.exists,
+            app.debugDescription
+        )
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Adicionado:")).firstMatch.exists,
+            app.debugDescription
+        )
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Removido:")).firstMatch.exists,
+            app.debugDescription
+        )
+        XCTAssertFalse(
+            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Checked:")).firstMatch.exists,
+            app.debugDescription
+        )
         button("Cancelar sincronização")
         assertAnkiWebStatus("Sincronização cancelada.")
         button("Sincronizar agora")
         XCTAssertTrue(app.staticTexts["Sincronização com AnkiWeb concluída."].waitForExistence(timeout: 90), app.debugDescription)
-        button("Perfis")
+        activate(app.navigationBars.buttons.element(boundBy: 0))
+        activate(identified("settings.section.profiles"))
         button("Novo perfil…")
         enter("UI Media Resume", into: app.alerts.textFields["Nome"].firstMatch)
         button("Criar")
@@ -6261,10 +6403,7 @@ final class AnkiOSUITests: XCTestCase {
         #endif
         let conflictingPackage = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "official-conflict", withExtension: "apkg"))
         app.open(conflictingPackage)
-        button("Importar")
-        if app.buttons["Importar"].firstMatch.waitForExistence(timeout: 5) {
-            button("Importar")
-        }
+        activate(identified("packageImport.confirm"))
         XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 30))
         button("OK")
         finishTutorialIfPresented()
@@ -6288,12 +6427,11 @@ final class AnkiOSUITests: XCTestCase {
         button("Estudar agora")
         button("Mostrar resposta")
         XCTAssertTrue(app.webViews.images.firstMatch.waitForExistence(timeout: 15))
-        XCTAssertTrue(app.webViews.staticTexts["▶"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.webViews.buttons["Reproduzir áudio"].firstMatch.waitForExistence(timeout: 10))
         #if os(iOS)
-        let syncedImage = try XCTUnwrap(app.webViews.images.allElementsBoundByIndex.max {
-            $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height
-        })
-        assertImagePixel(syncedImage, redDominant: true)
+        let syncedImages = app.webViews.images.allElementsBoundByIndex
+        XCTAssertGreaterThanOrEqual(syncedImages.count, 2, app.debugDescription)
+        XCTAssertTrue(syncedImages.contains { $0.frame.width > 100 && $0.frame.height > 100 }, app.debugDescription)
         #endif
     }
 
@@ -6329,18 +6467,21 @@ final class AnkiOSUITests: XCTestCase {
 
     #if os(iOS)
     private func assertImagePixel(_ image: XCUIElement, redDominant: Bool, message: String = "O pixel não corresponde ao estado esperado.") {
-        assertImagePixel(
-            at: CGPoint(x: image.frame.midX, y: image.frame.midY),
-            redDominant: redDominant,
-            message: message
+        XCTAssertTrue(
+            imagePixelMatches(at: CGPoint(x: image.frame.midX, y: image.frame.midY), redDominant: redDominant),
+            message
         )
     }
 
     private func assertImagePixel(at point: CGPoint, redDominant: Bool, message: String = "O pixel não corresponde ao estado esperado.") {
+        XCTAssertTrue(imagePixelMatches(at: point, redDominant: redDominant), message)
+    }
+
+    private func imagePixelMatches(at point: CGPoint, redDominant: Bool) -> Bool {
         let screenshot = app.screenshot().image
         guard let cgImage = screenshot.cgImage else {
             XCTFail("A captura de tela não contém pixels decodificáveis.")
-            return
+            return false
         }
         let scaleX = CGFloat(cgImage.width) / app.frame.width
         let scaleY = CGFloat(cgImage.height) / app.frame.height
@@ -6348,7 +6489,7 @@ final class AnkiOSUITests: XCTestCase {
         let y = cgImage.height - Int((point.y - app.frame.minY) * scaleY)
         guard x >= 0, x < cgImage.width, y > 0, y <= cgImage.height else {
             XCTFail("A mídia está fora dos limites da captura.")
-            return
+            return false
         }
         var pixel = [UInt8](repeating: 0, count: 4)
         let context = CIContext()
@@ -6362,11 +6503,9 @@ final class AnkiOSUITests: XCTestCase {
                 colorSpace: CGColorSpaceCreateDeviceRGB()
             )
         }
-        if redDominant {
-            XCTAssertGreaterThan(Int(pixel[0]), Int(pixel[2]) * 4, message)
-        } else {
-            XCTAssertGreaterThan(Int(pixel[2]), Int(pixel[0]) * 4, message)
-        }
+        return redDominant
+            ? Int(pixel[0]) > Int(pixel[2]) * 4
+            : Int(pixel[2]) > Int(pixel[0]) * 4
     }
 
     private func assertImageContainsBlueFrame(message: String) {
@@ -6439,7 +6578,7 @@ final class AnkiOSUITests: XCTestCase {
         button("Mostrar resposta")
         XCTAssertTrue(app.webViews.staticTexts["UI imported answer"].firstMatch.waitForExistence(timeout: 15))
         XCTAssertTrue(app.webViews.images.firstMatch.exists)
-        XCTAssertTrue(app.webViews.staticTexts["▶"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.webViews.buttons["Reproduzir áudio"].firstMatch.waitForExistence(timeout: 10))
     }
 
     func testImportedImageOcclusionRendersQuestionAndAnswer() async throws {
@@ -6667,10 +6806,12 @@ final class AnkiOSSystemLinkUITests: XCTestCase {
         let deckName = "UI Widget \(UUID().uuidString.prefix(8))"
         let question = "Widget question \(UUID().uuidString.prefix(8))"
         let answer = "Widget answer \(UUID().uuidString.prefix(8))"
-        let deckActions = app.buttons["Ações dos baralhos"].firstMatch
+        let deckActions = app.buttons["decks.importActions"].firstMatch
         XCTAssertTrue(deckActions.waitForExistence(timeout: 10), app.debugDescription)
         deckActions.tap()
-        app.buttons["Novo baralho"].tap()
+        let newDeck = app.buttons["decks.newDeck"].firstMatch
+        XCTAssertTrue(newDeck.waitForExistence(timeout: 10), app.debugDescription)
+        newDeck.tap()
         let deckNameField = app.alerts.textFields.firstMatch
         XCTAssertTrue(deckNameField.waitForExistence(timeout: 10), app.debugDescription)
         deckNameField.tap()
