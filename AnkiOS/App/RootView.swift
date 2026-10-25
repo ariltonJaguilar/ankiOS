@@ -14,6 +14,9 @@ struct RootView: View {
     @State private var pendingBrowserSearchQuery: String?
     @State private var syncAnkiWebAfterLoginDismissal = false
     @State private var pendingAnkiInfoSuccessURL: URL?
+    #if !WIDGET_EXTENSION
+    @State private var ankiWebBackgroundTask = UIBackgroundTaskIdentifier.invalid
+    #endif
 
     var body: some View {
         ZStack {
@@ -57,7 +60,9 @@ struct RootView: View {
                         }
                     }
                     .padding(28)
+                    .frame(maxWidth: 440)
                     .ankiGlass(in: RoundedRectangle(cornerRadius: 22))
+                    .padding(.horizontal, 20)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -128,11 +133,24 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             #if !WIDGET_EXTENSION
+            if phase == .active {
+                endAnkiWebBackgroundTask()
+                return
+            }
             guard phase == .background else { return }
+            beginAnkiWebBackgroundTask()
             Task {
-                let backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "AnkiWebSync") {}
-                defer { UIApplication.shared.endBackgroundTask(backgroundTask) }
                 await store.syncWithAnkiWebIfAutomaticEnabled()
+                if !store.collectionSyncing {
+                    endAnkiWebBackgroundTask()
+                }
+            }
+            #endif
+        }
+        .onChange(of: store.collectionSyncing) { _, isSyncing in
+            #if !WIDGET_EXTENSION
+            if !isSyncing {
+                endAnkiWebBackgroundTask()
             }
             #endif
         }
@@ -403,6 +421,25 @@ struct RootView: View {
             store.lastError = error.localizedDescription
         }
     }
+
+    #if !WIDGET_EXTENSION
+    private func beginAnkiWebBackgroundTask() {
+        guard ankiWebBackgroundTask == .invalid else { return }
+        ankiWebBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "AnkiWebSync") {
+            Task { @MainActor in
+                store.cancelAnkiWebSync()
+                endAnkiWebBackgroundTask()
+            }
+        }
+    }
+
+    private func endAnkiWebBackgroundTask() {
+        guard ankiWebBackgroundTask != .invalid else { return }
+        let task = ankiWebBackgroundTask
+        ankiWebBackgroundTask = .invalid
+        UIApplication.shared.endBackgroundTask(task)
+    }
+    #endif
 
     private var iosRoot: some View {
         TabView(selection: $selectedTab) {

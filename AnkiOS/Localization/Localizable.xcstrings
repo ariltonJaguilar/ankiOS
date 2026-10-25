@@ -7506,6 +7506,9 @@
     "A sincronização automática só funciona quando uma conta AnkiWeb está conectada." : {
 
     },
+    "A versão distribuída deve ter uma tag pública correspondente no repositório." : {
+
+    },
     "Aceitar" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -11516,6 +11519,9 @@
           }
         }
       }
+    },
+    "Anki, FSRS, Zstandard, MathJax e traduções." : {
+
     },
     "AnkiOS" : {
 
@@ -28194,6 +28200,9 @@
     "Confira o banco de dados, a mídia e os campos duplicados." : {
 
     },
+    "Consulte a licença do AnkiOS, os avisos das dependências e o código-fonte desta build." : {
+
+    },
     "Conta vinculada ao perfil ativo." : {
 
     },
@@ -28460,6 +28469,9 @@
     "Controles compatíveis com o perfil estendido do iOS podem acionar ações de estudo. As direções do direcional são configuráveis; os analógicos rolam o cartão." : {
 
     },
+    "Copyright © 2026 Arilton Aguilar e contribuidores." : {
+
+    },
     "Cor do texto" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -28698,6 +28710,9 @@
           }
         }
       }
+    },
+    "Créditos e informações de licença do backend upstream." : {
+
     },
     "Criado" : {
       "localizations" : {
@@ -54994,6 +55009,9 @@
         }
       }
     },
+    "Inventário de versões, licenças e textos fornecidos pelas crates." : {
+
+    },
     "Inverter seleção" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -56187,6 +56205,9 @@
     "Leech" : {
 
     },
+    "Leia o texto integral da licença do app." : {
+
+    },
     "Lembrete agendado" : {
       "localizations" : {
         "en-US" : {
@@ -56196,6 +56217,15 @@
           }
         }
       }
+    },
+    "Licença da biblioteca de compressão incluída no app." : {
+
+    },
+    "Licença do algoritmo FSRS usado pelo agendador." : {
+
+    },
+    "Licença dos recursos de renderização matemática." : {
+
     },
     "Limpar tags não usadas" : {
       "extractionState" : "stale",
@@ -66606,10 +66636,29 @@
     "O login de sincronização do app não inicia a sessão do site. Entre no AnkiWeb nesta tela e depois volte à lista para buscar e baixar baralhos." : {
 
     },
+    "O login do AnkiWeb serve somente para sincronizar sua coleção e mídia. Você pode usar o app sem entrar." : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your AnkiWeb login is only used to sync your collection and media. You can use the app without signing in."
+          }
+        },
+        "en-US" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your AnkiWeb login is only used to sync your collection and media. You can use the app without signing in."
+          }
+        }
+      }
+    },
     "O preset padrão não pode ser apagado." : {
 
     },
     "O primeiro campo já aparece em %@ nota(s) deste tipo." : {
+
+    },
+    "O programa é distribuído sem garantia, conforme descrito na licença." : {
 
     },
     "O que você gostaria de desocultar?" : {
@@ -99219,22 +99268,6 @@
     "Usar baralho da nota" : {
 
     },
-    "O login do AnkiWeb serve somente para sincronizar sua coleção e mídia. Você pode usar o app sem entrar." : {
-      "localizations" : {
-        "en-GB" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your AnkiWeb login is only used to sync your collection and media. You can use the app without signing in."
-          }
-        },
-        "en-US" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your AnkiWeb login is only used to sync your collection and media. You can use the app without signing in."
-          }
-        }
-      }
-    },
     "Use uma tecla ou uma combinação, como Ctrl+1. Deixe vazio para desativar." : {
 
     },
@@ -102000,6 +102033,9 @@
           }
         }
       }
+    },
+    "Você pode compartilhar e modificar o AnkiOS sob os termos da GNU AGPL versão 3 ou posterior." : {
+
     },
     "w:palavra · nc:acao · tag:nc:conjuncao · sc:resposta · Front:re:padrão · tag:re:padrão" : {
 
